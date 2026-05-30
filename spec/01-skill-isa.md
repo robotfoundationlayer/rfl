@@ -197,9 +197,11 @@ Duration        ::= Number ("ms" | "s")
 | `Length` | m | parameter tables may author in mm; the value is SI |
 | `Angle` | rad | geodesic where applied to SO(3) |
 | `Force` | N | |
+| `Torque` | N·m | force × length (rotational) |
 | `Velocity` | m/s | |
 | `Acceleration` | m/s² | |
 | `AngularVelocity` | rad/s | |
+| `Frequency` | Hz | 1 / s (oscillation rate) |
 | `Duration` | s | |
 | `Ratio` | dimensionless | `[0,1]` unless stated |
 
@@ -2165,6 +2167,539 @@ Downstream primitives consume this: `transport` reads `secured_dof` / `flags` to
 **Conformance test sketch.**
 - **C1 — nominal discard + containment.** Grasp a bench object; command `place.discard(discard_zone = bin)`. PASS iff `result == success` ∧ the object landed **within** `discard_zone` (externally measured) ∧ drop height `≤ max_drop_height` ∧ `end_effector_free` ∧ (final object pose is **not** checked — relaxation is intended).
 - **C2 — fragile / unsafe-impact refusal.** Command `place.discard(safe_impact = true)` for a fragile object with only a high release pose available (hard floor, damaging impact). PASS iff `result == unsafe_impact` ∧ the object was **not** released (kept grasped) — discard does not become a way to smash fragile objects.
+
+### Category 6 — `force`
+
+`force` primitives make contact force the *objective*, not merely a constraint. Where `reach` forms no contact, and `grasp`/`transport` *maintain* a holding force, `force` primitives *actively apply and control* contact force — the third force-dynamics axis. This is where embodiment heterogeneity bites hardest (the white paper's reason for making `force` the largest category): the same "insert this connector" intent resolves to bounded joint torques on a tendon hand, a pneumatic pressure profile on a bellows hand, and a jaw-force/impedance schedule on a parallel-jaw gripper. Four conventions hold across the category:
+
+- **Force-trajectory bound.** The safety envelope bounds the *force profile over the whole motion* (interval-sampled), not a single endpoint — a mid-motion force spike (e.g. a jam) is an envelope violation, not a success signal. This is the force-axis analogue of `reach`'s velocity envelope and `transport`'s inertial envelope.
+- **Compliance is first-class.** Most `force` primitives require a declared compliance capability (passive / active / virtual force control); a rigid-only embodiment cannot run them. Compliance is requested in the parameters and asserted as a precondition.
+- **Outcome discrimination by force-at-state.** Success vs failure is read from force *in context* — "force rise at the expected depth" is seating; "force rise without depth" is a jam. A bare force threshold is never sufficient.
+- **Held throughout.** `force` primitives operate on a held part (or a tool) and do not release it; releasing/regrasping is a separate step. They also inherit a **grasp-under-reaction-load** condition: the contact reaction must not exceed the grasp's holding capacity, or the part slips before the task completes.
+
+The determinism boundary from `reach.scan` / `in_hand.pivot` applies throughout: `retarget` deterministically *generates* the canonical action, but compliant search executes against contact dynamics, so the realized trajectory is not byte-for-byte reproducible.
+
+#### 6.1 `force.insert_fit`
+
+**Intent.** Insert a held object into a tolerance fit (peg-in-hole, connector mating) using compliant force-controlled search and seating — feeling for alignment and pushing to a confirmed seated state within a force budget — where clearance is too small for geometric drop-in. The force-controlled counterpart of `place.insert_loose`.
+
+**Parameters.**
+
+| Name | Type | Default | Units | Constraint |
+|---|---|---|---|---|
+| `grasp_handle` | `GraspRef \| active` | `active` | — | the grasp holding the part being inserted |
+| `target_fit` | `FeatureRef` | — (required) | — | the hole / socket / receptacle (tolerance fit) |
+| `insertion_axis` | `Direction` | — (required) | — | nominal insertion direction, in `frame` |
+| `axial_force_budget` | `Force` | — (required) | N | max force along `insertion_axis` (over-insertion / pin damage limit) |
+| `lateral_force_budget` | `Force \| auto` | `auto` | N | max lateral force during search (cocking / side-load limit) |
+| `seating_condition` | `SeatingSpec` | — (required) | — | what defines "seated": `force_rise(F)`, `depth(d)`, or `force_and_depth(F,d)` |
+| `search_strategy` | `{spiral, tilt, hop, auto}` | `auto` | — | compliant-search pattern to find alignment; resolved by the Translation Layer |
+| `compliance` | `{passive, active, auto}` | `auto` | — | compliance mode required for the fit |
+| `frame` | `FrameRef` | `task` | — | reference frame |
+| `timeout` | `Duration \| auto` | `auto` | s | `> 0` |
+
+**Preconditions.**
+- `grasp_handle` resolves to a `held` `GraspState`; the held part's grasp can withstand the insertion reaction force (`axial_force_budget` `≤` grasp holding capacity along the insertion axis — else the part slips in the grasp before seating).
+- `target_fit` is resolvable; the part and fit are a tolerance fit (clearance below the loose-fit threshold — else use `place.insert_loose`).
+- `embodiment` declares `force` with `insert_fit` support **and** the required `compliance` capability (passive / active / VFC).
+- The pre-insertion pose aligns the part with `target_fit` within the search-capturable range.
+
+**Postconditions (on `success`).**
+- The part is seated in `target_fit` per `seating_condition` (force rise and / or depth reached); the mate is complete.
+- Throughout, axial force stayed `≤ axial_force_budget` and lateral force `≤ lateral_force_budget` (no over-insertion, no damaging side-load).
+- The held part did not slip in the grasp beyond tolerance; `GraspState` remains `held` (insertion does not release — release / regrasp is a separate step).
+
+**Safety envelope (holds throughout execution — force trajectory bound).**
+- **Force-trajectory bound (the new axis):** at every instant, axial force `≤ axial_force_budget` and lateral force `≤ lateral_force_budget`. These are *trajectory* bounds (held through the search-and-push profile), not a single endpoint check — a force spike mid-insertion (jam) is an envelope violation, not a seating signal.
+- **Compliant search:** misalignment is accommodated by compliance (the part gives laterally rather than cocking / jamming); a rising lateral force beyond budget indicates a cocked / jammed insertion and aborts (do not force a jammed fit).
+- **Seating discrimination:** the `seating_condition` (force rise at depth) distinguishes true seating from a jam — a force rise *without* the expected depth is a jam, not a seat.
+- Grasp continuity under reaction load: the insertion reaction must not exceed the grasp's holding capacity (else the part slips); monitored throughout.
+- On any breach (jam, over-force, grasp slip): retract along `−insertion_axis` to a safe, unloaded pose; do not leave the part jammed under load.
+
+**Failure modes (detection → invariant).**
+
+| Mode | Detection | Invariant |
+|---|---|---|
+| `no_active_grasp` | `grasp_handle` not `held` | reject; no attempt |
+| `capability_absent` | no `insert_fit` / required compliance | reject; no attempt |
+| `wrong_primitive` | clearance is a loose fit (not tolerance) | reject (recommend `place.insert_loose`) |
+| `axial_overforce` | axial force > `axial_force_budget` without seating | retract; result ≠ `success` (do not force in) |
+| `jammed` | lateral force > budget / force rise without depth (cocked) | retract; re-search or report; result ≠ `success` |
+| `grasp_slip_under_load` | part slipped in grasp under reaction force | retract; re-secure; result ≠ `success` |
+| `not_seated` | `seating_condition` not met within range | retract; result ≠ `success` |
+| `timeout` | wall clock vs `timeout` | retract to safe unloaded pose |
+
+**Conformance test sketch.**
+- **C1 — nominal fit + seating.** Present a bench peg-in-hole (tolerance fit); command `force.insert_fit(target_fit, insertion_axis, axial_force_budget = 10 N, seating_condition = force_and_depth(...))`. PASS iff `result == success` ∧ the part is seated (force rise at the expected depth) ∧ the **force trajectory** stayed within `axial_force_budget` and `lateral_force_budget` at **every** sampled instant (interval sampling) ∧ no in-grasp slip ∧ retractable to an unloaded state.
+- **C2 — jam detection (no over-force).** Mis-align so the part cocks in the hole. PASS iff `result == jammed` ∧ the force trajectory never exceeded the budgets (the part was **not** forced in past the jam) ∧ the part retracted to a safe unloaded pose — never a forced-through or stuck-under-load outcome.
+
+#### 6.2 `force.push`
+
+**Intent.** Apply a controlled directional force against a target — to hold, brace, press, or stabilize it — driving the contact force to a target without displacing the target beyond a threshold. The static-force counterpart of motion-producing force primitives.
+
+**Parameters.**
+
+| Name | Type | Default | Units | Constraint |
+|---|---|---|---|---|
+| `controlled_frame` | `FrameRef` | `embodiment.default_tool_axis` frame | — | the frame / tool applying the force; may be a held part or the effector itself |
+| `target` | `SurfaceTarget` | — (required) | — | surface to push against (point + inward direction) |
+| `push_direction` | `Direction \| auto` | `auto` | — | direction to apply force; `auto` = `−target.normal` (into the surface) |
+| `target_force` | `Force` | — (required) | N | the contact force to establish and hold |
+| `max_displacement` | `Length \| auto` | `auto` | mm | max allowed target displacement; `auto` = small (push, do not move) |
+| `hold_duration` | `Duration \| until` | `until` | s | how long to hold the force; `until` defers to an enclosing `reactive` |
+| `compliance` | `{passive, active, auto}` | `auto` | — | required compliance mode |
+| `frame` | `FrameRef` | `task` | — | reference frame |
+| `timeout` | `Duration \| auto` | `auto` | s | `> 0` |
+
+**Preconditions.**
+- If pushing with a held part: `grasp_handle` is `held` and the grasp withstands the reaction (grasp-under-reaction-load).
+- `target` is resolvable; `push_direction` is into the contact (not tangential — that is `force.wipe`).
+- `embodiment` declares `force` with `push` support and the required `compliance` capability.
+
+**Postconditions (on `success`).**
+- The contact force along `push_direction` reached and held `target_force` (within tolerance) for `hold_duration` (or until the enclosing predicate fired).
+- The target displaced by `≤ max_displacement` (the push applied force without moving the target beyond threshold).
+- Held part (if any) retained throughout; `GraspState` unchanged.
+
+**Safety envelope (holds throughout execution — force trajectory bound).**
+- **Force-trajectory bound:** the applied force rises toward `target_force` monotonically (no overshoot beyond `target_force · (1 + transient_margin)`) and holds within tolerance; a force excursion above budget is an envelope violation.
+- **Displacement bound:** the target's displacement stays `≤ max_displacement`; exceeding it means the target is moving (not just being pushed) — distinguish "pushing a fixed target" from "shoving a movable one." If the target yields beyond threshold, halt (this is not the intended static push).
+- Reaction load on the grasp (if held part) `≤` holding capacity.
+- For a sustained push (`hold_duration` / `reactive`): the force is held as an **interval invariant** (per `reach.hover`'s maintained-invariant class) — interval-sampled.
+- On any breach: reduce force to zero along `push_direction` and retract to an unloaded pose within `embodiment.limits.stop_time`.
+
+**Failure modes (detection → invariant).**
+
+| Mode | Detection | Invariant |
+|---|---|---|
+| `capability_absent` | no `push` / required compliance | reject; no attempt |
+| `no_contact` | no surface reached to push against | result ≠ `success` (nothing to push) |
+| `force_overshoot` | applied force > `target_force · (1 + margin)` | reduce force; result ≠ `success` |
+| `target_yielded` | displacement > `max_displacement` (target moved) | halt; report (target not fixed) |
+| `grasp_slip_under_load` | held part slipped under reaction | reduce force; re-secure; result ≠ `success` |
+| `force_not_reached` | could not establish `target_force` (e.g. lost contact) | result ≠ `success` |
+| `timeout` | wall clock vs `timeout` | reduce force to zero, retract |
+
+**Conformance test sketch.**
+- **C1 — nominal push + force hold.** Push against a bench-fixtured rigid surface; command `force.push(target, target_force = 15 N, hold_duration = 3 s)`. PASS iff `result == success` ∧ the measured contact force reached `15 N` and held within tolerance over the 3 s (interval sampling) ∧ never overshot beyond `target_force · (1 + transient_margin)` ∧ surface displacement `≤ max_displacement`.
+- **C2 — yielding-target detection.** Push against a target free to move (e.g. a lightly-held object). PASS iff `result == target_yielded` (the displacement exceeded `max_displacement`, detected) ∧ the force was not driven past budget chasing a receding target.
+
+#### 6.3 `force.pull`
+
+**Intent.** Apply tensile force to draw a target toward the effector — extracting a cable, opening a drawer, tensioning a line — within a force budget, detecting and safely handling the breakaway moment when resistance suddenly drops (the target releases or reaches its limit).
+
+**Parameters.**
+
+| Name | Type | Default | Units | Constraint |
+|---|---|---|---|---|
+| `grasp_handle` | `GraspRef \| active` | `active` | — | the grasp on the target being pulled (pulling requires a grip / hook) |
+| `pull_direction` | `Direction` | — (required) | — | direction of tensile force, in `frame` |
+| `force_budget` | `Force` | — (required) | N | max tensile force to apply |
+| `stop_condition` | `PullStop` | — (required) | — | `distance(d)`, `breakaway` (resistance drops), or `tension(F)` |
+| `breakaway_response` | `{arrest, continue}` | `arrest` | — | on a sudden resistance drop: stop immediately (default), or keep moving |
+| `compliance` | `{passive, active, auto}` | `auto` | — | required compliance mode |
+| `frame` | `FrameRef` | `task` | — | reference frame |
+| `timeout` | `Duration \| auto` | `auto` | s | `> 0` |
+
+**Preconditions.**
+- `grasp_handle` resolves to a `held` `GraspState` on the target — pulling requires a secured grip / hook (you cannot pull what you do not hold).
+- **The grasp withstands tensile reaction:** `force_budget ≤` the grasp's holding capacity along `pull_direction` — pulling loads the grasp in its most slip-prone direction; if the budget exceeds capacity, the grasp slips before the target moves.
+- `embodiment` declares `force` with `pull` support and the required `compliance`.
+
+**Postconditions (on `success`).**
+- Tensile force was applied along `pull_direction` until `stop_condition` was met (distance reached, breakaway detected, or tension reached), with force `≤ force_budget` throughout.
+- On `breakaway`: the resistance drop was detected and handled per `breakaway_response` (default: arrested promptly, no follow-through lurch).
+- The target remained gripped throughout (no grasp slip); `GraspState` unchanged.
+
+**Safety envelope (holds throughout execution — force trajectory bound).**
+- **Force-trajectory bound:** tensile force `≤ force_budget` at every instant; exceeding it (e.g. pulling against a stuck target) is an envelope violation — do not yank.
+- **Breakaway handling:** a sudden resistance drop (target released / limit reached) is detected; per `breakaway_response = arrest`, motion stops promptly so the effector does not lurch forward when resistance vanishes (and does not overshoot into the workspace).
+- **Grasp continuity under tension:** holding force is maintained against the tensile load; `grasp_slip_under_load` (the dominant pull failure) aborts the pull.
+- On any breach: reduce tensile force to zero and arrest within `embodiment.limits.stop_time`, target still gripped.
+
+**Failure modes (detection → invariant).**
+
+| Mode | Detection | Invariant |
+|---|---|---|
+| `no_active_grasp` | `grasp_handle` not `held` | reject; no attempt (cannot pull without a grip) |
+| `capability_absent` | no `pull` / required compliance | reject; no attempt |
+| `force_budget_exceeded` | required force > `force_budget` (stuck target) | arrest; result ≠ `success` (do not yank) |
+| `grasp_slip_under_load` | target slipped from grip under tension | arrest; re-secure if possible; result ≠ `success` |
+| `unexpected_breakaway` | resistance dropped before `stop_condition` (target broke / released early) | arrest per `breakaway_response`; report |
+| `stop_unreachable` | `stop_condition` not met within range / budget | arrest; result ≠ `success` |
+| `timeout` | wall clock vs `timeout` | reduce tension to zero, target gripped |
+
+**Conformance test sketch.**
+- **C1 — nominal pull-to-distance + force bound.** Grip a bench drawer handle; command `force.pull(pull_direction, force_budget = 20 N, stop_condition = distance(100 mm))`. PASS iff `result == success` ∧ the target moved 100 mm along `pull_direction` ∧ tensile force stayed `≤ force_budget` at every sampled instant (interval sampling) ∧ no grasp slip under load.
+- **C2 — breakaway arrest.** Grip a connector with a known extraction force; command `force.pull(stop_condition = breakaway, breakaway_response = arrest)`. PASS iff `result == success` ∧ the breakaway (resistance drop at extraction) was detected ∧ the effector **arrested promptly without lurching forward** past a small post-breakaway tolerance ∧ force never exceeded `force_budget`.
+
+#### 6.4 `force.screw`
+
+**Intent.** Drive a threaded fastener (or threaded part) into a mating thread by coupled rotation and axial advance — turning within a torque budget while feeding axially at the thread pitch — to a confirmed tight / seated state, detecting cross-threading.
+
+**Parameters.**
+
+| Name | Type | Default | Units | Constraint |
+|---|---|---|---|---|
+| `grasp_handle` | `GraspRef \| active` | `active` | — | the grasp on the fastener, or on the tool driving it (tool-mediated) |
+| `thread_axis` | `Direction` | — (required) | — | the screw / thread axis, in `frame` |
+| `torque_budget` | `Torque` | — (required) | N·m | max torque about `thread_axis` (thread-strip / fastener-break limit) |
+| `axial_force_budget` | `Force \| auto` | `auto` | N | max axial seating force |
+| `thread_pitch` | `Length \| auto` | `auto` | mm/rev | couples rotation to advance; `auto` = from `target_fit` thread spec |
+| `completion` | `ScrewStop` | — (required) | — | `torque_rise(T)` (tight), `turns(n)`, or `torque_and_advance(T,d)` |
+| `tool_mediated` | `bool` | `auto` | — | whether a held tool (driver) transmits the torque; `auto` = inferred from grasp |
+| `compliance` | `{passive, active, auto}` | `auto` | — | required compliance mode |
+| `frame` | `FrameRef` | `task` | — | reference frame |
+| `timeout` | `Duration \| auto` | `auto` | s | `> 0` |
+
+**Preconditions.**
+- `grasp_handle` resolves to a `held` `GraspState` on the fastener or driving tool; the grasp transmits the required torque without slip (torque reaction `≤` grasp's rotational holding capacity).
+- `thread_axis` is aligned with the mating thread within the start-capturable range (the first thread can engage).
+- `embodiment` declares `force` with `screw` support and the required `compliance`; if `tool_mediated`, a compatible tool is grasped.
+
+**Postconditions (on `success`).**
+- The fastener advanced along `thread_axis` coupled to rotation at `thread_pitch`, reaching `completion` (tight torque rise, turn count, or torque-at-advance).
+- Torque stayed `≤ torque_budget` and axial force `≤ axial_force_budget` throughout (no thread strip, no fastener break).
+- No cross-threading occurred; the grasp / tool transmitted torque without slip; `GraspState` unchanged.
+
+**Safety envelope (holds throughout execution — torque + force trajectory bound).**
+- **Torque-trajectory bound (the new axis):** torque about `thread_axis` `≤ torque_budget` at every instant; axial force `≤ axial_force_budget`. Both are trajectory bounds — a torque spike without the expected advance is cross-threading, not seating.
+- **Cross-threading discrimination:** torque rising **without** axial advance (per pitch) indicates cross-threading or a jam — abort and back off; torque rising **at** the seated advance is correct tightening. (The screw analogue of `force.insert_fit`'s seating / jam rule.)
+- **Coupled-motion constraint:** rotation and advance stay coupled at `thread_pitch`; a decoupling (advancing without turning, or turning without advancing) signals stripped threads or disengagement.
+- Grasp / tool continuity under torque reaction; tool not dropped or slipped.
+- On any breach (cross-thread, over-torque, strip): stop turning, back off slightly to relieve load (do not continue driving a cross-threaded fastener), report.
+
+**Failure modes (detection → invariant).**
+
+| Mode | Detection | Invariant |
+|---|---|---|
+| `no_active_grasp` | `grasp_handle` not `held` | reject; no attempt |
+| `capability_absent` | no `screw` / required compliance / tool absent | reject; no attempt |
+| `cross_threaded` | torque rise without advance (early, off-pitch) | stop; back off; result ≠ `success` (do not drive through) |
+| `over_torque` | torque > `torque_budget` before completion | stop; back off; result ≠ `success` |
+| `stripped` | advance without torque / decoupled motion | stop; report (threads stripped) |
+| `tool_slip` | grasp / tool slipped under torque reaction | stop; re-secure; result ≠ `success` |
+| `not_seated` | `completion` not reached within range | back off; result ≠ `success` |
+| `timeout` | wall clock vs `timeout` | stop turning, relieve load |
+
+**Conformance test sketch.**
+- **C1 — nominal drive + tight seating.** Present a bench threaded fastener + mating thread; command `force.screw(thread_axis, torque_budget = 2 N·m, completion = torque_rise(...))`. PASS iff `result == success` ∧ the fastener seated tight (torque rose at the seated advance) ∧ torque and axial force stayed within budgets at every sampled instant (interval sampling) ∧ rotation-advance stayed coupled at `thread_pitch` ∧ no tool slip.
+- **C2 — cross-thread detection.** Start the fastener mis-aligned so it cross-threads. PASS iff `result == cross_threaded` (torque rise without proper advance detected) ∧ the fastener was **not** driven through (torque never exceeded budget chasing a cross-thread) ∧ backed off to relieve load.
+
+#### 6.5 `force.unscrew`
+
+**Intent.** Extract a threaded fastener by reverse coupled rotation and axial retreat — overcoming the initial breakaway torque, turning out at the thread pitch within a torque budget, and detecting full disengagement — then handling the now-freed fastener.
+
+**Parameters.**
+
+| Name | Type | Default | Units | Constraint |
+|---|---|---|---|---|
+| `grasp_handle` | `GraspRef \| active` | `active` | — | the grasp on the fastener, or on the tool driving it |
+| `thread_axis` | `Direction` | — (required) | — | the thread axis, in `frame` |
+| `torque_budget` | `Torque` | — (required) | N·m | max loosening torque (tool-strip / fastener-break / break-loose limit) |
+| `thread_pitch` | `Length \| auto` | `auto` | mm/rev | couples reverse rotation to retreat |
+| `completion` | `ScrewStop` | `disengagement` | — | `disengagement` (fully out), `turns(n)`, or `torque_drop` |
+| `on_disengagement` | `{retain, drop_safe}` | `retain` | — | when the fastener frees: keep it gripped, or release into a safe zone |
+| `tool_mediated` | `bool` | `auto` | — | whether a held tool transmits the torque |
+| `compliance` | `{passive, active, auto}` | `auto` | — | required compliance mode |
+| `frame` | `FrameRef` | `task` | — | reference frame |
+| `timeout` | `Duration \| auto` | `auto` | s | `> 0` |
+
+**Preconditions.**
+- `grasp_handle` resolves to a `held` `GraspState` on the fastener or driving tool; the grasp transmits the loosening torque without slip.
+- `thread_axis` is engaged with the fastener (the tool / grip is seated on it).
+- `embodiment` declares `force` with `unscrew` support and the required `compliance`.
+
+**Postconditions (on `success`).**
+- The fastener turned out (reverse rotation coupled to retreat at `thread_pitch`), reaching `completion` (full disengagement, turn count, or torque drop).
+- Torque stayed `≤ torque_budget` throughout, including the initial breakaway peak.
+- On disengagement: the freed fastener was handled per `on_disengagement` (retained in grip, or released into a safe zone) — **not dropped uncontrolled**.
+- The grasp / tool transmitted torque without slip.
+
+**Safety envelope (holds throughout execution — torque trajectory bound).**
+- **Torque-trajectory bound:** loosening torque `≤ torque_budget` at every instant. The **initial breakaway peak** (highest torque, to overcome static friction + preload) is the riskiest instant — if it exceeds budget, the fastener is seized (do not over-torque past the tool / fastener limit chasing it).
+- **Coupled reverse motion:** reverse rotation couples to axial retreat at `thread_pitch`; decoupling signals stripping.
+- **Disengagement handling (the asymmetry vs screw):** at full disengagement the fastener becomes free and could fall; the envelope guarantees the freed fastener is retained or released into a safe zone per `on_disengagement` — never an uncontrolled drop. (Reuses `force.pull`'s breakaway detection for the final-thread release.)
+- Grasp / tool continuity under torque reaction.
+- On any breach (seized, over-torque, strip): stop turning, relieve load, report; do not exceed the torque budget on a seized fastener.
+
+**Failure modes (detection → invariant).**
+
+| Mode | Detection | Invariant |
+|---|---|---|
+| `no_active_grasp` | `grasp_handle` not `held` | reject; no attempt |
+| `capability_absent` | no `unscrew` / required compliance / tool absent | reject; no attempt |
+| `seized` | breakaway torque > `torque_budget` (fastener will not loosen) | stop; relieve load; result ≠ `success` (do not over-torque) |
+| `over_torque` | torque > `torque_budget` mid-extraction | stop; report |
+| `stripped` | reverse rotation without retreat (decoupled) | stop; report (threads / head stripped) |
+| `tool_slip` | grasp / tool slipped under torque | stop; re-secure; result ≠ `success` |
+| `disengagement_uncontrolled` | fastener freed but not retained / safe-released | guarded against by design; if detected, report (the guard exists to prevent this) |
+| `timeout` | wall clock vs `timeout` | stop turning, relieve load |
+
+**Conformance test sketch.**
+- **C1 — nominal extraction + controlled disengagement.** Present a bench fastener torqued to a known value; command `force.unscrew(thread_axis, torque_budget = 3 N·m, completion = disengagement, on_disengagement = retain)`. PASS iff `result == success` ∧ the fastener fully disengaged (reverse rotation coupled to retreat) ∧ torque stayed `≤ torque_budget` including the breakaway peak (interval sampling) ∧ at disengagement the fastener was **retained in grip** (not dropped) ∧ no tool slip.
+- **C2 — seized-fastener refusal.** Present a fastener torqued beyond `torque_budget` to break loose. PASS iff `result == seized` ∧ the torque **never exceeded `torque_budget`** (the tool / fastener was not over-stressed chasing a seized fastener) ∧ load relieved.
+
+#### 6.6 `force.press_button`
+
+**Intent.** Press a button, switch, or key — producing a sub-millimeter displacement until the actuation event (force detent / click, or force threshold) is detected — then releasing the press without over-travel that would damage the mechanism.
+
+**Parameters.**
+
+| Name | Type | Default | Units | Constraint |
+|---|---|---|---|---|
+| `controlled_frame` | `FrameRef` | effector / held tool | — | the frame pressing (fingertip, held stylus, etc.) |
+| `target` | `SurfaceTarget` | — (required) | — | the button surface (point + press direction) |
+| `press_direction` | `Direction \| auto` | `auto` | — | `auto` = `−target.normal` (into the button) |
+| `actuation` | `ActuationSpec` | — (required) | — | what marks actuation: `detent` (force rise-then-drop / click), or `force_threshold(F)` |
+| `force_budget` | `Force` | — (required) | N | max press force (over-travel / mechanism-damage limit) |
+| `max_travel` | `Length \| auto` | `auto` | mm | max displacement (over-travel guard); `auto` = small |
+| `release_after` | `bool` | `true` | — | release the press after actuation (momentary), or hold |
+| `compliance` | `{passive, active, auto}` | `auto` | — | required compliance mode |
+| `frame` | `FrameRef` | `task` | — | reference frame |
+| `timeout` | `Duration \| auto` | `auto` | s | `> 0` |
+
+**Preconditions.**
+- If pressing with a held tool: `grasp_handle` is `held` and withstands the reaction.
+- `target` (button) is resolvable; `press_direction` is into the button.
+- `embodiment` declares `force` with `press_button` support and fine force resolution (or proxy) sufficient to detect the actuation.
+
+**Postconditions (on `success`).**
+- The actuation event was detected (detent click or force threshold reached); the button was actuated.
+- Press force stayed `≤ force_budget` and travel `≤ max_travel` (no over-travel / mechanism damage).
+- If `release_after`: the press was released (button allowed to return); else the press is held.
+
+**Safety envelope (holds throughout execution — force trajectory bound).**
+- **Force-trajectory bound:** press force `≤ force_budget` at every instant; travel `≤ max_travel`.
+- **Actuation-event detection + over-travel guard:** on detecting actuation (detent: force rise-then-drop; or threshold crossed), stop advancing immediately — do **not** continue pressing past the actuation point (over-travel damages the mechanism). The actuation event, not a fixed depth, ends the press.
+- Distinguish a real actuation (detent signature / threshold at expected travel) from bottoming-out (force rise without a detent, hitting the travel limit) — the latter is a missed / stuck button, not an actuation.
+- On any breach: withdraw along `−press_direction` to an unloaded pose; do not crush the button.
+
+**Failure modes (detection → invariant).**
+
+| Mode | Detection | Invariant |
+|---|---|---|
+| `capability_absent` | no `press_button` / insufficient force resolution | reject; no attempt |
+| `no_contact` | button surface not reached | result ≠ `success` |
+| `no_actuation` | `max_travel` / `force_budget` reached without an actuation event | withdraw; result ≠ `success` (button not actuated) |
+| `over_travel` | travel exceeded `max_travel` (no detent, bottoming out) | withdraw; result ≠ `success` |
+| `force_exceeded` | press force > `force_budget` | withdraw; result ≠ `success` |
+| `grasp_slip_under_load` | held tool slipped | withdraw; re-secure; result ≠ `success` |
+| `timeout` | wall clock vs `timeout` | withdraw to unloaded pose |
+
+**Conformance test sketch.**
+- **C1 — nominal press + actuation detection.** Press a bench button with a known detent; command `force.press_button(target, actuation = detent, force_budget = 5 N)`. PASS iff `result == success` ∧ the actuation (detent click) was detected ∧ press force `≤ force_budget` and travel `≤ max_travel` throughout (interval sampling) ∧ on `release_after`, the press was released ∧ no over-travel past the detent.
+- **C2 — over-travel / no-detent guard.** Press a surface with no actuating button (a solid spot). PASS iff `result == no_actuation` (or `over_travel`) ∧ the force never exceeded `force_budget` and travel never exceeded `max_travel` (the mechanism / surface was not crushed seeking a non-existent detent).
+
+#### 6.7 `force.cut`
+
+**Intent.** Separate material along a cut path using a held cutting tool, applying continuous shear within a force budget until the cut is complete (path traversed or separation detected) — an **irreversible** operation demanding strict path bounding and post-separation handling.
+
+**Parameters.**
+
+| Name | Type | Default | Units | Constraint |
+|---|---|---|---|---|
+| `grasp_handle` | `GraspRef \| active` | `active` | — | the grasp on the cutting tool (cut is tool-mediated) |
+| `cut_path` | `Trajectory` | — (required) | — | the path along which to cut, in `frame` (bounds *exactly* where the cut goes) |
+| `shear_force_budget` | `Force` | — (required) | N | max shear force (tool-damage / over-cut / kickback limit) |
+| `completion` | `CutStop` | — (required) | — | `path_complete`, `separation` (resistance drop), or `depth(d)` |
+| `feed_rate` | `Velocity \| auto` | `auto` | m/s | tool advance speed along the path |
+| `on_separation` | `{retain, drop_safe}` | `retain` | — | handling of the freed (cut-off) part |
+| `tool_mediated` | `bool` | `true` | — | always true for cut (a cutting tool is used) |
+| `compliance` | `{passive, active, auto}` | `auto` | — | required compliance mode |
+| `frame` | `FrameRef` | `task` | — | reference frame |
+| `timeout` | `Duration \| auto` | `auto` | s | `> 0` |
+
+**Preconditions.**
+- `grasp_handle` resolves to a `held` `GraspState` on a cutting tool; the grasp transmits shear without slip and withstands kickback.
+- `cut_path` is fully resolvable and bounded; the path and the material beyond it are confirmed (the cut goes exactly where intended — **irreversibility demands this**).
+- `embodiment` declares `force` with `cut` support, the required `compliance`, and the cutting tool's safety capability (per the deployment's safety standard — cutting tools are hazardous).
+
+**Postconditions (on `success`).**
+- The material was separated along `cut_path` per `completion` (path traversed, separation detected, or depth reached).
+- Shear force stayed `≤ shear_force_budget` throughout; the cut did **not** extend beyond `cut_path` (bounded separation).
+- The freed part was handled per `on_separation` (retained / safe-released) — not dropped or flung.
+- The tool is withdrawn to a safe, non-hazardous pose.
+
+**Safety envelope (holds throughout execution — force trajectory bound + irreversibility).**
+- **Force-trajectory bound:** shear force `≤ shear_force_budget` at every instant; a spike (hitting a hard inclusion, kickback) is an envelope violation — stop, do not force the cut.
+- **Path bounding (irreversibility guard):** the cut follows `cut_path` exactly; the tool does **not** stray beyond the path (an over-cut is irreversible). Lateral deviation from the path beyond tolerance aborts.
+- **Separation handling:** at separation (resistance drop, per `force.pull` breakaway), the freed part is retained / safe-released; the tool does not lurch through into the workspace.
+- **Tool hazard management:** the exposed cutting edge is moved at bounded speed and withdrawn to a safe pose; no uncontrolled cutting motion outside the operation.
+- On any breach: stop the feed, hold the tool stationary (do not retract *through* uncut material), relieve shear, report. Irreversible state is reported precisely (how far the cut progressed).
+
+**Failure modes (detection → invariant).**
+
+| Mode | Detection | Invariant |
+|---|---|---|
+| `no_active_grasp` | `grasp_handle` not `held` (no tool) | reject; no attempt |
+| `capability_absent` | no `cut` / compliance / tool-safety capability | reject; no attempt |
+| `path_unbounded` | `cut_path` not fully resolvable / confirmed | reject (irreversibility demands a bounded path) |
+| `shear_exceeded` | shear force > `shear_force_budget` (hard inclusion / kickback) | stop feed; relieve; result ≠ `success` |
+| `path_deviation` | tool strayed beyond `cut_path` tolerance | abort; report (potential over-cut) |
+| `tool_slip` | tool slipped in grasp under shear | stop; re-secure; result ≠ `success` |
+| `incomplete_cut` | `completion` not reached within range | stop; report (partial, irreversible — state reported) |
+| `timeout` | wall clock vs `timeout` | stop feed, hold tool, relieve shear |
+
+**Conformance test sketch.**
+- **C1 — nominal cut + bounded separation.** With a bench cutting tool and instrumented test material, command `force.cut(cut_path, shear_force_budget = 30 N, completion = separation, on_separation = retain)`. PASS iff `result == success` ∧ the material separated along `cut_path` ∧ shear force `≤ shear_force_budget` at every sampled instant (interval sampling) ∧ the cut did **not** extend beyond `cut_path` ∧ the freed part was retained ∧ tool withdrawn to a safe pose.
+- **C2 — hard-inclusion / over-force halt.** Embed a hard inclusion in the test material. PASS iff `result == shear_exceeded` ∧ the shear force never exceeded `shear_force_budget` (the tool did not force through the inclusion, avoiding kickback / tool damage) ∧ the feed stopped with the tool held (not retracted through uncut material).
+
+#### 6.8 `force.wipe`
+
+**Intent.** Maintain a controlled normal contact force against a surface while moving tangentially along a path — wiping, applying, dragging, or smoothing over the surface — using hybrid force/position control (force-controlled normal, position-controlled tangential) that follows the surface contour.
+
+**Parameters.**
+
+| Name | Type | Default | Units | Constraint |
+|---|---|---|---|---|
+| `controlled_frame` | `FrameRef` | effector / held tool | — | the frame in contact (fingertip, held cloth / tool) |
+| `surface` | `SurfaceTarget` | — (required) | — | the surface to wipe over |
+| `wipe_path` | `Trajectory` | — (required) | — | the tangential path along the surface, in `frame` |
+| `normal_force` | `Force` | — (required) | N | the contact force to maintain normal to the surface |
+| `normal_force_tolerance` | `Force \| auto` | `auto` | N | allowed deviation of the maintained normal force |
+| `feed_rate` | `Velocity \| auto` | `auto` | m/s | tangential speed along the path |
+| `contour_following` | `bool` | `true` | — | accommodate surface height variation to hold normal force |
+| `compliance` | `{passive, active, auto}` | `auto` | — | required compliance mode (normal-direction compliance is essential) |
+| `frame` | `FrameRef` | `task` | — | reference frame |
+| `timeout` | `Duration \| auto` | `auto` | s | `> 0` |
+
+**Preconditions.**
+- If wiping with a held tool / cloth: `grasp_handle` is `held` and withstands the contact reaction.
+- `surface` and `wipe_path` are resolvable; the path lies on the surface within the contour-following range.
+- `embodiment` declares `force` with `wipe` support and **normal-direction compliance** (hybrid force/position control) capability.
+
+**Postconditions (on `success`).**
+- The `controlled_frame` traversed `wipe_path` tangentially while the normal contact force was maintained at `normal_force` (within `normal_force_tolerance`) throughout.
+- Contact was held over the whole path (no loss of contact, no excessive force); the surface contour was followed.
+- Held tool (if any) retained; `GraspState` unchanged.
+
+**Safety envelope (holds throughout execution — force trajectory bound, maintained).**
+- **Hybrid force/position invariant (interval-sampled):** at every instant along the path, the normal force is within `normal_force ± normal_force_tolerance` (force-controlled) AND the tangential position tracks `wipe_path` within tolerance (position-controlled). Loss of contact (normal force → 0) or excessive normal force (> budget) is an envelope violation. (The maintained-invariant class of `reach.hover`, applied to a contact force along a path.)
+- **Contour following:** surface height variation is accommodated by normal compliance to hold the force; if the surface deviates beyond the compliance range (a step, a hole), contact is lost — detected and handled (do not gouge or lose the surface).
+- Tangential (friction / drag) force bounded so the wipe does not damage the surface or stall.
+- On any breach: lift off normal (reduce force to zero), arrest tangential motion, retract within `embodiment.limits.stop_time`.
+
+**Failure modes (detection → invariant).**
+
+| Mode | Detection | Invariant |
+|---|---|---|
+| `capability_absent` | no `wipe` / no normal-direction compliance | reject; no attempt |
+| `no_contact` | surface not reached at path start | result ≠ `success` |
+| `contact_lost` | normal force → 0 mid-path (surface dropped away beyond compliance) | arrest; report; result ≠ `success` |
+| `normal_force_exceeded` | normal force > budget (surface rose / hard spot) | lift off; result ≠ `success` |
+| `path_deviation` | tangential tracking outside tolerance | arrest; result ≠ `success` |
+| `grasp_slip_under_load` | held tool slipped under contact reaction | lift off; re-secure; result ≠ `success` |
+| `timeout` | wall clock vs `timeout` | lift off, retract |
+
+**Conformance test sketch.**
+- **C1 — nominal wipe + maintained normal force.** Wipe a bench surface (with a known contour) along a path; command `force.wipe(surface, wipe_path, normal_force = 5 N)`. PASS iff `result == success` ∧ at **every** sampled instant the normal force was within `normal_force ± normal_force_tolerance` AND the tangential position tracked `wipe_path` within tolerance (hybrid-control interval invariant) ∧ contact held over the whole path.
+- **C2 — contour following over a height step.** Introduce a calibrated height variation along the path. PASS iff the normal force stayed within tolerance across the variation (compliance accommodated it), OR — if the step exceeds the compliance range — `result == contact_lost` / `normal_force_exceeded` with a clean lift-off (no gouge, no surface damage).
+
+#### 6.9 `force.scrub`
+
+**Intent.** Apply oscillating tangential motion over a surface region while regulating normal contact force — scrubbing, polishing, sanding, or abrading — using hybrid force/position control with a periodic tangential trajectory, until a completion condition (duration, passes, or state change) is met.
+
+**Parameters.**
+
+| Name | Type | Default | Units | Constraint |
+|---|---|---|---|---|
+| `controlled_frame` | `FrameRef` | effector / held tool | — | the frame in contact (held pad / abrasive / fingertip) |
+| `surface` | `SurfaceTarget` | — (required) | — | the surface to scrub |
+| `region` | `ScanRegion \| auto` | `auto` | — | the area to cover; `auto` = the local contact region |
+| `normal_force` | `Force` | — (required) | N | regulated contact force normal to the surface |
+| `amplitude` | `Length` | — (required) | mm | tangential oscillation amplitude |
+| `frequency` | `Frequency \| auto` | `auto` | Hz | oscillation frequency; clamped to `embodiment.limits.oscillation_max` |
+| `completion` | `ScrubStop` | — (required) | — | `duration(t)`, `passes(n)`, or `state_change(pred)` (e.g. surface clean / smooth) |
+| `normal_force_tolerance` | `Force \| auto` | `auto` | N | allowed normal-force deviation |
+| `compliance` | `{passive, active, auto}` | `auto` | — | required compliance mode |
+| `frame` | `FrameRef` | `task` | — | reference frame |
+| `timeout` | `Duration \| auto` | `auto` | s | `> 0` |
+
+**Preconditions.**
+- If scrubbing with a held tool / pad: `grasp_handle` is `held` and withstands the oscillating contact reaction (the grasp must survive periodic load reversal).
+- `surface` and `region` are resolvable; the scrub stays within `region`.
+- `embodiment` declares `force` with `scrub` support and normal-direction compliance; `frequency` within `embodiment.limits.oscillation_max`.
+
+**Postconditions (on `success`).**
+- Oscillating tangential motion (`amplitude`, `frequency`) was applied over `region` while the normal force was regulated at `normal_force` (within tolerance), until `completion`.
+- Contact and normal-force regulation held throughout; the scrub stayed within `region` (no straying onto adjacent areas).
+- Held tool retained through the periodic load reversals; `GraspState` unchanged.
+
+**Safety envelope (holds throughout execution — force trajectory bound, maintained + oscillatory).**
+- **Hybrid invariant under oscillation (interval-sampled):** normal force within `normal_force ± normal_force_tolerance` at every instant despite the oscillation; tangential motion stays within `region` and within `amplitude`.
+- **Oscillation stability:** at each tangential reversal the held tool / object is retained (periodic inertial reversal must not exceed grasp holding capacity — the oscillation analogue of dynamic grasp stability); `frequency` and `amplitude` are clamped so the reversal load stays within capacity.
+- **Wear / heat bound:** sustained oscillation under normal force abrades and heats; if the deployment declares a wear / heat limit (or `state_change` is reached), stop — do not over-scrub past surface / tool damage.
+- **Region containment:** the scrub does not stray beyond `region` (no abrading adjacent surfaces).
+- On any breach: lift off, arrest oscillation, retract within `embodiment.limits.stop_time`.
+
+**Failure modes (detection → invariant).**
+
+| Mode | Detection | Invariant |
+|---|---|---|
+| `capability_absent` | no `scrub` / compliance, or `frequency` > `oscillation_max` | reject; no attempt |
+| `no_contact` | surface not reached | result ≠ `success` |
+| `contact_lost` | normal force → 0 during oscillation | arrest; report |
+| `normal_force_exceeded` | normal force > budget | lift off; result ≠ `success` |
+| `oscillation_unstable` | tool / object slips at a tangential reversal | arrest; re-secure; result ≠ `success` |
+| `region_strayed` | motion left `region` | arrest; report |
+| `completion_unreached` | `completion` not met within range | stop; report (partial) |
+| `timeout` | wall clock vs `timeout` | lift off, arrest oscillation |
+
+**Conformance test sketch.**
+- **C1 — nominal scrub + regulated force.** Scrub a bench surface; command `force.scrub(surface, normal_force = 8 N, amplitude = 20 mm, completion = passes(10))`. PASS iff `result == success` ∧ at **every** sampled instant the normal force was within tolerance despite the oscillation (interval invariant) ∧ the motion stayed within `region` and `amplitude` ∧ the held tool was retained through all 10 passes (no reversal slip) ∧ completion (10 passes) met.
+- **C2 — reversal-stability / over-frequency.** Command a `frequency` near or above `oscillation_max`. PASS iff (within limit) the tool is retained through reversals with normal force regulated, OR (above limit) `result == capability_absent` (rejected) — never an `oscillation_unstable` outcome with the tool flung or the object lost.
+
+#### 6.10 `force.snap_engage`
+
+**Intent.** Engage a bistable mechanism — a clip, latch, or snap-fit — by driving the parts together through the engagement force peak until the snap-in event (force rise-then-drop signature) is detected and the bistable connection is confirmed held, without over-forcing past engagement and breaking the mechanism.
+
+**Parameters.**
+
+| Name | Type | Default | Units | Constraint |
+|---|---|---|---|---|
+| `grasp_handle` | `GraspRef \| active` | `active` | — | the grasp on the part being snapped into place |
+| `mate_feature` | `FeatureRef` | — (required) | — | the bistable mechanism / receptacle to engage |
+| `engage_direction` | `Direction` | — (required) | — | direction to drive engagement, in `frame` |
+| `force_budget` | `Force` | — (required) | N | max engagement force (mechanism-break / over-force limit, above the expected snap peak) |
+| `snap_signature` | `ActuationSpec` | `detent` | — | what marks snap-in: `detent` (rise-then-drop), or `force_threshold(F)` |
+| `confirm_held` | `bool` | `true` | — | verify the bistable connection holds after engagement (release-test) |
+| `compliance` | `{passive, active, auto}` | `auto` | — | required compliance mode |
+| `frame` | `FrameRef` | `task` | — | reference frame |
+| `timeout` | `Duration \| auto` | `auto` | s | `> 0` |
+
+**Preconditions.**
+- `grasp_handle` resolves to a `held` `GraspState` on the part; the grasp withstands the engagement reaction.
+- `mate_feature` is resolvable and aligned within the engagement-capturable range; the snap-in peak force is below `force_budget` (the mechanism can be engaged without exceeding the break limit).
+- `embodiment` declares `force` with `snap_engage` support, the required `compliance`, and force resolution sufficient to detect the snap signature.
+
+**Postconditions (on `success`).**
+- The bistable mechanism engaged: the snap-in event (force rise-then-drop) was detected, and (if `confirm_held`) the connection was confirmed to hold a retaining load.
+- Engagement force stayed `≤ force_budget` throughout; the mechanism was not over-forced past the engaged state.
+- The connection is now in its **engaged bistable state** (a persistent state change; disengagement requires a reverse operation).
+- The held part did not slip; `GraspState` unchanged.
+
+**Safety envelope (holds throughout execution — force trajectory bound).**
+- **Force-trajectory bound:** engagement force `≤ force_budget` at every instant. The expected profile rises to the snap peak then drops; a force rise that **continues past the budget without the drop** means the mechanism is not snapping (mis-aligned / wrong part) — abort, do not crush it.
+- **Snap-in detection + over-force guard:** on detecting snap-in (rise-then-drop, per `force.press_button`'s detent), stop driving immediately — do not continue past engagement (over-force breaks the clip / snap-fit). The snap event, not a fixed depth, ends the engagement.
+- **Engagement confirmation:** if `confirm_held`, a light retaining-load test confirms the bistable connection actually holds (distinguishes a true snap-in from a partial / false engagement) before reporting success.
+- On any breach: back off along `−engage_direction` to an unloaded pose; do not leave the mechanism partially engaged under load or broken.
+
+**Failure modes (detection → invariant).**
+
+| Mode | Detection | Invariant |
+|---|---|---|
+| `no_active_grasp` | `grasp_handle` not `held` | reject; no attempt |
+| `capability_absent` | no `snap_engage` / compliance / force resolution | reject; no attempt |
+| `no_snap` | force budget / range reached without a snap signature | back off; result ≠ `success` (did not engage — do not over-force) |
+| `over_force` | force > `force_budget` without snap-in | back off; result ≠ `success` (mis-aligned / wrong part) |
+| `false_engagement` | (`confirm_held`) snap detected but connection does not hold | back off; report; result ≠ `success` |
+| `grasp_slip_under_load` | part slipped under engagement reaction | back off; re-secure; result ≠ `success` |
+| `timeout` | wall clock vs `timeout` | back off to unloaded pose |
+
+**Conformance test sketch.**
+- **C1 — nominal snap-in + held confirmation.** Present a bench snap-fit / clip; command `force.snap_engage(mate_feature, engage_direction, force_budget = 25 N)`. PASS iff `result == success` ∧ the snap-in event (force rise-then-drop) was detected ∧ engagement force `≤ force_budget` throughout (interval sampling) ∧ (with `confirm_held`) a retaining-load test confirmed the connection holds ∧ no over-force past the snap.
+- **C2 — mis-aligned over-force guard.** Mis-align so no snap can occur. PASS iff `result == no_snap` (or `over_force`) ∧ the engagement force never exceeded `force_budget` (the mechanism was **not** crushed seeking a snap that cannot happen) ∧ backed off to an unloaded pose.
 
 ## Open issues for v0.1 freeze
 
