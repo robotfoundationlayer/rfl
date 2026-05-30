@@ -23,7 +23,7 @@ Pre-grasp positioning. Brings the end-effector into a target pose without contac
 | 1.1 | `reach.to_pose` | Move the controlled frame to an absolute reference-frame pose |
 | 1.2 | `reach.approach` | Approach a target object along its surface normal at a configurable standoff distance |
 | 1.3 | `reach.align` | Align end-effector orientation with a target frame (axis-by-axis) |
-| 1.4 | `reach.retract` | Move away from current pose along the negative approach direction |
+| 1.4 | `reach.retract` | Retreat the controlled frame along a direction (default −tool axis), breaking incidental contact |
 | 1.5 | `reach.hover` | Maintain a pose at a configurable standoff above a target |
 | 1.6 | `reach.scan` | Sweep a configurable region with end-effector or sensor frame for perception purposes |
 
@@ -359,6 +359,58 @@ Duration        ::= Number ("ms" | "s")
 **Conformance test sketch.**
 - **C1 — single-axis alignment.** Command `reach.align(target_frame, axes = {z})` from a perturbed orientation. PASS iff `result == success` ∧ externally measured angle between `controlled_frame.z` and `target_frame.z` `≤ orientation_tolerance` ∧ (with `hold_position`) position drift `≤ position_tolerance` ∧ at rest. The residual rotation about `z` is unconstrained and not scored, but the resolved value MUST be reproducible across identical re-runs (determinism check).
 - **C2 — full orientation.** Command `axes = all`. PASS iff every per-axis angle to `target_frame` `≤ orientation_tolerance` ∧ position drift within tolerance ∧ at rest.
+
+#### 1.4 `reach.retract`
+
+**Intent.** Move the controlled frame a specified distance along a retreat direction (by default, the reverse of its own tool axis), breaking any incidental contact and clearing the object envelope, terminating at rest. `retract` is the dual of `reach.approach`: where `approach` is permitted no contact, `retract` is permitted to *start* in contact and must leave it.
+
+**Parameters.**
+
+| Name | Type | Default | Units | Constraint |
+|---|---|---|---|---|
+| `distance` | `Length` | — (required) | mm | `> 0`; retreat travel along `retract_axis` |
+| `controlled_frame` | `FrameRef` | `embodiment.default_control_frame` | — | declared control frame |
+| `retract_axis` | `SignedAxis` | `−embodiment.default_tool_axis` | — | retreat direction |
+| `frame` | `FrameRef` | `controlled_frame` | — | frame the axis is expressed in (default: move along own tool axis) |
+| `break_contact` | `bool` | `true` | — | require any starting contact to be cleared |
+| `position_tolerance` | `Length` | `2` | mm | `> 0` |
+| `max_velocity` | `Velocity \| auto` | `auto` | m/s | clamped to `embodiment.limits.v_cartesian_max` |
+| `clearance` | `Length` | `0` | mm | `≥ 0`; margin to the full static model (no target exclusion) |
+| `contact_response` | `{abort, stop, comply}` | `abort` | — | reaction to a force *increase* during retreat |
+| `timeout` | `Duration \| auto` | `auto` | s | `> 0` |
+
+**Preconditions.**
+- `controlled_frame` is resolvable and `calibration_valid`.
+- The retreat target pose (`start + distance · retract_axis`) admits ≥ 1 IK solution.
+- The retreat corridor, inflated by `clearance`, is collision-free against the static model in the retreat direction.
+- Starting contact is permitted (no precondition forbidding it), unlike `reach.to_pose`/`reach.approach`.
+
+**Postconditions (on `success`).**
+- `controlled_frame` displaced by `distance` along `retract_axis` from the start pose, within `position_tolerance`.
+- Embodiment at rest.
+- If `break_contact`: no task contact remains; `external_force(controlled_frame) ≈ 0`.
+- World-model object poses are invariant (retract carries nothing; carrying is `transport`).
+
+**Safety envelope (holds throughout execution).**
+- `‖cartesian_velocity(controlled_frame)‖ ≤ min(max_velocity, embodiment.limits.v_cartesian_max)`; acceleration / joint-velocity per `reach.to_pose`.
+- `min_clearance(controlled_frame, static_model) ≥ clearance`.
+- **Directional force monotonicity:** `external_force` along the retreat direction is non-increasing beyond `force_noise_margin`; an *increase* signals an obstacle behind the frame and triggers `contact_response`. (Force *opposing* retreat — the surface being left — is expected to decay to zero and is not a violation.)
+- On any breach: decelerate to rest within `embodiment.limits.stop_time`, ending in a safe state.
+
+**Failure modes (detection → invariant).**
+
+| Mode | Detection | Invariant |
+|---|---|---|
+| `unreachable` | IK on the retreat target pose | no motion |
+| `blocked_path` | clearance violation in the retreat direction | no motion past the last safe config |
+| `unexpected_contact` | `external_force` increases along retreat beyond margin | react per `contact_response`; an abort ends at rest |
+| `contact_not_cleared` | `break_contact` set, residual force at end | MUST NOT report `success` |
+| `pose_not_reached` | final displacement vs `distance` / tolerance | MUST NOT report `success` |
+| `timeout` | wall clock vs `timeout` | clean halt at rest |
+
+**Conformance test sketch.**
+- **C1 — nominal retreat.** From a bench-known start pose, command `reach.retract(distance = 50 mm)` along `−tool_axis`. PASS iff `result == success` ∧ externally measured displacement is `50 mm` along the axis within `position_tolerance` ∧ at rest ∧ no residual external force.
+- **C2 — break-contact without drag.** Start with the tool in light contact against an instrumented, free-standing surface; command retract. PASS iff `result == success` ∧ final external force `≈ 0` ∧ the surface's measured pose is unchanged (the retreat broke contact without dragging it) ∧ at rest.
 
 #### 1.5 `reach.hover`
 
