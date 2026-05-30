@@ -190,6 +190,21 @@ The XML maps onto the abstract fields `embodiment.capabilities` (the asserted pr
 - **M3 — auxiliary value domain.** Each enumerated auxiliary capability (`compliance`, …) holds a value within its defined domain.
 - **M4 — `capability_absent` determinism.** A primitive requiring an undeclared capability is rejected at validation with no attempt (externally measured displacement `< ε`).
 
+### Reach baseline limits
+
+The `reach` family carries no capability key — free-space motion is the mandatory baseline (§ Primitive capabilities) — but it still declares the motion limits every category inherits. These are the embodiment-level limits the `reach` primitives reference, and through them the rest of the ISA:
+
+| Limit | Bounds | Referenced by |
+|---|---|---|
+| `v_cartesian_max` | translational velocity | all `reach`, `transport` |
+| `w_cartesian_max` | angular velocity | `reach.align` |
+| `a_cartesian_max` | translational acceleration (further clamped by the dynamic-stability limit) | `reach`, `transport` |
+| `joint_velocity_ceiling` | joint velocity | `reach.to_pose` |
+| `stop_time` | time to decelerate to a safe state on a breach | every category's safety envelope |
+| `tracking_bandwidth` | the target-motion bandwidth a station-keeping primitive can follow | `reach.hover(track_target)`, its `track_lost` mode |
+
+Two further baseline bounds are referenced rather than owned here: the embodiment collision-detection threshold (the resolution target of `contact_abort_threshold = auto`, the external-force bound in § Collision model) and `embodiment.perception.pose_uncertainty_bound` (the target-resolution uncertainty bound, perception-derived). Because `stop_time` and the cartesian limits are baseline, the manifest's limit-completeness rule (M2) applies to them for every conformant embodiment, not only those declaring optional categories.
+
 ### Grasp-mode capabilities and limits
 
 The `grasp` category contributes eight mode capabilities to the manifest. Each is a primitive capability under § Capability manifest; this section enumerates the limits and frame geometry each mode requires and *why* — the limit set follows from the mode's closure type, which is fixed by the grasp state model (`01-skill-isa.md` § Grasp state model and stability metadata, the canonical source). The manifest does not redeclare closure; asserting `grasp.pinch` carries its `force` closure by definition.
