@@ -242,6 +242,54 @@ Both are declared per frame and extensible through `06-extension-registry.md`. A
 
 The closure-dependent hold test that verifies these grasps (omnidirectional for `force`, `load_direction`-only for `form`, level-gentle for `support`) is owned by `05-conformance.md`.
 
+### In-hand capabilities and limits
+
+The `in_hand` category contributes a category capability and seven sub-capabilities. Unlike `transport`, it has **no base primitive**: every in-hand operation requires both the category capability `in_hand` (the Skill ISA's `in_hand_manipulation`, normalized to the dotted form per the capability-key normalization note) **and** its own sub-capability.
+
+| Sub-capability | Velocity limit | Range limit (keyed by grasp mode) | Auxiliary dependency |
+|---|---|---|---|
+| `in_hand.rotate` | `w_inhand_max` | `inhand_rotation_range[grasp_mode]` | — |
+| `in_hand.translate` | `v_inhand_max` | `inhand_translation_range[grasp_mode]` | — |
+| `in_hand.regrasp` | — | — | — |
+| `in_hand.roll` | `w_inhand_max` | — | rollable geometry (`01`) |
+| `in_hand.pivot` | `w_inhand_max` | — | `drive = gravity` → gravity declaration; passive-drive determinism (`02`) |
+| `in_hand.slide` | `v_inhand_max` | — | closed-loop slip sensing (`04`, proxy-degradable) |
+| `in_hand.flip` | `w_inhand_max` | — | `momentary_release` / `safe_drop_zone` (`05`) |
+
+- **Shared limits.** `w_inhand_max` (angular velocity) and `v_inhand_max` (linear velocity) are embodiment-level, shared across the modes that rotate / swing (`w_inhand_max`) or translate / slide (`v_inhand_max`).
+- **Per-mode-keyed range limits.** `inhand_rotation_range` and `inhand_translation_range` are **maps keyed by grasp mode**, not scalars: the in-hand workspace depends on which grasp is holding the object, so the range a `pinch` grasp affords differs from a `power` grasp's. `in_hand.rotate` reads `inhand_rotation_range[grasp_mode]`; `in_hand.translate` reads `inhand_translation_range[grasp_mode]`.
+- DOF-admissibility — an in-hand operation may move a `friction_held` DOF but not a `form_held` or `rotation_constrained` one — is composition validity, owned by `01-skill-isa.md`.
+
+### Transport capabilities and limits
+
+The `transport` category capability asserts the base primitive `transport.move_to_pose`; five further sub-capabilities refine it.
+
+| Capability | Added limit | Auxiliary dependency |
+|---|---|---|
+| `transport` (base = `move_to_pose`) | `v_cartesian_max`, `a_cartesian_max` | dynamic-stability `max_acceleration` clamp (`02`) |
+| `transport.follow_trajectory` | — | `time_scalable` timing semantics (`02`); `Trajectory` / `MoveSpec` types (`01`) |
+| `transport.handoff` | `cograsp_force_budget` | bimanual only in scope; inter-robot `EffectorRef` + coordination channel deferred (see *Open issues*) |
+| `transport.carry` | `stability_margin` (embodiment default) | `disturbance_budget = auto` derived from the `min_holding_force` margin (`02`) |
+| `transport.lift` | — | `up_direction = −gravity` (§ Gravity declaration); load-transfer holding capacity (`02`) |
+| `transport.lower` | — | `down_direction = gravity`; touchdown contact / force sensing (proxy-degradable) |
+
+- **General motion limits.** `v_cartesian_max` and `a_cartesian_max` are not transport-specific: they are introduced by the `reach` baseline (`reach.to_pose`) and shared. The dynamic-stability clamp that lowers `max_acceleration` below `a_cartesian_max` for a given grasp is derived by `02`.
+- **Transport-specific limits.** `cograsp_force_budget` (the ceiling on combined force two effectors may apply to one object during a dual-grasp window) and `stability_margin` (the `carry` headroom default) are added at the embodiment level.
+- Held-object swept-volume collision is already covered by the `effector_with_held` moving set (§ Collision model).
+
+#### Deferred and referenced
+
+The dynamic grasp-stability limit derivation, the `max_acceleration` clamp, time-scaling, and the passive-drive determinism boundary are owned by `02-translation-layer.md`. The continuity verifications (gaiting, make-before-break, under-actuation, the `flip` exception, two-party co-grasp) are owned by `05-conformance.md`. The closed-loop slip-sensing feature and rollable-geometry slip discrimination are owned by `04-tactile-manifold.md`. Inter-robot `transport.handoff` — the `receiver: EffectorRef` and the coordination channel — is the multi-embodiment addressing issue still open in this chapter (see *Open issues*); bimanual handoff within one embodiment is fully in scope.
+
+#### Conformance obligations (in-hand / transport)
+
+- **IHT1c — in-hand limit completeness.** Each asserted `in_hand` sub-capability has its velocity limit and (for `rotate` / `translate`) its grasp-mode-keyed range map present and SI-valued.
+- **IHT2c — transport limit completeness.** `transport` carries `v_cartesian_max` / `a_cartesian_max`; `transport.handoff` carries `cograsp_force_budget`; `transport.carry` carries `stability_margin`.
+- **IHT3c — category + sub gate.** An in-hand operation is rejected (`capability_absent`) unless both `in_hand` and its sub-capability are declared.
+- **IHT4c — slide slip-sensing.** `in_hand.slide` is rejected without closed-loop slip sensing (or its proxy).
+
+The physical verification of dynamic stability, grasp continuity, and passive drive is owned by `02` / `05`.
+
 ### Compliance capability
 
 The `force` category makes contact force the objective, and most of its primitives cannot run on a rigid embodiment: they need the effector to *yield* in a controlled way. **Compliance** is the auxiliary capability (introduced in the auxiliary-capability table above) that declares how an embodiment can do that. A rigid-only embodiment — one that declares no compliance mode — cannot run any `force` primitive that requires compliance.
