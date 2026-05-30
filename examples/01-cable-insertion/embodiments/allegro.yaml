@@ -25,13 +25,25 @@ embodiment:
       tactile_sensing: true        # distributed fingertip tactile → manifold-tier confirmation
       compliance: active
 
+  # Limits — flat embodiment.limits.* (03 § Limits). M2 limit-completeness: every limit an
+  # asserted capability references is declared (03 § Capability manifest, M2).
   limits:
-    grip_force_max:      20 N
-    payload_grasp_pinch: 3 N
-    v_grasp:             0.05 m/s
-    v_cartesian_max:     0.4 m/s
-    a_cartesian_max:     1.5 m/s^2
-    stop_time:           0.1 s
+    # reach baseline — mandatory for every embodiment (03 § Reach baseline limits)
+    v_cartesian_max:             0.4 m/s
+    w_cartesian_max:             2.0 rad/s
+    a_cartesian_max:             1.5 m/s^2
+    joint_velocity_ceiling:      3.0 rad/s
+    stop_time:                   0.1 s
+    tracking_bandwidth:          5 Hz
+    # shared force-closure grasp limits (grasp.pinch / lateral / envelope)
+    grip_force_max:              20 N
+    v_grasp:                     0.05 m/s
+    # per grasp mode
+    payload_grasp_pinch:         3 N
+    payload_grasp_lateral:       2 N
+    lateral_grasp_max_thickness: 15 mm
+    payload_grasp_envelope:      4 N
+    enclosure_range:             [10 mm, 80 mm]
 
   # Contact-sensor descriptor — 04 § The contact-sensor descriptor.
   tactile:

@@ -38,7 +38,103 @@
         "limits": { "$ref": "#/$defs/Limits" },
         "tactile": { "$ref": "#/$defs/TactileMap" },
         "sensors": { "$ref": "#/$defs/SensorMap" }
-      }
+      },
+      "allOf": [
+        {
+          "$comment": "M2 — the reach baseline limits are mandatory for every embodiment (reach is the assumed-present baseline; 03 § Reach baseline limits).",
+          "properties": { "limits": { "required": ["v_cartesian_max", "w_cartesian_max", "a_cartesian_max", "joint_velocity_ceiling", "stop_time", "tracking_bandwidth"] } }
+        },
+        {
+          "$comment": "M2 — grasp.pinch (03 § Grasp-mode capabilities).",
+          "if": { "properties": { "capabilities": { "properties": { "skills": { "contains": { "const": "grasp.pinch" } } } } } },
+          "then": { "properties": { "limits": { "required": ["grip_force_max", "v_grasp", "payload_grasp_pinch"] } } }
+        },
+        {
+          "$comment": "M2 — grasp.power.",
+          "if": { "properties": { "capabilities": { "properties": { "skills": { "contains": { "const": "grasp.power" } } } } } },
+          "then": { "properties": { "limits": { "required": ["grip_force_max", "v_grasp", "payload_grasp_power", "enclosure_span"] } } }
+        },
+        {
+          "$comment": "M2 — grasp.precision_tripod (the table's grasp.tripod row; the ISA id is precision_tripod).",
+          "if": { "properties": { "capabilities": { "properties": { "skills": { "contains": { "const": "grasp.precision_tripod" } } } } } },
+          "then": { "properties": { "limits": { "required": ["grip_force_max", "v_grasp", "payload_grasp_tripod", "precision_object_size_max"] } } }
+        },
+        {
+          "$comment": "M2 — grasp.lateral.",
+          "if": { "properties": { "capabilities": { "properties": { "skills": { "contains": { "const": "grasp.lateral" } } } } } },
+          "then": { "properties": { "limits": { "required": ["grip_force_max", "v_grasp", "payload_grasp_lateral", "lateral_grasp_max_thickness"] } } }
+        },
+        {
+          "$comment": "M2 — grasp.pin: extrinsic force closure, the external surface bears the load, so no payload limit.",
+          "if": { "properties": { "capabilities": { "properties": { "skills": { "contains": { "const": "grasp.pin" } } } } } },
+          "then": { "properties": { "limits": { "required": ["grip_force_max", "v_grasp"] } } }
+        },
+        {
+          "$comment": "M2 — grasp.envelope: form closure, enclosure_range is a [min, max] range.",
+          "if": { "properties": { "capabilities": { "properties": { "skills": { "contains": { "const": "grasp.envelope" } } } } } },
+          "then": { "properties": { "limits": { "required": ["grip_force_max", "v_grasp", "payload_grasp_envelope", "enclosure_range"] } } }
+        },
+        {
+          "$comment": "M2 — grasp.hook: form closure with a directional hold, no opposing grip force.",
+          "if": { "properties": { "capabilities": { "properties": { "skills": { "contains": { "const": "grasp.hook" } } } } } },
+          "then": { "properties": { "limits": { "required": ["v_grasp", "hook_load_capacity"] } } }
+        },
+        {
+          "$comment": "M2 — grasp.platform: balance-held support, no closing grip (placement-motion bound v_cartesian_max, not v_grasp).",
+          "if": { "properties": { "capabilities": { "properties": { "skills": { "contains": { "const": "grasp.platform" } } } } } },
+          "then": { "properties": { "limits": { "required": ["v_cartesian_max", "payload_support"] } } }
+        },
+        {
+          "$comment": "M2 — transport.handoff: the combined-force ceiling for the dual-grasp window (IHT2c). transport base v/a_cartesian_max are covered by the reach baseline.",
+          "if": { "properties": { "capabilities": { "properties": { "skills": { "contains": { "const": "transport.handoff" } } } } } },
+          "then": { "properties": { "limits": { "required": ["cograsp_force_budget"] } } }
+        },
+        {
+          "$comment": "M2 — transport.carry: the carry stability headroom default (IHT2c).",
+          "if": { "properties": { "capabilities": { "properties": { "skills": { "contains": { "const": "transport.carry" } } } } } },
+          "then": { "properties": { "limits": { "required": ["stability_margin"] } } }
+        },
+        {
+          "$comment": "M2 — force.wipe: hybrid force/position control requires normal-direction compliance (CMP2c).",
+          "if": { "properties": { "capabilities": { "properties": { "skills": { "contains": { "const": "force.wipe" } } } } } },
+          "then": { "properties": { "limits": { "required": ["normal_compliance_range"] } } }
+        },
+        {
+          "$comment": "M2 — force.scrub: normal-direction compliance plus the oscillation-rate ceiling (PFS2c + CMP2c).",
+          "if": { "properties": { "capabilities": { "properties": { "skills": { "contains": { "const": "force.scrub" } } } } } },
+          "then": { "properties": { "limits": { "required": ["normal_compliance_range", "oscillation_max"] } } }
+        },
+        {
+          "$comment": "M2 — in_hand.rotate: angular in-hand velocity plus the grasp-mode-keyed rotation range (IHT1c).",
+          "if": { "properties": { "capabilities": { "properties": { "skills": { "contains": { "const": "in_hand.rotate" } } } } } },
+          "then": { "properties": { "limits": { "required": ["w_inhand_max", "inhand_rotation_range"] } } }
+        },
+        {
+          "$comment": "M2 — in_hand.translate: linear in-hand velocity plus the grasp-mode-keyed translation range (IHT1c).",
+          "if": { "properties": { "capabilities": { "properties": { "skills": { "contains": { "const": "in_hand.translate" } } } } } },
+          "then": { "properties": { "limits": { "required": ["v_inhand_max", "inhand_translation_range"] } } }
+        },
+        {
+          "$comment": "M2 — in_hand.roll: angular in-hand velocity (no range limit).",
+          "if": { "properties": { "capabilities": { "properties": { "skills": { "contains": { "const": "in_hand.roll" } } } } } },
+          "then": { "properties": { "limits": { "required": ["w_inhand_max"] } } }
+        },
+        {
+          "$comment": "M2 — in_hand.pivot: angular in-hand velocity.",
+          "if": { "properties": { "capabilities": { "properties": { "skills": { "contains": { "const": "in_hand.pivot" } } } } } },
+          "then": { "properties": { "limits": { "required": ["w_inhand_max"] } } }
+        },
+        {
+          "$comment": "M2 — in_hand.slide: linear in-hand velocity.",
+          "if": { "properties": { "capabilities": { "properties": { "skills": { "contains": { "const": "in_hand.slide" } } } } } },
+          "then": { "properties": { "limits": { "required": ["v_inhand_max"] } } }
+        },
+        {
+          "$comment": "M2 — in_hand.flip: angular in-hand velocity. (in_hand.regrasp adds no limit; place / sense add no new embodiment limit, PFS4c.)",
+          "if": { "properties": { "capabilities": { "properties": { "skills": { "contains": { "const": "in_hand.flip" } } } } } },
+          "then": { "properties": { "limits": { "required": ["w_inhand_max"] } } }
+        }
+      ]
     },
     "Frames": {
       "type": "object",
@@ -77,32 +173,99 @@
       "properties": {
         "skills": {
           "type": "array",
-          "items": { "type": "string", "pattern": "^[a-z_]+(\\.[a-z_]+)?$" },
           "minItems": 1,
-          "description": "Skill ISA primitive or category ids (e.g. grasp.pinch, transport). The full enumeration is owned by skill-isa.schema.json; this schema checks only the key shape."
+          "description": "Asserted capability keys (03 § Capability manifest). Each is a Skill ISA primitive id other than reach.* (reach is the mandatory baseline and carries no capability key, 03 § Primitive capabilities), one of the four category keys transport / in_hand / force / sense (the category gates 03 defines; grasp is declared per mode and place is composition-gated, so neither has a bare category key), or an ext.<ns>.<name> extension key (06). The primitive-id set is exactly skill-isa.schema.json's PrimitiveId enum minus reach.*; an unknown skill id is rejected (03 § URDF / MJCF binding).",
+          "items": {
+            "oneOf": [
+              {
+                "enum": [
+                  "force", "in_hand", "sense", "transport",
+                  "force.cut", "force.insert_fit", "force.press_button", "force.pull", "force.push", "force.screw", "force.snap_engage", "force.scrub", "force.unscrew", "force.wipe",
+                  "grasp.adjust", "grasp.envelope", "grasp.hook", "grasp.lateral", "grasp.pin", "grasp.pinch", "grasp.platform", "grasp.power", "grasp.precision_tripod", "grasp.release",
+                  "in_hand.flip", "in_hand.pivot", "in_hand.regrasp", "in_hand.roll", "in_hand.rotate", "in_hand.slide", "in_hand.translate",
+                  "place.discard", "place.hand_to", "place.insert_loose", "place.orient", "place.put_down", "place.stack",
+                  "sense.inspect", "sense.locate", "sense.probe", "sense.verify", "sense.weigh",
+                  "transport.carry", "transport.follow_trajectory", "transport.handoff", "transport.lift", "transport.lower", "transport.move_to_pose"
+                ]
+              },
+              { "type": "string", "pattern": "^ext\\.[a-z_]+\\.[a-z_]+$" }
+            ]
+          }
         },
         "aux": {
           "type": "object",
-          "description": "Auxiliary capabilities (03 § Auxiliary capabilities). Known keys below; extension-namespaced keys are permitted. Absence of tactile_sensing routes grasp/force confirmation to the force/position proxy (04).",
+          "description": "Auxiliary capabilities (03 § Auxiliary capabilities). Known keys are typed below; an unknown auxiliary name must carry a namespace prefix (06), so extra keys stay permitted. Absence of tactile_sensing routes grasp/force confirmation to the force/position proxy (04).",
           "properties": {
-            "tactile_sensing": { "type": "boolean" },
-            "compliance": { "enum": ["passive", "active", "virtual"] },
-            "tool_safety": { "type": "object" },
-            "human_collaboration_safety": { "type": "object" }
+            "tactile_sensing": {
+              "type": "boolean",
+              "description": "Contact sensing present. Preferred by every grasp.* but never required: when absent, confirmation degrades to the force/position proxy (04)."
+            },
+            "compliance": {
+              "description": "The set of compliance modes the embodiment provides (03 § Compliance capability), each one of passive / active / virtual; a single mode may be written as a bare scalar shorthand. Distinct from the per-primitive compliance request, which omits virtual (01).",
+              "oneOf": [
+                { "enum": ["passive", "active", "virtual"] },
+                {
+                  "type": "array",
+                  "items": { "enum": ["passive", "active", "virtual"] },
+                  "minItems": 1,
+                  "uniqueItems": true
+                }
+              ]
+            },
+            "tool_safety": {
+              "type": "object",
+              "description": "Hazardous-tool safety capability (03 § Tool-safety capability), required by force.cut. RFL does not define the standard.",
+              "required": ["hazard_class"],
+              "additionalProperties": false,
+              "properties": {
+                "hazard_class": { "type": "string", "description": "the hazard managed (cut / shear; extensible to weld, thermal, ... via 06)" },
+                "standard": { "type": "string", "description": "reference to the deployment safety standard the capability claims to satisfy" }
+              }
+            },
+            "human_collaboration_safety": {
+              "type": "object",
+              "description": "Human-collaboration safety capability (03 § Human-collaboration safety capability), required by place.hand_to. Carries the two defaults the primitive's auto values resolve to (SAF3c). The dependency on a declared compliance mode (SAF4c) is a cross-field rule verified by the conformance suite, not this schema.",
+              "required": ["max_interaction_force", "weight_transfer_threshold"],
+              "additionalProperties": false,
+              "properties": {
+                "standard": { "type": "string", "description": "reference to the human-collaboration safety standard (ISO 10218 / 13482 context, or the deployment equivalent)" },
+                "max_interaction_force": { "$ref": "#/$defs/Quantity" },
+                "weight_transfer_threshold": {
+                  "type": "number",
+                  "minimum": 0,
+                  "maximum": 1,
+                  "description": "fraction of weight a human must take before release (a bare ratio, no unit, e.g. 0.5)"
+                }
+              }
+            },
+            "coordination_channel": {
+              "type": "boolean",
+              "description": "Ability to participate in inter-robot handoff coordination (03 § Coordination-channel capability). Its absence makes a handoff to a remote receiver return coordination_unavailable."
+            }
           }
         }
       }
     },
     "Limits": {
       "type": "object",
-      "description": "Flat namespace embodiment.limits.* (03 § Limits). Each value is a quantity or a [min, max] range.",
+      "description": "Flat namespace embodiment.limits.* (03 § Limits). Each value is a quantity or a [min, max] range, except the two in-hand range limits, which are maps keyed by grasp mode (03 § In-hand capabilities).",
       "minProperties": 1,
+      "properties": {
+        "inhand_rotation_range": { "$ref": "#/$defs/GraspModeRangeMap" },
+        "inhand_translation_range": { "$ref": "#/$defs/GraspModeRangeMap" }
+      },
       "additionalProperties": {
         "oneOf": [
           { "$ref": "#/$defs/Quantity" },
           { "$ref": "#/$defs/Range" }
         ]
       }
+    },
+    "GraspModeRangeMap": {
+      "type": "object",
+      "description": "An in-hand workspace range keyed by grasp mode (03 § In-hand capabilities): the range a grasp affords depends on which grasp holds the object, so this is a map rather than a scalar. Each value is a [min, max] range.",
+      "minProperties": 1,
+      "additionalProperties": { "$ref": "#/$defs/Range" }
     },
     "TactileMap": {
       "type": "object",

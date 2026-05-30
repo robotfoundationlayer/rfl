@@ -24,12 +24,20 @@ embodiment:
       compliance: active
 
   limits:
-    grip_force_max:      15 N
-    payload_grasp_pinch: 2 N
-    v_grasp:             0.08 m/s   # direct-drive: faster closing
-    v_cartesian_max:     0.5 m/s
-    a_cartesian_max:     2.0 m/s^2
-    stop_time:           0.08 s
+    # reach baseline — mandatory for every embodiment (03 § Reach baseline limits)
+    v_cartesian_max:             0.5 m/s
+    w_cartesian_max:             2.5 rad/s
+    a_cartesian_max:             2.0 m/s^2
+    joint_velocity_ceiling:      4.0 rad/s   # direct-drive: faster joints
+    stop_time:                   0.08 s
+    tracking_bandwidth:          6 Hz
+    # shared force-closure grasp limits (grasp.pinch / lateral)
+    grip_force_max:              15 N
+    v_grasp:                     0.08 m/s     # direct-drive: faster closing
+    # per grasp mode
+    payload_grasp_pinch:         2 N
+    payload_grasp_lateral:       1.5 N
+    lateral_grasp_max_thickness: 12 mm
 
   tactile:
     tcp_index:  { sites: 1, features: [contact, normal_force], resolution: { spatial: 3 mm, temporal: 80 Hz, value: 0.1 N } }

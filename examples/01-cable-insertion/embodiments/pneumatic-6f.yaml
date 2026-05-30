@@ -28,12 +28,20 @@ embodiment:
       compliance: passive          # pneumatic compliance is inherent, not actively controlled
 
   limits:
-    grip_force_max:      12 N
-    payload_grasp_pinch: 1.5 N
-    v_grasp:             0.03 m/s   # pneumatic: slower, softer closing
-    v_cartesian_max:     0.3 m/s
-    a_cartesian_max:     0.8 m/s^2
-    stop_time:           0.15 s
+    # reach baseline — mandatory for every embodiment (03 § Reach baseline limits)
+    v_cartesian_max:             0.3 m/s
+    w_cartesian_max:             1.2 rad/s
+    a_cartesian_max:             0.8 m/s^2
+    joint_velocity_ceiling:      2.0 rad/s
+    stop_time:                   0.15 s
+    tracking_bandwidth:          3 Hz
+    # shared force-closure grasp limits (grasp.pinch / envelope)
+    grip_force_max:              12 N
+    v_grasp:                     0.03 m/s     # pneumatic: slower, softer closing
+    # per grasp mode
+    payload_grasp_pinch:         1.5 N
+    payload_grasp_envelope:      2 N
+    enclosure_range:             [15 mm, 100 mm]   # 6-finger: larger envelope
 
   # No `tactile:` block — the contact-sensor descriptor is absent, which is exactly what
   # routes every grasp.* and force.* confirmation on this hand to its proxy.
