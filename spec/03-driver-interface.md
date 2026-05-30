@@ -240,6 +240,82 @@ Both are declared per frame and extensible through `06-extension-registry.md`. A
 
 The closure-dependent hold test that verifies these grasps (omnidirectional for `force`, `load_direction`-only for `form`, level-gentle for `support`) is owned by `05-conformance.md`.
 
+## Collision model
+
+Every motion primitive states its safety in terms of a clearance against a *static collision model* — `min_clearance(…, static_model) ≥ clearance`. This section defines what that model is, the query it must answer, and the obligations it carries. The model is not a Skill ISA capability flag: `reach.align` (a `reach`-family baseline primitive) already needs swept-volume clearance, so the full model is **mandatory** for every conformant embodiment, like the `reach` family itself.
+
+### What RFL defines, and what it does not
+
+RFL does **not** define the environment / world model (the geometry of obstacles in the scene). World models and perception are out of scope (`00-overview.md`). What RFL defines is:
+
+1. A **clearance query** the driver exposes (one of the interfaces under § Scope item 1) — a deterministic service that, given a moving body, a motion, and an exemption set, returns the minimum clearance over that motion against the model.
+2. The embodiment's **self-collision geometry** — declared with the standard URDF / MJCF `<collision>` elements. RFL adds no new block for it.
+
+The environment model is supplied to the query as an external input (perception-fed). RFL's contract is the *interface and its guarantees*, not the scene contents — preserving layer discipline (Principle 4).
+
+### The clearance query
+
+```
+clearance(
+    moving:   MovingSet,           # the body / bodies that move
+    motion:   MotionQuery,         # the geometry swept
+    exempt:   set<ModelElement>,   # static-model elements excluded (intended proximity)
+    augment:  set<ModelElement>,   # extra obstacles added to the static model
+) -> Length                        # min clearance over the motion; the caller requires ≥ clearance
+```
+
+The query is **deterministic**: identical `(moving, motion, exempt, augment, model)` inputs return an identical clearance value. This is binding because the `no_collision_free_path` decisions it drives are compared against frozen conformance fixtures (`02` retargeting determinism, `05`).
+
+The query evaluates the moving set against the environment model, the elements in `augment`, **and** the embodiment's own self-geometry (the links not in the moving set) — minus the elements in `exempt`.
+
+### Moving set
+
+Which bodies sweep depends on the primitive and the grasp state:
+
+| `MovingSet` | Contents | Primitives |
+|---|---|---|
+| `effector(frame)` | the control frame's own collision geometry | `reach.*`, `grasp.*` final approach, `grasp.release` withdraw |
+| `effector_with_held(frame, grasp)` | effector ∪ the held object's geometry (`GraspState`'s `ObjectTarget.geometry`, placed at the grasp pose) | all `transport.*`, `place` descent |
+
+A held object's swept volume is inflated by the grasp's `StabilityMetadata.residual_mobility` when set: an `envelope_cage` grasp lets the object shift within `cage_clearance`, so the conservative swept volume must cover that freedom. This is the collision model's connection point to the grasp state model.
+
+The just-released object in `grasp.release` is **not** a moving body; it is handled through `augment` (below).
+
+### Motion query
+
+The query answers three motion geometries, **all mandatory**:
+
+| `MotionQuery` | Geometry | Required by |
+|---|---|---|
+| `at_pose(pose)` | clearance of the moving set at a single configuration | `reach.to_pose` validation |
+| `corridor(from, to)` | the straight-line translation corridor, inflated by `clearance` | `reach.approach` / `hover` / `retract` |
+| `swept(trajectory \| rotation)` | the full swept volume of an in-place rotation or an arbitrary trajectory | `reach.align`, `reach.scan`, all `transport.*` |
+
+`corridor` is the translation-only special case; it is kept distinct from `swept` to match the primitive prose ("corridor" vs. "swept volume"), but an embodiment must answer all three. There is no "point/corridor-only" conformance tier — swept-volume support is required.
+
+### Exemption and augmentation
+
+Intended proximity to the manipulation target must not register as a collision, so each primitive passes the model elements it is intentionally approaching as `exempt`. The canonical designators:
+
+| `exempt` element | Primitives |
+|---|---|
+| `target` | `reach.approach` / `hover`, all `grasp.*`, `place` approaches |
+| `region` | `reach.scan` |
+| `against_surface` (with `target`) | `grasp.pin` |
+| `setdown_surface` | `transport.lower` |
+| `support_object` | `place.stack` |
+
+`augment` is the dual. When `grasp.release` opens the grasp, the freed object is no longer the manipulation target — it becomes an ordinary obstacle the withdrawing effector must not knock (`min_clearance(controlled_frame, static_model ∪ {released object})`). Over the grasp lifecycle an object transitions from *active target / held* (exempt) to *ordinary obstacle* (augmented, then part of the updated static model). The world-state tracking that records this transition is owned by `01-skill-isa.md`; the collision model only consumes the resulting exempt / augment sets.
+
+### Conformance obligations (collision)
+
+- **X1c — three geometries.** The driver returns the correct minimum clearance for `at_pose`, `corridor`, and `swept` queries (verified against bench-known obstacles).
+- **X2c — held-object inclusion.** Under an active grasp, a `swept` query includes the held object's geometry — a trajectory that drives the held object into an obstacle is detected as an intrusion, not passed.
+- **X3c — exemption correctness.** Elements in `exempt` are excluded from the clearance result; everything else (including other objects) is not.
+- **X4c — augmentation (freed object).** A `grasp.release` withdraw treats the released object as an obstacle and detects a withdraw path that would strike it as `blocked`.
+- **X5c — self-collision.** A swept motion that self-collides (e.g. an in-place rotation folding the arm into itself) is detected as `no_collision_free_path`.
+- **X6c — determinism.** Identical `(moving, motion, exempt, augment, model)` inputs yield an identical clearance value (fixture reproducibility).
+
 ## Open issues
 
 - Capability negotiation timing — **static manifest portion resolved** (§ Capability manifest: declared in `<rfl:capabilities>`, acquired at load-time / negotiation; checked per-primitive at validation). Open: per-action *dynamic* renegotiation (session-start vs. per-action) for embodiments whose capabilities change at runtime.
