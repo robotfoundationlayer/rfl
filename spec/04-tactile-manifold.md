@@ -1,6 +1,6 @@
 # TactileManifold — Specification
 
-> **Status**: foundation + degradation + slip specified (2026-05-31) — the feature-field model, the field-set discipline, the feature taxonomy, the contact-sensor descriptor, the site model, the `TactileTarget` type, the graceful-degradation proxy discipline, and the slip discrimination model. Remaining before freeze: the per-feature semantic units (force-events; deformation; freed-part safety; sensing-scope contracts), tracked in `02-translation-layer.md` § Open issues (Owned by `04`). The formal mathematical specification is in the white paper Appendix B; this chapter is the implementation-facing version.
+> **Status**: foundation + degradation + slip + force-events specified (2026-05-31) — the feature-field model, the field-set discipline, the feature taxonomy, the contact-sensor descriptor, the site model, the `TactileTarget` type, the graceful-degradation proxy discipline, the slip discrimination model, and the breakaway / detent force-event detection with its temporal-alignment timebase. Remaining before freeze: the per-feature semantic units (deformation; freed-part safety; sensing-scope contracts), tracked in `02-translation-layer.md` § Open issues (Owned by `04`). The formal mathematical specification is in the white paper Appendix B; this chapter is the implementation-facing version.
 
 ## Scope
 
@@ -314,6 +314,63 @@ The same degradation governs `grasp.adjust(reason = slip_recovery)` (`01`): pree
 - **The canonical-action encoding** of the slip monitor and the intended-slip model — `02-translation-layer.md`.
 - **The continuity-verification test classes** (gaiting, make-before-break, the slide / roll C-tests) that consume the slip classification — `05-conformance.md`.
 
+## Force events — breakaway and detent
+
+The `StopCondition` family (`01`) carries two *event* variants — `effort_drop` and `detent` — and fixes only their event class, deferring their physical detection here (`01`: "the type fixes the event class; the manifold fixes how it is sensed"). Both are **temporal signatures** over the resisting-effort signal (`Force`, tension, or `Torque` — the `Effort` quantity of the family), computed from the `force_derivative` feature (§ Feature taxonomy) over a short history window. This section defines the two signatures and the timebase that makes their detection deterministic.
+
+### The `ForceEvent` feature
+
+```
+ForceEvent := {
+  kind:      {breakaway, detent},
+  at:        Timestamp,        # the aligned event time (§ Temporal alignment across multi-rate features)
+  magnitude: Effort,           # breakaway: the drop depth; detent: the peak height above baseline
+}
+```
+
+A `ForceEvent` is the manifold's resolution of a `StopCondition` event variant: `effort_drop` resolves to a `breakaway` event, `detent` to a `detent` event. The detection runs over the effort trajectory, reusing the `force_derivative` feature rather than minting a new raw quantity.
+
+### Breakaway — the `effort_drop` event
+
+A **breakaway** is a sudden, sustained collapse of resisting effort: `force_derivative` falls past a declared negative-rate threshold **and** the effort settles to a markedly lower level (a real loss of resistance, not derivative noise). It marks a `force.pull` extraction completing or a fastener pulling free, and recurs as the thread-disengagement / `torque_drop` of `force.unscrew` (`01` `PullStop` / `ScrewStop`).
+
+Detection must fire on the **leading edge** — the derivative collapse — not after the effort has fully settled, because a force-controlled effort that loses its reaction would otherwise **lurch** into the freed space (a follow-through that can damage the part or the surroundings). Firing on the derivative is what lets the consumer arrest within tolerance. The freed part a breakaway exposes is handed to § Freed-part handling (next unit).
+
+### Detent vs. bottoming-out — the `detent` event
+
+A **detent** is a **rise-then-drop** signature *while motion continues*: the effort climbs to a local peak, then drops as the mechanism gives — the "click" of a button actuation (`force.press_button`) or a bistable snap (`force.snap_engage`) (`01` `ActuationSpec`). The critical discrimination is from **bottoming-out**:
+
+| Signature | Effort profile | Verdict |
+|---|---|---|
+| detent (click / snap) | rise to a peak, **then drop**, motion continues | actuation succeeded |
+| bottoming-out | monotone rise to a **plateau**, motion arrests | hard stop, **not** an actuation — never reported as success |
+
+The drop *after* the peak is the whole signal: an effort that rises and stays high hit a hard stop, not a detent. Reporting a bottoming-out as a successful click is the false-positive this discrimination exists to prevent. (This is distinct from the seating / jam discrimination of `force.insert_fit`, which is `01`'s force-at-state rule — `effort_rise` *at* the expected depth is seated, without depth is jam; the detent signature is the click, the seating rule is the depth conjunction, and the two compose where a primitive needs both.)
+
+### Temporal alignment across multi-rate features
+
+A `ForceEvent` is computed over a time window, and its inputs (force, tactile, proprioceptive features) may sample at different rates, each declared in the descriptor's `resolution.temporal` (§ The contact-sensor descriptor). For the event's `at` timestamp to be deterministic — and `StopCondition` evaluation with it (`01`: "`StopCondition` evaluation is deterministic … event variants evaluate from declared thresholds / signatures per the `04` feature definitions") — the manifold fixes:
+
+- **A common timebase.** Every feature reading is stamped on one monotonic manifold timebase; the descriptor's per-feature `resolution.temporal` declares each feature's rate against it.
+- **The slowest-grid rule.** When a signature combines features at different rates, it is evaluated on the **slowest contributing feature's** sample grid — an event cannot be detected faster than its slowest required input — and its `at` is the boundary sample of the signature on that grid.
+- **Detection determinism.** Given an identical timestamped feature trace, a `ForceEvent`'s `(kind, at, magnitude)` is identical. This is the manifold-side guarantee `retarget` determinism (`02`) and conformance fixtures (`05`) build on. The *realized* trace of a contact-dynamics primitive is **not** byte-reproducible (the determinism boundary owned by `02`); the **detection function over a given trace** is.
+
+This resolves the chapter's multi-rate temporal-alignment open issue.
+
+#### Conformance obligations (force events)
+
+- **TM13c — breakaway signature.** `effort_drop` is detected as a `force_derivative` fall past a declared negative-rate threshold together with a settled lower effort level, reported with an aligned `at` timestamp; derivative noise without a settled drop is not a breakaway.
+- **TM14c — detent vs. bottoming-out.** A `detent` is a peak-then-drop while motion continues; a monotone rise to a plateau (bottoming-out) is not a `detent` and is never reported as actuation success.
+- **TM15c — leading-edge breakaway.** Breakaway fires on the derivative collapse (leading edge), early enough for the consumer to arrest within the primitive's tolerance, not after the effort fully settles.
+- **TM16c — temporal-alignment determinism.** A `ForceEvent`'s `(kind, at, magnitude)` is a deterministic function of the timestamped feature trace, evaluated on the slowest contributing feature's grid; identical traces yield identical events.
+
+#### Deferred to other chapters
+
+- **The `StopCondition` type family**, its `effort_drop` / `detent` variants, and the seating / jam force-at-state (`all_of`) rule — `01-skill-isa.md`.
+- **The canonical-action encoding** of the monitored event, and the realized-trace determinism boundary for contact-dynamics primitives — `02-translation-layer.md`.
+- **The force-trajectory envelope test class** (interval-sampled effort / torque bounding) and event-fixture reproducibility — `05-conformance.md`.
+- **Freed-part handling** at a breakaway that frees a part — § Freed-part handling (next unit).
+
 ## Deferred to other chapters
 
 The manifold owns the feature *definitions*. Coupled concerns are owned elsewhere and referenced, not redefined:
@@ -327,7 +384,6 @@ The manifold owns the feature *definitions*. Coupled concerns are owned elsewher
 
 The remaining items of the `04` group in `02-translation-layer.md` § Open issues, each a unit still to be written on this foundation:
 
-- **Force-event** semantics (breakaway / detent; detent vs. bottoming-out) and the multi-rate **temporal-alignment** model (the chapter's second skeleton open issue)
 - **Deformation** semantics (bend / crease vs. crush)
 - **Freed-part** safety handling at constraint-release
 - The two **sensing-scope contracts** (measurement non-disturbance; observation-capturability)
