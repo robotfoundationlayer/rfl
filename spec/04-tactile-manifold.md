@@ -1,6 +1,6 @@
 # TactileManifold — Specification
 
-> **Status**: foundation + degradation + slip + force-events + deformation specified (2026-05-31) — the feature-field model, the field-set discipline, the feature taxonomy, the contact-sensor descriptor, the site model, the `TactileTarget` type, the graceful-degradation proxy discipline, the slip discrimination model, the breakaway / detent force-event detection with its temporal-alignment timebase, and the crush / bend deformation discrimination. Remaining before freeze: the per-feature semantic units (freed-part safety; sensing-scope contracts), tracked in `02-translation-layer.md` § Open issues (Owned by `04`). The formal mathematical specification is in the white paper Appendix B; this chapter is the implementation-facing version.
+> **Status**: foundation + degradation + slip + force-events + deformation + freed-part specified (2026-05-31) — the feature-field model, the field-set discipline, the feature taxonomy, the contact-sensor descriptor, the site model, the `TactileTarget` type, the graceful-degradation proxy discipline, the slip discrimination model, the breakaway / detent force-event detection with its temporal-alignment timebase, the crush / bend deformation discrimination, and the freed-part disposition contract. Remaining before freeze: the sensing-scope contracts (measurement non-disturbance; observation-capturability), tracked in `02-translation-layer.md` § Open issues (Owned by `04`). The formal mathematical specification is in the white paper Appendix B; this chapter is the implementation-facing version.
 
 ## Scope
 
@@ -423,6 +423,52 @@ A non-tactile embodiment therefore still refuses to exceed a declared `max_conta
 - **The canonical-action encoding** of the deformation monitor — `02-translation-layer.md`.
 - **The conformance test material** (instrumented deformable / thin specimens) that exercises crush and bend — `05-conformance.md`.
 
+## Freed-part handling at constraint release
+
+When a `force` operation releases a constraint, a part becomes **free** — `force.unscrew` backs a fastener out until the thread disengages, `force.cut` severs a piece. A freed part has its own mass and is no longer held by the constraint that held it; left unmanaged it drops uncontrolled, a hazard to the part and the surroundings. The "do not drop a freed object" guarantee already exists for `in_hand.flip` (`safe_drop_zone` + `catch_envelope`) and `place.discard`; this section applies it at the moment a `force` operation frees a part, keyed to the manifold's freeing event.
+
+### The freeing event
+
+The moment of freeing is a `ForceEvent` (§ Force events): the **breakaway** (`effort_drop`) of `force.unscrew` thread disengagement, or the cut-completion of `force.cut` (`01` `CutStop`: `landmark(path_complete) | effort_drop | reached(depth)`). The manifold's role here is to *detect that a part has just become free* — the same leading-edge breakaway detection (§ Breakaway — the `effort_drop` event), now read as a state transition (constrained → free), not only as a stop condition.
+
+### The freed-part disposition contract
+
+On a detected freeing, the freed part's disposition MUST be one of two outcomes — never an uncontrolled drop:
+
+```
+on freeing_event(part P):
+    disposition(P) ∈ { retained, safe_zone_release(zone) }   # required
+    uncontrolled_drop(P)                                      # forbidden
+```
+
+- **`retained`** — the effector keeps hold of the freed part (a captive screw kept in the driver, a severed piece kept grasped) so it cannot fall.
+- **`safe_zone_release(zone)`** — the part is released into a declared safe region where it lands without harm, the `force`-operation analogue of `in_hand.flip`'s `safe_drop_zone` and `place.discard`'s discard region.
+
+The contract is the same guarantee as `flip`'s bounded unsecured window, applied at a different trigger: where `flip` bounds a *momentary release*, freed-part handling bounds the *constraint release*. Both forbid the uncontrolled drop and both require a declared safe landing if the part is not retained.
+
+### Hand-off to collision and world-state
+
+A freed part is a new free object. On the freeing event it enters:
+
+- the **collision augment set** (`03` § Collision model) — the dual of the `grasp.release` augmentation: subsequent clearance queries must now account for the freed part as an obstacle / object, not as part of the constrained structure;
+- the **world-state model** (`01`) as a free object, so downstream primitives reason about it (pick it up, clear it, track its rest).
+
+### Degradation
+
+Detecting the freeing event needs the `force_derivative`-based breakaway feature (§ Force events), proxy-irreducible in its *incipient* form. With it absent, the freeing moment is caught only reactively — a gross effort drop or the commanded end-of-travel — not at the leading edge. The **disposition contract still binds**: even under reactive detection the freed part must be retained or safe-zone-released, never dropped. Degradation lowers the *detection fidelity* (and the disclosed tier), never relaxes the no-uncontrolled-drop guarantee.
+
+#### Conformance obligations (freed part)
+
+- **TM20c — freeing detection.** A constraint release that frees a part is detected from the freeing `ForceEvent` (breakaway for `force.unscrew`, cut-completion for `force.cut`), reported as a constrained → free transition.
+- **TM21c — disposition contract.** On a detected freeing, the freed part is either retained or released into a declared safe zone; an uncontrolled drop is a violation, including under degraded (reactive-only) detection.
+- **TM22c — freed-part tracking.** A freed part enters the collision augment set (`03`) and the world-state (`01`) as a free object; subsequent clearance queries account for it.
+
+#### Deferred to other chapters
+
+- **The primitive parameters** (`safe_drop_zone`, a retain flag) and the shared `in_hand.flip` / `place.discard` "no uncontrolled drop" lineage — `01-skill-isa.md`.
+- **The collision augment-set mechanics** that admit the freed part — `03-driver-interface.md` § Collision model.
+- **The freed-part test bench** (verify retained or landed-in-safe-zone) and the audit propagation of a constraint-release event (the `momentary_release` lineage, L4 / L8) — `05-conformance.md`.
+
 ## Deferred to other chapters
 
 The manifold owns the feature *definitions*. Coupled concerns are owned elsewhere and referenced, not redefined:
@@ -436,5 +482,4 @@ The manifold owns the feature *definitions*. Coupled concerns are owned elsewher
 
 The remaining items of the `04` group in `02-translation-layer.md` § Open issues, each a unit still to be written on this foundation:
 
-- **Freed-part** safety handling at constraint-release
 - The two **sensing-scope contracts** (measurement non-disturbance; observation-capturability)
