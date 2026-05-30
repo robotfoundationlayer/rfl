@@ -1,6 +1,6 @@
 # Conformance — Specification
 
-> **Status**: in progress (2026-05-31) — the four test classes, the three-tier regime, and the envelope-class taxonomy (terminal-postcondition / interval-invariant / grasp-continuity / force-torque-trajectory) are specified. Remaining before freeze: the conformance regime (the determinism floor + fidelity-tier → badge + recursive simulator conformance), tracked in `02-translation-layer.md` § Open issues and § Open issues of this chapter.
+> **Status**: design-complete (2026-05-31) — the four test classes, the three-tier regime, the envelope-class taxonomy (terminal-postcondition / interval-invariant / grasp-continuity / force-torque-trajectory), the grasp-continuity modes, the closure / stability / composition checks, the reversibility spectrum + irreversible-operation safety class, the hazardous-operation benches, the audit-and-transparency trail, and the conformance regime (determinism floor, fidelity-tier → badge, recursive simulator conformance, trademark gate) are specified. The `05` group of `02-translation-layer.md` § Open issues is closed (16/16). One data-dependent item remains open (the per-skill ε-tolerance table); the JSON Schema is the other pre-freeze deliverable.
 
 ## Scope
 
@@ -271,8 +271,31 @@ Two other safety-critical facts propagate into the audit record by the same disc
 | 2 — Steward-verified | RFL Inc. or RFL Foundation engineering staff runs the suite | Free for Lead Customers / Founding Members; fee otherwise | Yes |
 | 3 — Notified-body | Independent body (TÜV or comparable, post-MoU) | Independent fee | Yes (and enables ISO 10218 / 13482 flow-through) |
 
+The regime tier above answers *who verified*. Two orthogonal refinements answer *how strictly* and *how well* — the determinism floor and the fidelity tier — and a third question, how a simulator may stand in for physical hardware.
+
+### The determinism floor — Class 2-strict and Class 2-loose
+
+Test class 2 (Translation Layer determinism) compares `retarget` output against frozen fixtures. The floor splits by whether a primitive's *realized execution* is reproducible:
+
+- **Class 2-strict** — *bit-identical* `retarget` output across runs and platforms. The default; applies to primitives whose canonical-action generation **and** realized execution are deterministic — the purely-kinematic primitives (`reach`, and `02`'s purely-kinematic contract).
+- **Class 2-loose** — *semantic equivalence within a per-skill ε-tolerance*. Applies to primitives whose canonical-action generation is byte-deterministic but whose **realized** execution runs against contact dynamics (compliant search, passive drive — `02`'s determinism boundary), so the realized trajectory is not bit-reproducible. The retarget *generation* is still held to Class 2-strict; only the *realized-execution* check is Class 2-loose against ε.
+
+A primitive is assigned strict or loose by `02`'s determinism boundary, and the suite applies the matching comparison. This is the split the strategy records as a stable commitment (Class 2-strict / Class 2-loose); the concrete per-skill ε-table is the one item still open (§ Open issues).
+
+### Fidelity tier and the badge
+
+A capability is claimed at a **fidelity tier** (`04` § Fidelity tier and audit honesty: `manifold` > `proxy` > `proxy_reactive`) through `03`'s reserved per-capability `tier` attribute. The fidelity tier selects *which* conformance test a capability must pass: a `manifold`-tier claim must pass the full feature-confirmation test, a `proxy`-tier claim only the force/position-proxy test (the `03` G4c tactile-independence test). The badge records, per capability, both the **regime tier** (who verified — Tier 1/2/3) and the **fidelity tier** achieved — so it is honest not just about *that* a capability conforms but *how well* it confirms. The two are orthogonal: a self-certified (Tier 1) embodiment may achieve `manifold` fidelity, while a steward-verified (Tier 2) one may reach only `proxy`.
+
+### Recursive simulator conformance
+
+Test class 4 (end-to-end) requires the physical embodiment or "a high-fidelity simulator declared as conformant." A simulator earns that status **recursively**: it is conformant iff its outputs match a *physically-conformant* embodiment's outputs within the Class 2-loose ε on a reference fixture set. Simulator conformance is therefore itself a conformance claim, anchored to physical ground truth — a simulator cannot bootstrap its own fidelity. The reference fixture set and the anchoring embodiment are recorded with the simulator's declaration.
+
+### The trademark gate
+
+The RFL™ trademark *gate* — which regime tier permits use of the mark on packaging — is fixed in the tier table above (Tier 2 and Tier 3 permit it; Tier 1 self-certification does not). The *assignment and ownership* of the mark after the Stage-2 Foundation donation is a **governance** matter, not a spec one: per `00` § Specification governance, governance rules live in the project governance documents, not in the spec.
+
 ## Open issues
 
-- Determinism requirement floor (bit-identical vs. semantic-equivalence with epsilon)
-- How a simulator earns "high-fidelity / conformant" status (recursive conformance)
-- Trademark assignment after Stage 2 Foundation donation
+The determinism floor, recursive simulator conformance, and the trademark gate are resolved above; trademark *assignment* is scoped to governance. One data-dependent item remains open through the v0.1 review period:
+
+- **Per-skill ε-tolerance table (Class 2-loose)**: the concrete per-primitive tolerances for the semantic-equivalence comparison of contact-dynamics primitives. Open pending reference-implementation data; the strict / loose *split* and its assignment rule (`02`'s determinism boundary) are fixed.
