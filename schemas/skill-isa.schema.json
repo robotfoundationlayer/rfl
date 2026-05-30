@@ -185,54 +185,159 @@
         { "$ref": "#/$defs/Ref" }
       ]
     },
-    "StopSpec": {
-      "description": "A stop / completion / actuation condition of the StopCondition family (01 § Stop / completion conditions): PullStop, ScrewStop, ActuationSpec, CutStop, ScrubStop. Precise per-family typing is deferred to the pre-freeze 01 § 6 formatting pass (which aligns the per-primitive prose spellings — breakaway / tension / disengagement / torque_drop / path_complete / separation / force_threshold — onto the unified StopCondition family); until then it is a bare named condition (a string), a parametrized condition (an object), or a let-reference. force.insert_fit, whose § 6.1 table has already been reconciled, uses the precise StopCondition def instead.",
-      "anyOf": [ { "type": "string" }, { "type": "object" }, { "$ref": "#/$defs/Ref" } ]
-    },
-    "StopCondition": {
-      "description": "The unified stop / completion condition family (01 § Stop / completion conditions): reached(Progress) | effort_rise(Effort) | effort_drop | detent | count(n) | elapsed(Duration) | landmark(Ref) | predicate(StatePredicate) | all_of(set) | any_of(set). Serialized as a single-key object keyed by the condition kind (or the bare string effort_drop / detent for the two nullary events). all_of / any_of recurse over StopCondition. Progress (reached) is a Length / Angle / depth / turns / advance; Effort (effort_rise) is a Force or Torque.",
+    "SC_effort_drop": {
+      "description": "StopCondition family member: a sudden resistance-drop event (breakaway / separation / disengagement / torque_drop). The bare string effort_drop, or the single-key object form.",
       "oneOf": [
-        { "enum": ["effort_drop", "detent"] },
+        { "const": "effort_drop" },
+        { "type": "object", "required": ["effort_drop"], "maxProperties": 1 }
+      ]
+    },
+    "SC_detent": {
+      "description": "StopCondition family member: a rise-then-drop effort signature (a click). The bare string detent, or the single-key object form.",
+      "oneOf": [
+        { "const": "detent" },
+        { "type": "object", "required": ["detent"], "maxProperties": 1 }
+      ]
+    },
+    "SC_effort_rise_force": {
+      "type": "object",
+      "description": "StopCondition family member: effort_rise to a Force level (e.g. seating force, tension, press / engagement threshold).",
+      "required": ["effort_rise"],
+      "additionalProperties": false,
+      "properties": { "effort_rise": { "anyOf": [ { "$ref": "#/$defs/Force" }, { "$ref": "#/$defs/Ref" } ] } }
+    },
+    "SC_effort_rise_torque": {
+      "type": "object",
+      "description": "StopCondition family member: effort_rise to a Torque level (fastener tightness).",
+      "required": ["effort_rise"],
+      "additionalProperties": false,
+      "properties": { "effort_rise": { "anyOf": [ { "$ref": "#/$defs/Torque" }, { "$ref": "#/$defs/Ref" } ] } }
+    },
+    "SC_reached_depth": {
+      "type": "object",
+      "description": "StopCondition family member: reached a depth (a Length progress value); bare Length, a {depth: Length} object, or a let-reference.",
+      "required": ["reached"],
+      "additionalProperties": false,
+      "properties": {
+        "reached": { "anyOf": [
+          { "$ref": "#/$defs/Length" },
+          { "$ref": "#/$defs/Ref" },
+          { "type": "object", "required": ["depth"], "maxProperties": 1, "additionalProperties": false, "properties": { "depth": { "$ref": "#/$defs/Length" } } }
+        ] }
+      }
+    },
+    "SC_reached_distance": {
+      "type": "object",
+      "description": "StopCondition family member: reached a distance (a Length progress value); bare Length, a {distance: Length} object, or a let-reference.",
+      "required": ["reached"],
+      "additionalProperties": false,
+      "properties": {
+        "reached": { "anyOf": [
+          { "$ref": "#/$defs/Length" },
+          { "$ref": "#/$defs/Ref" },
+          { "type": "object", "required": ["distance"], "maxProperties": 1, "additionalProperties": false, "properties": { "distance": { "$ref": "#/$defs/Length" } } }
+        ] }
+      }
+    },
+    "SC_reached_advance": {
+      "type": "object",
+      "description": "StopCondition family member: reached an axial advance (a Length progress value); bare Length, an {advance: Length} object, or a let-reference.",
+      "required": ["reached"],
+      "additionalProperties": false,
+      "properties": {
+        "reached": { "anyOf": [
+          { "$ref": "#/$defs/Length" },
+          { "$ref": "#/$defs/Ref" },
+          { "type": "object", "required": ["advance"], "maxProperties": 1, "additionalProperties": false, "properties": { "advance": { "$ref": "#/$defs/Length" } } }
+        ] }
+      }
+    },
+    "SC_count": {
+      "type": "object",
+      "description": "StopCondition family member: a repetition count (turns / passes), a positive integer or a let-reference.",
+      "required": ["count"],
+      "additionalProperties": false,
+      "properties": { "count": { "anyOf": [ { "type": "integer", "minimum": 1 }, { "$ref": "#/$defs/Ref" } ] } }
+    },
+    "SC_elapsed": {
+      "type": "object",
+      "description": "StopCondition family member: elapsed time (a Duration).",
+      "required": ["elapsed"],
+      "additionalProperties": false,
+      "properties": { "elapsed": { "$ref": "#/$defs/Duration" } }
+    },
+    "SC_landmark": {
+      "type": "object",
+      "description": "StopCondition family member: a declared reference reached (tactile_landmark / external_reference / path_complete), a name string or a let-reference.",
+      "required": ["landmark"],
+      "additionalProperties": false,
+      "properties": { "landmark": { "anyOf": [ { "type": "string" }, { "$ref": "#/$defs/Ref" } ] } }
+    },
+    "SC_predicate": {
+      "type": "object",
+      "description": "StopCondition family member: a sense.verify predicate became true (the force-sense coupling point).",
+      "required": ["predicate"],
+      "additionalProperties": false,
+      "properties": { "predicate": { "anyOf": [ { "$ref": "#/$defs/Predicate" }, { "$ref": "#/$defs/Ref" } ] } }
+    },
+    "SeatingSpec": {
+      "description": "force.insert_fit stop_condition (01 § 316 restriction): effort_rise(force) | reached(depth) | all_of{effort_rise(force), reached(depth)} — the conjunction is the seating/jam discriminator.",
+      "oneOf": [
+        { "$ref": "#/$defs/SC_effort_rise_force" },
+        { "$ref": "#/$defs/SC_reached_depth" },
         {
-          "type": "object",
-          "minProperties": 1,
-          "maxProperties": 1,
-          "additionalProperties": false,
-          "properties": {
-            "reached": {
-              "description": "Progress hit a value.",
-              "anyOf": [
-                { "$ref": "#/$defs/Length" },
-                { "$ref": "#/$defs/Angle" },
-                { "$ref": "#/$defs/Ref" },
-                {
-                  "type": "object",
-                  "minProperties": 1,
-                  "maxProperties": 1,
-                  "additionalProperties": false,
-                  "properties": {
-                    "depth": { "$ref": "#/$defs/Length" },
-                    "distance": { "$ref": "#/$defs/Length" },
-                    "advance": { "$ref": "#/$defs/Length" },
-                    "turns": { "anyOf": [ { "type": "integer", "minimum": 1 }, { "$ref": "#/$defs/Ref" } ] }
-                  }
-                }
-              ]
-            },
-            "effort_rise": {
-              "description": "Resisting effort reached a level (Force or Torque).",
-              "anyOf": [ { "$ref": "#/$defs/Force" }, { "$ref": "#/$defs/Torque" } ]
-            },
-            "effort_drop": { "description": "A sudden resistance-drop event (breakaway / separation / disengagement / torque_drop)." },
-            "detent": { "description": "A rise-then-drop effort signature (a click)." },
-            "count": { "anyOf": [ { "type": "integer", "minimum": 1 }, { "$ref": "#/$defs/Ref" } ], "description": "A repetition count (turns / passes)." },
-            "elapsed": { "$ref": "#/$defs/Duration", "description": "Elapsed time." },
-            "landmark": { "anyOf": [ { "type": "string" }, { "$ref": "#/$defs/Ref" } ], "description": "A declared reference reached (tactile_landmark / external_reference / path_complete)." },
-            "predicate": { "anyOf": [ { "$ref": "#/$defs/Predicate" }, { "$ref": "#/$defs/Ref" } ], "description": "A sense.verify predicate became true." },
-            "all_of": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/StopCondition" }, "description": "Conjunction (e.g. force_and_depth, torque_and_advance)." },
-            "any_of": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/StopCondition" }, "description": "Disjunction." }
-          }
+          "type": "object", "required": ["all_of"], "maxProperties": 1, "additionalProperties": false,
+          "properties": { "all_of": { "type": "array", "minItems": 1, "items": { "oneOf": [ { "$ref": "#/$defs/SC_effort_rise_force" }, { "$ref": "#/$defs/SC_reached_depth" } ] } } }
         }
+      ]
+    },
+    "PullStop": {
+      "description": "force.pull stop_condition (01 § 317 restriction): reached(distance) | effort_drop | effort_rise(tension, a Force).",
+      "oneOf": [
+        { "$ref": "#/$defs/SC_reached_distance" },
+        { "$ref": "#/$defs/SC_effort_drop" },
+        { "$ref": "#/$defs/SC_effort_rise_force" }
+      ]
+    },
+    "ScrewStop": {
+      "description": "force.screw / force.unscrew completion (01 § 318 restriction): effort_rise(torque) | count(turns) | all_of{effort_rise(torque), reached(advance)}. Per the project decision the unscrew effort_drop variant is not typed; both share this restriction.",
+      "oneOf": [
+        { "$ref": "#/$defs/SC_effort_rise_torque" },
+        { "$ref": "#/$defs/SC_count" },
+        {
+          "type": "object", "required": ["all_of"], "maxProperties": 1, "additionalProperties": false,
+          "properties": { "all_of": { "type": "array", "minItems": 1, "items": { "oneOf": [ { "$ref": "#/$defs/SC_effort_rise_torque" }, { "$ref": "#/$defs/SC_reached_advance" } ] } } }
+        }
+      ]
+    },
+    "ActuationSpec": {
+      "description": "force.press_button / force.snap_engage actuation / snap_signature (01 § 319 restriction): detent | effort_rise(force_threshold, a Force).",
+      "oneOf": [
+        { "$ref": "#/$defs/SC_detent" },
+        { "$ref": "#/$defs/SC_effort_rise_force" }
+      ]
+    },
+    "CutStop": {
+      "description": "force.cut completion (01 § 320 restriction): landmark(path_complete) | effort_drop (separation) | reached(depth).",
+      "oneOf": [
+        { "$ref": "#/$defs/SC_landmark" },
+        { "$ref": "#/$defs/SC_effort_drop" },
+        { "$ref": "#/$defs/SC_reached_depth" }
+      ]
+    },
+    "ScrubStop": {
+      "description": "force.scrub completion (01 § 321 restriction): elapsed(duration) | count(passes) | predicate(state_change).",
+      "oneOf": [
+        { "$ref": "#/$defs/SC_elapsed" },
+        { "$ref": "#/$defs/SC_count" },
+        { "$ref": "#/$defs/SC_predicate" }
+      ]
+    },
+    "SlideStop": {
+      "description": "in_hand.slide stop_condition (01 § 315 restriction): reached(distance) | landmark(tactile_landmark / external_reference).",
+      "oneOf": [
+        { "$ref": "#/$defs/SC_reached_distance" },
+        { "$ref": "#/$defs/SC_landmark" }
       ]
     },
     "Compound": {
@@ -1075,7 +1180,7 @@
       "properties": {
         "grasp_handle": { "$ref": "#/$defs/GraspHandle", "description": "GraspRef | active (default active) — the established grasp to slide within." },
         "slide_direction": { "$ref": "#/$defs/Direction", "description": "Direction — direction of slip along the contact surface, in the grasp frame." },
-        "stop_condition": { "$ref": "#/$defs/Compound", "description": "SlideStop — what ends the slide: distance(d) | tactile_landmark(ref) | external_reference(ref). Inline object or let-reference." },
+        "stop_condition": { "$ref": "#/$defs/SlideStop", "description": "SlideStop (01 § 315) — reached(distance) | landmark(tactile_landmark / external_reference)." },
         "drive": { "enum": ["actuated", "gravity"], "description": "Active feed vs gravity-fed slip (default actuated)." },
         "controlled_frame": { "$ref": "#/$defs/FrameRef", "description": "FrameRef — grasp frame (default from grasp_handle)." },
         "position_tolerance": { "$ref": "#/$defs/Length", "description": "Length > 0, looser default (slip is friction-dependent) (default 3 mm)." },
@@ -1310,7 +1415,7 @@
         "grasp_handle": { "$ref": "#/$defs/GraspHandle", "description": "GraspRef | active (default active) — the grasp on the target being pulled (pulling requires a grip / hook)." },
         "pull_direction": { "$ref": "#/$defs/Direction", "description": "Direction — direction of tensile force, in frame." },
         "force_budget": { "$ref": "#/$defs/Force", "description": "Force — max tensile force to apply." },
-        "stop_condition": { "$ref": "#/$defs/StopSpec", "description": "PullStop — distance(d) | breakaway | tension(F) (StopCondition family, deferred)." },
+        "stop_condition": { "$ref": "#/$defs/PullStop", "description": "PullStop (01 § 317) — reached(distance) | effort_drop (breakaway) | effort_rise(tension)." },
         "breakaway_response": { "enum": ["arrest", "continue"], "description": "On a sudden resistance drop: stop immediately or keep moving (default arrest)." },
         "compliance": { "$ref": "#/$defs/Compliance", "description": "Required compliance mode (default auto)." },
         "frame": { "$ref": "#/$defs/FrameRef", "description": "FrameRef — reference frame (default task)." },
@@ -1328,7 +1433,7 @@
         "torque_budget": { "$ref": "#/$defs/Torque", "description": "Torque — max torque about thread_axis (thread-strip / fastener-break limit)." },
         "axial_force_budget": { "anyOf": [ { "$ref": "#/$defs/Auto" }, { "$ref": "#/$defs/Force" } ], "description": "Force | auto — max axial seating force." },
         "thread_pitch": { "anyOf": [ { "$ref": "#/$defs/Auto" }, { "$ref": "#/$defs/Length" } ], "description": "Length | auto — couples rotation to advance (default auto = from the thread spec)." },
-        "completion": { "$ref": "#/$defs/StopSpec", "description": "ScrewStop — torque_rise(T) | turns(n) | torque_and_advance(T,d) (deferred)." },
+        "completion": { "$ref": "#/$defs/ScrewStop", "description": "ScrewStop (01 § 318) — effort_rise(torque) | count(turns) | all_of{effort_rise(torque), reached(advance)}." },
         "tool_mediated": { "anyOf": [ { "type": "boolean" }, { "$ref": "#/$defs/Auto" } ], "description": "bool | auto — whether a held tool transmits the torque (default auto = inferred from grasp)." },
         "compliance": { "$ref": "#/$defs/Compliance", "description": "Required compliance mode (default auto)." },
         "frame": { "$ref": "#/$defs/FrameRef", "description": "FrameRef — reference frame (default task)." },
@@ -1345,7 +1450,7 @@
         "thread_axis": { "$ref": "#/$defs/Direction", "description": "Direction — the thread axis, in frame." },
         "torque_budget": { "$ref": "#/$defs/Torque", "description": "Torque — max loosening torque (tool-strip / fastener-break / break-loose limit)." },
         "thread_pitch": { "anyOf": [ { "$ref": "#/$defs/Auto" }, { "$ref": "#/$defs/Length" } ], "description": "Length | auto — couples reverse rotation to retreat." },
-        "completion": { "$ref": "#/$defs/StopSpec", "description": "ScrewStop — disengagement (default) | turns(n) | torque_drop (deferred)." },
+        "completion": { "$ref": "#/$defs/ScrewStop", "description": "ScrewStop (01 § 318) — effort_rise(torque) | count(turns) | all_of{effort_rise(torque), reached(advance)} (the unscrew effort_drop variant is not typed, per project decision)." },
         "on_disengagement": { "enum": ["retain", "drop_safe"], "description": "When the fastener frees: keep it gripped, or release into a safe zone (default retain)." },
         "tool_mediated": { "anyOf": [ { "type": "boolean" }, { "$ref": "#/$defs/Auto" } ], "description": "bool | auto — whether a held tool transmits the torque (default auto)." },
         "compliance": { "$ref": "#/$defs/Compliance", "description": "Required compliance mode (default auto)." },
@@ -1362,7 +1467,7 @@
         "controlled_frame": { "$ref": "#/$defs/FrameRef", "description": "FrameRef — the frame pressing (fingertip, held stylus, etc.) (default effector / held tool)." },
         "target": { "$ref": "#/$defs/Compound", "description": "SurfaceTarget — the button surface (point + press direction)." },
         "press_direction": { "anyOf": [ { "$ref": "#/$defs/Auto" }, { "$ref": "#/$defs/Direction" } ], "description": "Direction | auto — default auto = -target.normal (into the button)." },
-        "actuation": { "$ref": "#/$defs/StopSpec", "description": "ActuationSpec — detent (force rise-then-drop / click) | force_threshold(F) (deferred)." },
+        "actuation": { "$ref": "#/$defs/ActuationSpec", "description": "ActuationSpec (01 § 319) — detent (rise-then-drop / click) | effort_rise(force_threshold)." },
         "force_budget": { "$ref": "#/$defs/Force", "description": "Force — max press force (over-travel / mechanism-damage limit)." },
         "max_travel": { "anyOf": [ { "$ref": "#/$defs/Auto" }, { "$ref": "#/$defs/Length" } ], "description": "Length | auto — max displacement (over-travel guard) (default auto = small)." },
         "release_after": { "type": "boolean", "description": "Release the press after actuation (momentary), or hold (default true)." },
@@ -1380,7 +1485,7 @@
         "grasp_handle": { "$ref": "#/$defs/GraspHandle", "description": "GraspRef | active (default active) — the grasp on the cutting tool (cut is tool-mediated)." },
         "cut_path": { "$ref": "#/$defs/Compound", "description": "Trajectory — the path along which to cut, in frame (bounds exactly where the cut goes)." },
         "shear_force_budget": { "$ref": "#/$defs/Force", "description": "Force — max shear force (tool-damage / over-cut / kickback limit)." },
-        "completion": { "$ref": "#/$defs/StopSpec", "description": "CutStop — path_complete | separation (resistance drop) | depth(d) (deferred)." },
+        "completion": { "$ref": "#/$defs/CutStop", "description": "CutStop (01 § 320) — landmark(path_complete) | effort_drop (separation) | reached(depth)." },
         "feed_rate": { "anyOf": [ { "$ref": "#/$defs/Auto" }, { "$ref": "#/$defs/Velocity" } ], "description": "Velocity | auto — tool advance speed along the path." },
         "on_separation": { "enum": ["retain", "drop_safe"], "description": "Handling of the freed (cut-off) part (default retain)." },
         "tool_mediated": { "type": "boolean", "description": "Always true for cut (a cutting tool is used) (default true)." },
@@ -1419,7 +1524,7 @@
         "normal_force": { "$ref": "#/$defs/Force", "description": "Force — regulated contact force normal to the surface." },
         "amplitude": { "$ref": "#/$defs/Length", "description": "Length — tangential oscillation amplitude." },
         "frequency": { "anyOf": [ { "$ref": "#/$defs/Auto" }, { "$ref": "#/$defs/Frequency" } ], "description": "Frequency | auto — oscillation frequency; clamped to embodiment.limits.oscillation_max." },
-        "completion": { "$ref": "#/$defs/StopSpec", "description": "ScrubStop — duration(t) | passes(n) | state_change(pred) (deferred)." },
+        "completion": { "$ref": "#/$defs/ScrubStop", "description": "ScrubStop (01 § 321) — elapsed(duration) | count(passes) | predicate(state_change)." },
         "normal_force_tolerance": { "anyOf": [ { "$ref": "#/$defs/Auto" }, { "$ref": "#/$defs/Force" } ], "description": "Force | auto — allowed normal-force deviation." },
         "compliance": { "$ref": "#/$defs/Compliance", "description": "Required compliance mode (default auto)." },
         "frame": { "$ref": "#/$defs/FrameRef", "description": "FrameRef — reference frame (default task)." },
@@ -1436,7 +1541,7 @@
         "mate_feature": { "$ref": "#/$defs/Compound", "description": "FeatureRef — the bistable mechanism / receptacle to engage." },
         "engage_direction": { "$ref": "#/$defs/Direction", "description": "Direction — direction to drive engagement, in frame." },
         "force_budget": { "$ref": "#/$defs/Force", "description": "Force — max engagement force (mechanism-break / over-force limit, above the expected snap peak)." },
-        "snap_signature": { "$ref": "#/$defs/StopSpec", "description": "ActuationSpec — detent (default, rise-then-drop) | force_threshold(F) (deferred)." },
+        "snap_signature": { "$ref": "#/$defs/ActuationSpec", "description": "ActuationSpec (01 § 319) — detent (default, rise-then-drop) | effort_rise(force_threshold)." },
         "confirm_held": { "type": "boolean", "description": "Verify the bistable connection holds after engagement (release-test) (default true)." },
         "compliance": { "$ref": "#/$defs/Compliance", "description": "Required compliance mode (default auto)." },
         "frame": { "$ref": "#/$defs/FrameRef", "description": "FrameRef — reference frame (default task)." },
@@ -1472,7 +1577,7 @@
         "insertion_axis": { "anyOf": [ { "$ref": "#/$defs/Auto" }, { "$ref": "#/$defs/Direction" } ], "description": "Direction | auto — nominal insertion direction (default auto = planner-derived from target_fit)." },
         "force_budget": { "$ref": "#/$defs/Force", "description": "Force — max force along insertion_axis (over-insertion / pin-damage limit)." },
         "lateral_force_budget": { "anyOf": [ { "$ref": "#/$defs/Auto" }, { "$ref": "#/$defs/Force" } ], "description": "Force | auto — max lateral force during search (cocking / side-load limit)." },
-        "stop_condition": { "$ref": "#/$defs/StopCondition", "description": "StopCondition — what defines seated: effort_rise(F) | reached(depth d) | all_of{effort_rise(F), reached(depth d)} (the conjunction is the seating/jam discriminator)." },
+        "stop_condition": { "$ref": "#/$defs/SeatingSpec", "description": "SeatingSpec (01 § 316) — effort_rise(F) | reached(depth) | all_of{effort_rise(F), reached(depth)}; the conjunction is the seating/jam discriminator." },
         "search_strategy": { "enum": ["spiral", "tilt", "hop", "auto"], "description": "Compliant-search pattern to find alignment (default auto)." },
         "compliance": { "$ref": "#/$defs/Compliance", "description": "Compliance mode required for the fit (default auto)." },
         "frame": { "$ref": "#/$defs/FrameRef", "description": "FrameRef — reference frame (default task)." },
