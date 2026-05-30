@@ -1,6 +1,6 @@
 # TactileManifold — Specification
 
-> **Status**: foundation + degradation + slip + force-events + deformation + freed-part specified (2026-05-31) — the feature-field model, the field-set discipline, the feature taxonomy, the contact-sensor descriptor, the site model, the `TactileTarget` type, the graceful-degradation proxy discipline, the slip discrimination model, the breakaway / detent force-event detection with its temporal-alignment timebase, the crush / bend deformation discrimination, and the freed-part disposition contract. Remaining before freeze: the sensing-scope contracts (measurement non-disturbance; observation-capturability), tracked in `02-translation-layer.md` § Open issues (Owned by `04`). The formal mathematical specification is in the white paper Appendix B; this chapter is the implementation-facing version.
+> **Status**: design-complete (2026-05-31) — all sensing-feature units are specified: the feature-field model, the field-set discipline, the feature taxonomy, the contact-sensor descriptor, the site model, the `TactileTarget` type, the graceful-degradation proxy discipline, the slip discrimination model, the breakaway / detent force-event detection with its temporal-alignment timebase, the crush / bend deformation discrimination, the freed-part disposition contract, and the two sensing-scope contracts. The `04` group of `02-translation-layer.md` § Open issues is closed. Remaining before freeze: the JSON Schema and the formal mathematical specification (white paper Appendix B); this chapter is the implementation-facing version. The formal mathematical specification is in the white paper Appendix B; this chapter is the implementation-facing version.
 
 ## Scope
 
@@ -469,6 +469,54 @@ Detecting the freeing event needs the `force_derivative`-based breakaway feature
 - **The collision augment-set mechanics** that admit the freed part — `03-driver-interface.md` § Collision model.
 - **The freed-part test bench** (verify retained or landed-in-safe-zone) and the audit propagation of a constraint-release event (the `momentary_release` lineage, L4 / L8) — `05-conformance.md`.
 
+## Sensing-scope contracts
+
+The `sense` category and the perception-fed parts of `reach` draw a boundary RFL must state precisely: what does RFL *guarantee* about a measurement, and what is left to perception / VLA? This section defines that boundary as two **sensing-scope contracts** — one for contact sensing, one for non-contact — that share a single principle.
+
+### The RFL / perception boundary
+
+RFL guarantees a measurement was **physically valid to take** — the target was in a state where a faithful reading is possible — and never guarantees any *interpretation* of the reading. Interpretation (what the data *means*: a defect class, an object identity, a scene understanding) is perception / VLA, above RFL (`00` § What this specification deliberately does not define). The two physical-validity conditions are **non-disturbance** for contact sensing and **capturability** for non-contact sensing. Both produce an honest *measurement-or-unobtainable*, never a fabricated reading from an invalid measurement.
+
+### Measurement non-disturbance — the contact-sensing scope
+
+A contact measurement must not move or deform the target beyond measurement tolerance: the act of sensing leaves the target as it found it. The constraint is the **dual of `force`'s force budget** — where a `force` primitive *drives* contact force up to a budget, a `sense` primitive *suppresses* contact force below the target's **disturb threshold**:
+
+```
+force category:  contact_force ≤ force_budget        (drive up to)
+sense category:  contact_force ≤ disturb_threshold   (suppress below)
+```
+
+The disturb threshold is a **target property** (perception-derived, like `max_contact_force`; not an embodiment field — § The contact-sensor descriptor), so a fragile target carries a low threshold and a robust one a high threshold. The manifold's role is the suppression constraint: the contact-force feature is held below the threshold throughout, and a force excursion that would disturb the target is a violation (`sense.probe`'s non-disturbance bound, `01`). **Absence is a valid measurement**: a probe that meets no surface reports `presence = false`, not a failure — the measurement never fabricates a reading where none was sensed, and never chases a non-existent surface (`01` `sense.probe` C2).
+
+### Observation-capturability — the non-contact-sensing scope
+
+A non-contact observation is guaranteed only to have been **capturable** — the target was in the sensor's field of view, unoccluded, and in working range — not that any interpretation succeeded. The capturability predicate is decided from the non-contact sensor descriptor's `fov` and `working_range` (`03` § Sensor descriptor) plus the occlusion geometry:
+
+```
+capturable(target) := in_fov(target, sensor.fov)
+                    ∧ unoccluded(target)
+                    ∧ in_range(target, sensor.working_range)
+```
+
+The honesty rule: when capturability fails — occlusion or out-of-range — the observation is reported **unobservable**, never returned as a confident reading from a bad view (`sense.inspect`'s observability guard, `01`; the same perception-scope boundary as `reach.scan`). This contract is the cross-cutting form `sense.inspect` and `reach.scan` reference; `03` owns the descriptor fields it reads, `01` states it per primitive, and this section fixes it once.
+
+### Scope and degradation
+
+Non-disturbance needs fine force sensing to hold contact below a low threshold; where it is absent, the force/position proxy (§ Graceful degradation and the force/position proxy) enforces the threshold as a force cap at the disclosed tier — the suppression constraint is proxy-degradable. Capturability is **geometric**, decided from declared `fov` / `working_range`, so it does not degrade with tactile sensing — it is a non-contact contract that coordinates with `03`'s sensor descriptor rather than with the contact manifold.
+
+#### Conformance obligations (sensing scope)
+
+- **TM23c — non-disturbance.** A contact measurement holds contact force below the target's disturb threshold throughout; a force excursion that would disturb the target is a violation (the dual of `force`'s budget).
+- **TM24c — presence honesty.** Absence (`presence = false`) is a valid measurement, not a failure; a measurement never fabricates a reading where none was sensed.
+- **TM25c — capturability honesty.** A non-contact observation is reported only when the target was in FOV, unoccluded, and in range; occlusion / out-of-range is reported unobservable, never as a confident reading from a bad view.
+- **TM26c — interpretation out of scope.** RFL scores the physical validity of a measurement (non-disturbance, capturability) and never its interpretation (a defect class, an identity, a scene reading) — that is perception / VLA, above RFL.
+
+#### Deferred to other chapters
+
+- **The disturb threshold as a target property**, and the per-primitive `sense.probe` / `sense.inspect` / `sense.locate` contracts that invoke these scopes — `01-skill-isa.md`.
+- **The non-contact sensor descriptor fields** (`fov`, `working_range`) the capturability predicate reads — `03-driver-interface.md` § Sensor descriptor.
+- **The verification benches** — target-unchanged-across-measurement (non-disturbance) and occlusion-reported-not-faked (capturability) — `05-conformance.md` (item `I` is explicitly `05`-owned for verification; `04` fixes the contract it verifies).
+
 ## Deferred to other chapters
 
 The manifold owns the feature *definitions*. Coupled concerns are owned elsewhere and referenced, not redefined:
@@ -480,6 +528,6 @@ The manifold owns the feature *definitions*. Coupled concerns are owned elsewher
 
 ## Open issues
 
-The remaining items of the `04` group in `02-translation-layer.md` § Open issues, each a unit still to be written on this foundation:
+The `04` group of `02-translation-layer.md` § Open issues is fully resolved — every item is marked `[resolved → 04 § …]`, and the chapter's own three skeleton open issues (closed-vs-extensible field set, multi-rate temporal alignment, calibration-uncertainty propagation) are absorbed into the units above. No `04`-owned open issues remain.
 
-- The two **sensing-scope contracts** (measurement non-disturbance; observation-capturability)
+The cross-chapter seams this chapter hands off stay open in their owning chapters: the canonical-action encoding of every monitored feature and the realized-trace determinism boundary (`02-translation-layer.md`); the capability / frame declarations and the non-contact sensor descriptor fields (`03-driver-interface.md`); and the conformance test classes, the tier → badge mapping, the epsilon floor, and the feature / freed-part / sensing-scope test benches (`05-conformance.md`). The chapter awaits the JSON Schema and the formal mathematical specification (white paper Appendix B) before freeze.
