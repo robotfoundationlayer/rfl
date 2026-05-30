@@ -368,6 +368,53 @@ Intended proximity to the manipulation target must not register as a collision, 
 - **X5c — self-collision.** A swept motion that self-collides (e.g. an in-place rotation folding the arm into itself) is detected as `no_collision_free_path`.
 - **X6c — determinism.** Identical `(moving, motion, exempt, augment, model)` inputs yield an identical clearance value (fixture reproducibility).
 
+## Sensor descriptor
+
+`reach.scan` and `sense.inspect` move a sensor frame to observe a region or target. They read per-sensor metadata from `embodiment.sensors[sensor_frame]` — the field of view to plan coverage, the bore axis to point, the working range and sweep-rate limits, and which observation modalities the sensor supports. This section defines that descriptor. It generalizes the previously tactile-only sensing declaration to non-contact (visual / range) sensors; the contact-sensor field set remains owned by `04-tactile-manifold.md` (see *Scope boundary* below).
+
+### A frame-keyed sensor map
+
+`embodiment.sensors` is a map keyed by frame name, with one entry per control frame carrying the `sensor` role (frame model § Embodiment frame model). It is the sensing counterpart of the grasp category's `grasp_envelope(frame)` — geometry and metadata attached per frame rather than to the embodiment as a whole.
+
+| Field | Type | Meaning | Read by |
+|---|---|---|---|
+| `bore_axis` | `SignedAxis` (`±{x,y,z}` of the sensor frame) | the sensor's viewing / pointing axis | `reach.scan`'s `sensor_axis` default |
+| `fov` | angular field (below) | the sensor's angular field of view | `reach.scan` coverage-set generation when `coverage_overlap = auto` |
+| `working_range` | `[min, max]` (`Length`) | the distance range over which an observation is valid | `sense.inspect`'s `standoff = auto`, `out_of_range` |
+| `max_sweep_rate` | `Velocity` | the sweep speed above which capture is invalid (motion blur / integration limit) | `reach.scan` velocity bound |
+| `modalities` | `set<{presence, pose, appearance, defect, custom}>` | the observation kinds the sensor can capture | `sense.inspect` modality coverage |
+
+`bore_axis` is distinct from the control frame's `tool_axis`: the viewing direction and the working / approach direction need not coincide (a sensor may be mounted at an angle to the effector's working axis).
+
+### Field of view
+
+`fov` is expressed as **angular half-extents about `bore_axis`** — `{h_angle, v_angle}`, a rectangular frustum. The representation is embodiment-agnostic by degeneration:
+
+- a camera → both angles finite (a rectangular frustum);
+- a line / profile scanner → one angle ≈ 0 (a fan);
+- a single-point range sensor (ToF beam) → both angles ≈ 0 (a beam);
+- a wide-angle sensor → large angles.
+
+With `standoff`, the angular field fixes the observation footprint (`2·standoff·tan(half_angle)`), from which the coverage set's pass spacing and overlap follow. `fov` is therefore a **declared constant**, not a runtime-measured quantity: the sweep set `Σ` is a pure function of `(region, pattern, standoff, coverage_overlap, fov)` and must be byte-for-byte reproducible (`reach.scan` C2). The normative `Σ` generators are owned by `02-translation-layer.md`; the sensor descriptor supplies the `fov` they consume.
+
+### Scope boundary — non-contact vs. contact sensors
+
+`embodiment.sensors` is the descriptor for **non-contact** (visual / range) sensors, with the angular / range fields above. Contact sensing — `sense.probe`'s tactile frame (`embodiment.default_tactile_frame`) and its contact / force fields (`max_probe_force`) — is a different field set owned by `04-tactile-manifold.md`. The sensor descriptor is the non-contact counterpart of the tactile manifold; the two share only the frame-keyed-map structure, not their fields. Generalizing the formerly tactile-only sensing declaration to visual / range sensors is exactly this split.
+
+### Capability gate (sensor specialization)
+
+- `reach.scan` and `sense.inspect` require a `sensor`-role frame with a matching `embodiment.sensors` entry; a missing entry is `region_underdetermined` (scan) / `capability_absent` (inspect).
+- `sense.inspect` requires the requested `observe` modalities to be a subset of the sensor's `modalities`, else `capability_absent`.
+- `reach.scan` with `coverage_overlap = auto` requires `fov`; its absence is `region_underdetermined`, with no motion.
+
+### Conformance obligations (sensor)
+
+- **SEN1c — entry completeness.** Every `sensor`-role frame has a `sensors` entry with `bore_axis`, `fov`, `working_range`, `max_sweep_rate`, and `modalities`.
+- **SEN2c — bore-axis validity.** `bore_axis` is one of `±{x,y,z}` of the sensor frame.
+- **SEN3c — fov determinism.** The suite recomputes `Σ` from the declared `fov` and `reach.scan` C2 (byte-for-byte, cross-implementation) passes.
+- **SEN4c — modality coverage.** A `sense.inspect` request for a modality outside the sensor's `modalities` returns `capability_absent`.
+- **SEN5c — sweep-rate / range enforcement.** Sweep velocity never exceeds `max_sweep_rate` (interval-sampled); an observation outside `working_range` is reported `out_of_range`, never returned as a valid reading.
+
 ## Open issues
 
 - Capability negotiation timing — **static manifest portion resolved** (§ Capability manifest: declared in `<rfl:capabilities>`, acquired at load-time / negotiation; checked per-primitive at validation). Open: per-action *dynamic* renegotiation (session-start vs. per-action) for embodiments whose capabilities change at runtime.
