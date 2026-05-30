@@ -240,6 +240,44 @@ Duration        ::= Number ("ms" | "s")
 | `TactileTarget` | contact criterion expressed in TactileManifold terms (sites, feature thresholds); see `04-tactile-manifold.md` | all `grasp.*` |
 | `GraspRef` | handle to an established grasp on a `controlled_frame`; `active` resolves to the current grasp | `grasp.adjust`, `grasp.release`, `in_hand.*`, `transport.*`, `place.*` |
 
+### Stop / completion conditions
+
+Seven primitives across `force` and `in_hand` take a stop / completion condition, and each had its own sum type (`SlideStop`, `SeatingSpec`, `PullStop`, `ScrewStop`, `ActuationSpec`, `CutStop`, `ScrubStop`). These share structure: a completion is reached when the operation hits a progress value, an effort level, an effort discontinuity, a reference, a count, a time, or a sensed predicate. They are unified into one `StopCondition` family; each named type is a restriction of it.
+
+```
+StopCondition :=
+  | reached(Progress)            # progress hit a value: distance / depth / turns / advance
+  | effort_rise(Effort)          # resisting effort reached a level: force / tension / torque
+  | effort_drop                  # a sudden resistance drop event: breakaway / separation / disengagement / torque_drop
+  | detent                       # a rise-then-drop effort signature (a click)
+  | count(n)                     # a repetition count: turns / passes
+  | elapsed(Duration)            # elapsed time
+  | landmark(Ref)                # a declared reference reached: tactile_landmark / external_reference / path_complete
+  | predicate(StatePredicate)    # a sense.verify predicate became true (the force↔sense coupling point)
+  | all_of(set<StopCondition>)   # conjunction: force_and_depth, torque_and_advance
+  | any_of(set<StopCondition>)   # disjunction
+```
+
+- `Progress` is the operation's progress quantity — `Length` (linear), `Angle` (rotational), or a depth — and `Effort` its resisting quantity — `Force`, `Torque`, or tension (a `Force`). The family abstracts over which quantity an operation uses; a given primitive's `StopCondition` is typed to its own progress and effort axes.
+- `effort_drop` and `detent` denote *kinds* of completion event; their physical detection (a force-derivative drop for breakaway / separation, a rise-then-drop signature for a detent) is owned by `04-tactile-manifold.md`. The type fixes the event class; the manifold fixes how it is sensed.
+- `predicate(StatePredicate)` ends the operation when a `sense.verify` predicate holds — the point where the `force` and `sense` categories couple. `StatePredicate` itself is unified with the algebra `Predicate` in a separate `01` item; here `StopCondition` only references it.
+
+The seven named types are restrictions of the family (the per-primitive parameter spellings are unchanged; aligning the prose to the family is a pre-freeze formatting pass):
+
+| Named type | Restriction |
+|---|---|
+| `SlideStop` (`in_hand.slide`) | `reached(distance) \| landmark(tactile) \| landmark(external)` |
+| `SeatingSpec` (`force.insert_fit`) | `effort_rise(force) \| reached(depth) \| all_of{effort_rise(force), reached(depth)}` |
+| `PullStop` (`force.pull`) | `reached(distance) \| effort_drop \| effort_rise(tension)` |
+| `ScrewStop` (`force.screw` / `unscrew`) | `effort_rise(torque) \| count(turns) \| all_of{effort_rise(torque), reached(advance)}`; `unscrew` adds `effort_drop` (disengagement / torque_drop) |
+| `ActuationSpec` (`force.press_button` / `snap_engage`) | `detent \| effort_rise(force_threshold)` |
+| `CutStop` (`force.cut`) | `landmark(path_complete) \| effort_drop \| reached(depth)` |
+| `ScrubStop` (`force.scrub`) | `elapsed(duration) \| count(passes) \| predicate(state_change)` |
+
+**Force-at-state outcome rule.** The `all_of` conjunction is what distinguishes a genuine completion from a fault: `all_of{effort_rise(F), reached(depth d)}` means the effort rose *at* the expected depth — **seated**. The same effort rise with `reached(depth)` *unmet* is a **jam**, not a success. A bare effort threshold is never sufficient (`force.insert_fit` seating/jam; `force.screw` torque-at-advance). The conjunction makes this discrimination part of the type, not per-primitive prose.
+
+`StopCondition` evaluation is deterministic: an identical trace yields an identical completion verdict (binding for `retarget` determinism and `05` fixture reproducibility); event variants (`effort_drop`, `detent`) evaluate from declared thresholds / signatures per the `04` feature definitions. How `retarget` encodes the monitored condition into the canonical action is owned by `02-translation-layer.md`.
+
 ### The `auto` value
 
 Any parameter typed `T | auto` may take the literal `auto`, deferring the value to the Translation Layer's planner (per the BNF `Auto` production). `auto` resolution MUST be deterministic given identical inputs.
