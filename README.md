@@ -48,7 +48,7 @@ The whitepaper is the long-form argument; the [`spec/`](spec/) directory hosts t
 |---|---|
 | [`spec/00-overview.md`](spec/00-overview.md) | Drafted |
 | [`spec/01-skill-isa.md`](spec/01-skill-isa.md) | Design complete — 50 primitives, type system, algebra (predicates / three-valued verdict), world-state model, composition validity |
-| [`spec/02-translation-layer.md`](spec/02-translation-layer.md) | In progress (canonical action + retargeting contract; § Open issues is the cross-chapter design driver) |
+| [`spec/02-translation-layer.md`](spec/02-translation-layer.md) | Design complete — canonical action + `Envelope`, quaternion pose + single-scalar geodesic error, determinism boundary (Class 2-strict / 2-loose), grasp-force / stability derivations, trajectory generation + time-scaling; § Open issues (the cross-chapter design driver) fully resolved |
 | [`spec/03-driver-interface.md`](spec/03-driver-interface.md) | Design complete — frame model, capability manifest, collision model, sensor / gravity / safety descriptors, multi-embodiment addressing |
 | [`spec/04-tactile-manifold.md`](spec/04-tactile-manifold.md) | Design complete — feature-field model, feature taxonomy, contact-sensor descriptor, `TactileTarget`, graceful-degradation proxy, slip / force-event / deformation discrimination, freed-part handling, sensing-scope contracts |
 | [`spec/05-conformance.md`](spec/05-conformance.md) | Design complete — envelope-class taxonomy, grasp-continuity modes, closure / stability / composition, reversibility + irreversible-operation safety, hazardous-operation benches, audit trail, conformance regime (determinism floor / fidelity tier / recursive simulator) |
