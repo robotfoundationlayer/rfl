@@ -1,6 +1,6 @@
 # Translation Layer — Specification
 
-> **Status**: in progress (2026-05-31) — the canonical action representation, the `Envelope`, the quaternion pose representation with single-scalar geodesic orientation error, the under-constrained-orientation residual rule, and the rest-at-goal terminal semantics are specified. Remaining before freeze: the retargeting-determinism boundaries + capability negotiation, the grasp-force / stability derivations, and trajectory generation + time-scaling, tracked in § Open issues (Owned by `02`). This is the last spec-chapter group; closing it resolves the whole cross-chapter Open-issues TODO.
+> **Status**: in progress (2026-05-31) — the canonical action representation, the `Envelope`, the quaternion pose representation with single-scalar geodesic orientation error, the under-constrained-orientation residual rule, and the rest-at-goal terminal semantics are specified. Remaining before freeze: the grasp-force / stability derivations and trajectory generation + time-scaling, tracked in § Open issues (Owned by `02`). This is the last spec-chapter group; closing it resolves the whole cross-chapter Open-issues TODO.
 
 ## Scope
 
@@ -79,7 +79,40 @@ v0.1 guarantees **rest-at-goal**: every motion primitive terminates at rest (zer
 
 ## Retargeting algorithm — determinism requirement
 
-`retarget(skill, embodiment)` must be **deterministic**: identical inputs produce identical canonical-action sequences, byte-for-byte. The determinism requirement is binding because conformance testing (`05-conformance.md`) compares observed retargeting output against frozen fixtures.
+`retarget(skill, embodiment)` must be **deterministic**: identical inputs produce identical canonical-action sequences, byte-for-byte. The determinism requirement is binding because conformance testing (`05-conformance.md`) compares observed retargeting output against frozen fixtures. Determinism applies to the **generation** of the canonical action; whether the *realized execution* of that action is reproducible is a separate question, bounded next.
+
+## The determinism boundary
+
+`retarget` generation is byte-deterministic unconditionally. The **realized execution** of an action is not always reproducible, and the boundary is where conformance splits (`05` § The determinism floor):
+
+- **Kinematic primitives** — `reach`, and any action executed by position / velocity control against free space — have a reproducible realized execution: Class 2-strict (bit-identical). `reach.scan`'s sweep set `Σ` is the archetype — a purely-kinematic function of its inputs (§ Trajectory generation and timing).
+- **Contact-dynamics primitives** — every `force` primitive (compliant search executes against contact dynamics) and the **passive-drive** modes `in_hand.pivot(drive = gravity | external)` (the outcome depends on embodiment dynamics, not just the canonical action) — have a realized execution that is *not* byte-reproducible. Their canonical-action **generation** is still Class 2-strict; only the **realized-execution** check is Class 2-loose (semantic equivalence within a per-skill ε), with the tolerance loosened accordingly — parallel to `reach.scan`'s purely-kinematic contract as the strict archetype.
+
+Making the boundary explicit is what keeps a passive or compliant primitive from being failed for not reproducing a contact-dynamics trajectory it was never deterministic in.
+
+## Multi-embodiment coordination
+
+Single-embodiment `retarget` is byte-deterministic (above). `transport.handoff` between **two** parties exceeds that boundary:
+
+- **Bimanual handoff** (within one embodiment) closes inside one `retarget` run — both effectors are planned together, so it is fully deterministic and fully specified in-spec (the two-party continuity GC6 in `05`, the `EffectorRef` in `03`).
+- **Inter-robot handoff** coordinates **two** `retarget` runs, one per embodiment, exceeding single-embodiment byte determinism. v0.1 specifies the handoff **semantics** (the GC6 two-party continuity invariant and the `EffectorRef` addressing) and the **two-party determinism boundary** (each run is deterministic, but the cross-run interleaving is not held to single-embodiment byte reproducibility); it **defers** the inter-robot coordination *protocol* — the wire mechanism two embodiments use to synchronize the dual-grasp window — as a named v0.1 deferral. Bimanual is the fully-specified case; inter-robot is semantics-now, mechanism-later.
+
+## Capability negotiation and routing
+
+`retarget` selects a capable embodiment for a task. Beyond the binary presence / absence gate (`03`'s `capability_absent`), negotiation matches a task's **geometry uncertainty** against an embodiment's **declared robustness**: an uncertain-geometry task is routed to an **envelope-capable** embodiment, using the robustness `grasp.envelope` declares (a compliant / caging grasp tolerates pose uncertainty a precision pinch cannot). Uncertainty-robust routing is the retarget-side complement to `03`'s static gate — the gate decides *can this embodiment do it at all*, negotiation decides *which capable embodiment is robust enough for this task's uncertainty*.
+
+### Conformance obligations (retargeting determinism)
+
+- **RD1c — generation determinism.** `retarget` generates the canonical action byte-for-byte deterministically for identical inputs, unconditionally (the strict floor on generation).
+- **RD2c — realized-execution boundary.** A primitive whose realized execution runs against contact dynamics (`force` compliant search; `in_hand.pivot` passive drive) is held to Class 2-loose on realized execution (semantic equivalence within a per-skill ε), never byte-reproducibility; its canonical-action generation stays Class 2-strict.
+- **RD3c — bimanual vs. inter-robot.** Bimanual handoff closes within one embodiment's `retarget` (fully deterministic, in-spec); inter-robot handoff's two-party determinism semantics are specified and its coordination protocol is a named v0.1 deferral.
+- **RD4c — uncertainty-robust routing.** Capability negotiation routes an uncertain-geometry task to an envelope-capable embodiment by matching the task's geometry uncertainty against the embodiment's declared `grasp.envelope` robustness, beyond the binary `capability_absent` gate.
+
+### Deferred and referenced
+
+- **The Class 2-strict / Class 2-loose conformance split** and the per-skill ε-table — `05-conformance.md` § The determinism floor.
+- **The two-party continuity invariant (GC6)** and the **`EffectorRef` addressing** the handoff semantics build on — `05-conformance.md` / `03-driver-interface.md`.
+- **`grasp.envelope`'s declared robustness** the routing reads — `01-skill-isa.md` / `03-driver-interface.md`.
 
 ## Resolved in the 2026-05-30 design pass
 
@@ -189,7 +222,7 @@ These issues surfaced during `reach` / `grasp` primitive design and are now addr
 - **Dynamic grasp-stability limit derivation**: the dynamic counterpart of `min_holding_force` — from stability metadata (`secured_dof` / `closure` / `flags`) + object mass + grasp geometry, derive the maximum acceleration at which the inertial load does not cause in-grasp slip. Clamps `max_acceleration` for all `transport` primitives; the core of transport safety.
 - **Grasp-under-reaction-load**: the contact-reaction analogue of dynamic grasp stability — a `force` primitive's contact reaction (e.g. insertion axial force) must not exceed the grasp's holding capacity along the load axis, or the held part slips before the task completes. Derive the reaction-force limit from stability metadata + grasp geometry; applies across `force`. Includes **rotational** holding capacity for torque reaction (`force.screw` / `force.unscrew`) and **periodic reversal** load (`force.scrub` oscillation stability — the tool must be retained at each tangential reversal).
 - **Tool-mediated force + coupled-motion constraint**: `force.screw` (and later `force.cut`) transmit force / torque to the target through a *held tool* (driver, cutter). Represent the held tool as the force-transmission path, with the tool's grasp bearing the reaction (tool-grasp-under-reaction-load). `force.screw` also couples rotation to axial advance at `thread_pitch`; `retarget` must expand this coupled DOF into the canonical action, and a decoupling (advance without turn, or vice versa) is a failure signal.
-- **Uncertainty-robustness in capability negotiation**: route uncertain-geometry tasks to envelope-capable embodiments using `grasp.envelope`'s declared robustness.
-- **Passive-drive determinism boundary**: `in_hand.pivot(drive = gravity | external)` produces an outcome dependent on embodiment dynamics, not just the canonical action. `retarget` remains byte-for-byte deterministic in *generating* the canonical action, but the passive execution result is not — its tolerance is loosened accordingly. Make this determinism boundary explicit (parallel to `reach.scan`'s purely-kinematic contract), so passive primitives are not held to active-execution determinism. **Extends to all `force` primitives**: compliant search executes against contact dynamics, so the realized force/motion trajectory is not byte-for-byte reproducible even though its canonical-action generation is.
-- **Multi-embodiment coordination + determinism**: inter-robot `transport.handoff` coordinates two `retarget` runs (one per embodiment), exceeding the single-embodiment byte-for-byte determinism boundary. Bimanual handoff closes within one embodiment's `retarget`; inter-robot needs a coordination protocol and a two-party determinism semantics. v0.1 defines handoff *semantics* but defers the inter-robot coordination mechanism to this issue (bimanual is fully specified in-spec).
+- ~~**Uncertainty-robustness in capability negotiation**~~ **[resolved → § Capability negotiation and routing]**: negotiation matches a task's geometry uncertainty against an embodiment's declared `grasp.envelope` robustness, routing uncertain-geometry tasks to envelope-capable embodiments — the retarget-side complement to `03`'s binary `capability_absent` gate (RD4c).
+- ~~**Passive-drive determinism boundary**~~ **[resolved → § The determinism boundary]**: `retarget` generation is byte-deterministic unconditionally, but the *realized execution* of a contact-dynamics primitive (`in_hand.pivot` passive drive; all `force` compliant search) is not — it is held to Class 2-loose (semantic equivalence within a per-skill ε) on realized execution, Class 2-strict on generation (RD2c). Parallel to `reach.scan`'s purely-kinematic strict archetype.
+- ~~**Multi-embodiment coordination + determinism**~~ **[resolved → § Multi-embodiment coordination]**: bimanual handoff closes within one `retarget` (fully deterministic, in-spec); inter-robot handoff's two-party determinism semantics (GC6 + `EffectorRef`) are specified and its coordination *protocol* (the dual-grasp-window wire mechanism) is a named v0.1 deferral (RD3c). Semantics-now, mechanism-later.
 - **Time-scaling semantics** under embodiment kinematic limits *and dynamic grasp stability*: concretized by `transport.follow_trajectory(timing_mode = time_scalable)` — a deterministic algorithm that slows a trajectory's timing (preserving path shape) until its curvature-and-speed profile fits within the dynamic-stability limit and the embodiment's kinematic limits. Must preserve `retarget` determinism.
