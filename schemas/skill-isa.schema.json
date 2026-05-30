@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "RFL Skill ISA composition file",
-  "description": "Validates a Skill ISA composition file (the JSON / YAML form an author writes; reference instance examples/01-cable-insertion/skill.yaml). Structural validation per 01-skill-isa.md: the compositional algebra (sequence / parallel / reactive / repeat / branch / let-bind), that every primitive call key is one of the 50 ISA primitive ids, and that an extension call is namespaced ext.<ns>.<name>. Per-primitive parameter names, types, units, and enums are NOT constrained here — a primitive's params is an open object (that precise typing is a follow-up, category by category). Backs conformance test class 1 (parser conformance, 05-conformance.md). The algebra is the abstract BNF of 01 § Compositional algebra; this schema fixes its concrete YAML serialization, where a let-bind is a sequence statement {let, from} whose binding scopes over the rest of the enclosing sequence (the BNF's explicit in(...) is accepted as an optional key).",
+  "description": "Validates a Skill ISA composition file (the JSON / YAML form an author writes; reference instance examples/01-cable-insertion/skill.yaml). Structural validation per 01-skill-isa.md: the compositional algebra (sequence / parallel / reactive / repeat / branch / let-bind), that every primitive call key is one of the 50 ISA primitive ids, and that an extension call is namespaced ext.<ns>.<name>. Per-primitive parameter names, types, units, and enums are constrained only for primitives precisely typed so far (approach B, tightened category by category — currently grasp.pinch, 01 § 2.1); every other primitive's params is an open object. Backs conformance test class 1 (parser conformance, 05-conformance.md). The algebra is the abstract BNF of 01 § Compositional algebra; this schema fixes its concrete YAML serialization, where a let-bind is a sequence statement {let, from} whose binding scopes over the rest of the enclosing sequence (the BNF's explicit in(...) is accepted as an optional key).",
   "type": "object",
   "required": ["skill", "body"],
   "additionalProperties": false,
@@ -51,7 +51,78 @@
     },
     "Params": {
       "type": ["object", "null"],
-      "description": "A primitive's parameter block. Structurally an open object (or absent / null for a param-less call); the param names, value types, units, and enums of each primitive are intentionally not constrained at this level (deferred to the per-category fully-typed schema)."
+      "description": "A primitive's parameter block. Structurally an open object (or absent / null for a param-less call). This is the open floor that applies to every primitive; for primitives precisely typed so far it is intersected with a per-primitive schema via the allOf clauses of PrimitiveCall, so the precise schema is what binds for those keys."
+    },
+    "Ref": {
+      "type": "string",
+      "pattern": "^&?[A-Za-z_][A-Za-z0-9_]*$",
+      "description": "A reference to a let-bound value (BNF Reference / Identifier): a bare identifier, optionally &-prefixed, naming a value bound earlier by a let-bind. In the serialized form any typed parameter may instead be such a reference (e.g. target: connector_t)."
+    },
+    "Auto": {
+      "const": "auto",
+      "description": "Defer the value to the Translation Layer's planner (BNF Auto). Accepted only where the spec types a parameter as T | auto."
+    },
+    "Force": {
+      "description": "A force value (01 § Dimensioned scalars; canonical wire unit N): a unit-suffixed quantity string (N / kN / mN) or a let-reference.",
+      "anyOf": [
+        { "type": "string", "pattern": "^-?[0-9]+(\\.[0-9]+)?\\s+(N|kN|mN)$" },
+        { "$ref": "#/$defs/Ref" }
+      ]
+    },
+    "Duration": {
+      "description": "A duration value (01 § Dimensioned scalars; canonical wire unit s): a unit-suffixed quantity string (s / ms), a let-reference, or auto.",
+      "anyOf": [
+        { "type": "string", "pattern": "^-?[0-9]+(\\.[0-9]+)?\\s+(s|ms)$" },
+        { "$ref": "#/$defs/Ref" },
+        { "$ref": "#/$defs/Auto" }
+      ]
+    },
+    "Length": {
+      "description": "A length value (01 § Dimensioned scalars; canonical wire unit m, parameter tables may author in mm): a unit-suffixed quantity string (m / mm / cm) or a let-reference.",
+      "anyOf": [
+        { "type": "string", "pattern": "^-?[0-9]+(\\.[0-9]+)?\\s+(m|mm|cm)$" },
+        { "$ref": "#/$defs/Ref" }
+      ]
+    },
+    "GraspPinchParams": {
+      "type": "object",
+      "description": "Parameters of grasp.pinch (01 § 2.1), precisely typed (approach B) — the eight parameters of the § 2.1 table, no more. target + force_budget are required; the rest carry the spec defaults. Any value may be a let-reference; auto is accepted only where the spec types the parameter as T | auto. The internal field typing of ObjectTarget / Pose6D / TactileTarget is a deeper increment — here each is an inline object or a reference.",
+      "required": ["target", "force_budget"],
+      "additionalProperties": false,
+      "properties": {
+        "target": {
+          "description": "ObjectTarget to pinch-grasp (perception-derived; typically reaches the call as a let-reference). An inline object or a let-reference.",
+          "anyOf": [ { "type": "object" }, { "$ref": "#/$defs/Ref" } ]
+        },
+        "force_budget": {
+          "$ref": "#/$defs/Force",
+          "description": "Max grip force, > 0; clamped to embodiment.limits.grip_force_max and target.max_contact_force if declared."
+        },
+        "grasp_pose": {
+          "description": "Pose6D | auto — pinch contact-frame pose; auto = planner-derived from target geometry.",
+          "anyOf": [ { "$ref": "#/$defs/Auto" }, { "type": "object" }, { "$ref": "#/$defs/Ref" } ]
+        },
+        "grasp_width": {
+          "description": "Length | auto — pre-close opening; auto = from target geometry.",
+          "anyOf": [ { "$ref": "#/$defs/Auto" }, { "$ref": "#/$defs/Length" } ]
+        },
+        "controlled_frame": {
+          "type": "string",
+          "description": "FrameRef — declared grasp frame (default embodiment.default_grasp_frame)."
+        },
+        "tactile_target": {
+          "description": "TactileTarget | auto — contact-confirmation criterion in TactileManifold terms; auto = normal_force >= epsilon at >= 2 antipodal sites.",
+          "anyOf": [ { "$ref": "#/$defs/Auto" }, { "type": "object" }, { "$ref": "#/$defs/Ref" } ]
+        },
+        "slip_response": {
+          "enum": ["abort", "retighten", "hold"],
+          "description": "Reaction to detected slip (default retighten)."
+        },
+        "timeout": {
+          "$ref": "#/$defs/Duration",
+          "description": "Duration | auto, > 0."
+        }
+      }
     },
     "Composition": {
       "description": "A node of the compositional algebra (01 § Compositional algebra). Exactly one of: a primitive call, an extension call, or one of the combinators sequence / parallel / reactive / repeat / branch / let-bind. The forms are disjoint by key namespace, so a well-formed node matches exactly one.",
@@ -69,11 +140,17 @@
     },
     "PrimitiveCall": {
       "type": "object",
-      "description": "A core primitive invocation: a single key that is a PrimitiveId, mapping to its params (BNF Primitive ::= PrimitiveId \"(\" ParamList? \")\").",
+      "description": "A core primitive invocation: a single key that is a PrimitiveId, mapping to its params (BNF Primitive ::= PrimitiveId \"(\" ParamList? \")\"). Most primitives' params are an open object (#/$defs/Params); primitives precisely typed so far (approach B) additionally constrain their params via the conditional clauses in allOf. The open floor and the matching typed clause both apply to the same key, so the typed schema is what binds for those primitives; one if/then clause is added per primitive as the typing proceeds.",
       "minProperties": 1,
       "maxProperties": 1,
       "propertyNames": { "$ref": "#/$defs/PrimitiveId" },
-      "additionalProperties": { "$ref": "#/$defs/Params" }
+      "additionalProperties": { "$ref": "#/$defs/Params" },
+      "allOf": [
+        {
+          "if": { "required": ["grasp.pinch"] },
+          "then": { "properties": { "grasp.pinch": { "$ref": "#/$defs/GraspPinchParams" } } }
+        }
+      ]
     },
     "ExtensionCall": {
       "type": "object",
