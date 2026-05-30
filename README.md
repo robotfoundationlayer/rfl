@@ -100,8 +100,6 @@ Watch this repository to follow development. Comments and design feedback welcom
 
 ## Citation
 
-For the **specification extract** (academic register, arXiv submission target):
-
 ```bibtex
 @misc{hara2026rflspec,
   title   = {The Embodiment Abstraction: A Specification for the Coordination Layer between Vision-Language-Action Models and Robotic Embodiments},
@@ -111,16 +109,7 @@ For the **specification extract** (academic register, arXiv submission target):
 }
 ```
 
-For the **companion position paper** (network-effect and ecosystem framing):
-
-```bibtex
-@misc{hara2026rflposition,
-  title   = {The Embodiment Abstraction: A Foundation Layer for Physical AI},
-  author  = {Yoichiro Hara},
-  year    = {2026},
-  note    = {RFL Position Paper v1.0; project page \url{https://github.com/robotfoundationlayer}}
-}
-```
+This entry covers the [specification extract](whitepaper/RFL_SPEC_v0.1_en.pdf). To cite the companion [position paper](whitepaper/RFL_v1.0_en.pdf) instead, adjust the `title` to "The Embodiment Abstraction: A Foundation Layer for Physical AI" and the `note` to "RFL Position Paper v1.0".
 
 ## Contact
 
