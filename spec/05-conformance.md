@@ -1,6 +1,6 @@
 # Conformance — Specification
 
-> **Status**: in progress (2026-05-31) — the four test classes, the three-tier regime, and the envelope-class taxonomy (terminal-postcondition / interval-invariant / grasp-continuity / force-torque-trajectory) are specified. Remaining before freeze: the verification units (audit propagation; the determinism floor + fidelity-tier → badge + trademark gate), tracked in `02-translation-layer.md` § Open issues (Owned by `05`).
+> **Status**: in progress (2026-05-31) — the four test classes, the three-tier regime, and the envelope-class taxonomy (terminal-postcondition / interval-invariant / grasp-continuity / force-torque-trajectory) are specified. Remaining before freeze: the conformance regime (the determinism floor + fidelity-tier → badge + recursive simulator conformance), tracked in `02-translation-layer.md` § Open issues and § Open issues of this chapter.
 
 ## Scope
 
@@ -225,6 +225,43 @@ The capability declaration (`human_collaboration_safety`: `standard` + `max_inte
 - **The capability declarations** (`tool_safety`: `hazard_class` + `standard`; `human_collaboration_safety`: `standard` + `max_interaction_force` / `weight_transfer_threshold`) and their validation gates — `03-driver-interface.md` § Safety capabilities.
 - **The ISO 10218 / 13482 flow-through** to the Tier-3 notified-body regime — § Three-tier conformance regime (and the strategy documents).
 - **The compliant-yield force semantics** a human tug invokes — `01-skill-isa.md` / `06-extension-registry.md`.
+
+## Audit and transparency
+
+RFL primitives *produce* evidence — a `Verdict` with confidence and evidence (`01` § Predicates, verdicts, and three-valued control flow), a fidelity tier (`04` § Fidelity tier and audit honesty), a `momentary_release` flag (`in_hand.flip`), a freed-part disposition (`04` § Freed-part handling at constraint release). The certification loop (L4) and the insurance loop (L8) *consume* that evidence. RFL owns producing the evidence-bearing result; **this chapter owns persisting and propagating it as an audit trail**, so a downstream primitive, a certifier, or an insurer can reconstruct what happened.
+
+### The audit record
+
+Every primitive result contributes an **audit record** carrying:
+
+- its **`Verdict`** — `true` / `false` only above `confidence_threshold`, else `indeterminate` — with the **evidence** that backs it (`01`);
+- its **fidelity tier** (`manifold` / `proxy` / `proxy_reactive`, `04`) when the result depended on a degraded confirmation;
+- any **safety-critical flags** the operation raised (below).
+
+The record is persisted; the L4 / L8 loops read it. RFL does not define the loops (they are governance / commercial, in the strategy documents) — it guarantees the record they need exists and is honest.
+
+### `momentary_release` propagation
+
+`in_hand.flip` is the only operation that breaks grasp continuity (§ Grasp-continuity modes, Bounded continuity-exception). It sets **`momentary_release = true`** in its result, and the flag is **persisted and propagated** downstream — so the certification and insurance loops can trace every operation that suspended continuity, even several primitives later. A continuity break that is bounded-and-recovered is still a fact the audit trail must carry; suppressing it is a transparency violation.
+
+### Degradation and freed-part disclosure
+
+Two other safety-critical facts propagate into the audit record by the same discipline:
+
+- a **degraded confirmation** propagates its fidelity tier (`proxy` / `proxy_reactive`) and the guards that were unavailable (`04` § Fidelity tier and audit honesty) — a result reported at full `manifold` tier when it was degraded is malformed;
+- a **freeing operation** propagates its freed-part disposition (`retained` / `safe_zone_release`, `04` § Freed-part handling at constraint release) — so the trail records that a part became free and how it was handled.
+
+### Conformance obligations (audit)
+
+- **AUD1 — audit record.** Every primitive result contributes a persisted audit record carrying its `Verdict` (honest three-valued, above `confidence_threshold`) with evidence and any safety-critical flags.
+- **AUD2 — `momentary_release` propagation.** A continuity-suspending operation (`in_hand.flip`) sets `momentary_release = true`; the flag is persisted and propagated downstream so the L4 / L8 loops can trace every continuity break.
+- **AUD3 — degradation and freed-part disclosure.** A degraded confirmation propagates its fidelity tier and unavailable guards, and a freeing operation propagates its freed-part disposition; an undisclosed degradation or freeing is a transparency violation.
+
+### Deferred and referenced
+
+- **The evidence-bearing `Verdict` production** (the honest three-valued verdict RFL emits) — `01-skill-isa.md` § Predicates, verdicts, and three-valued control flow.
+- **The fidelity-tier and freed-part definitions** the record carries — `04-tactile-manifold.md`.
+- **The L4 certification and L8 insurance loops** that consume the trail — the strategy / governance documents (not the spec).
 
 ## Three-tier conformance regime
 
