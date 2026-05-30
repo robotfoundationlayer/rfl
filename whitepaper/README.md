@@ -1,19 +1,30 @@
 # Whitepaper
 
-> The full argument for why RFL is the right structural answer to the physical-AI coordination crisis. ~25,000 words across nine chapters plus three appendices and a 17-figure visual companion.
+The project's argument is published in **two complementary documents**, both checked into this directory.
 
-## Status
+## The two documents
+
+| Document | Audience | Pages | Genre |
+|---|---|---|---|
+| [`RFL_SPEC_v0.1_en.pdf`](RFL_SPEC_v0.1_en.pdf) | Academic peers, implementers, arXiv reviewers | 47 | **Specification proposal** (academic register) |
+| [`RFL_position_paper_v1.0_en.pdf`](RFL_position_paper_v1.0_en.pdf) | Industry stakeholders, prospective partners, ecosystem readers | 72 | **Position paper** (specification + network-effect analysis + call for partners) |
+
+### Which to read
+
+- **If you want the technical specification only**: read the spec extract (`RFL_SPEC_v0.1_en.pdf`). It covers the coordination problem, why existing approaches fail, the five constitutional principles, the three-layer specification (Skill ISA + Translation Layer interface contract + Driver Interface), comparative analysis against ARM/CUDA/USB/ROS 2/LeRobot, the implementation roadmap, and the supermodularity property of bilateral translation.
+- **If you want the strategic / institutional / network-effect framing as well**: read the position paper (`RFL_position_paper_v1.0_en.pdf`). It contains everything the spec extract contains, plus a chapter on network effects and ecosystem design (§ 5), a chapter on foundation governance (§ 7), and a chapter inviting founding partners (§ 9). The position paper's own preface marks it as a position paper (not a peer-reviewable academic paper) and explains the choice.
+
+A legacy filename `RFL_v1.0_en.pdf` is maintained as a symbolic alias to the position paper to preserve external links.
+
+## Status (2026-05-30)
 
 | Item | Status |
 |---|---|
-| **Whitepaper text (English, v1.0)** | Drafted, pending arXiv submission |
-| **Whitepaper text (Japanese, v1.0)** | Drafted |
-| **arXiv preprint ID** | Pending (will be filled once submitted) |
-| **17 figures** | Mermaid draft available; designer SVG rendering pending |
-
-## How to obtain the PDF
-
-The current draft is checked into this repository at [`RFL_v1.0_en.pdf`](RFL_v1.0_en.pdf) (71 pages, 290 KB). The arXiv preprint will be linked here once accepted.
+| **Spec extract (English, v0.1)** | Drafted, intended for arXiv submission |
+| **Position paper (English, v1.0)** | Drafted |
+| **Position paper (Japanese, v1.0)** | Drafted (not yet in this repository) |
+| **arXiv preprint ID** | Pending endorsement; will be filled once accepted |
+| **17 figures** | Rendered to SVG and indexed below |
 
 ## Figures
 
