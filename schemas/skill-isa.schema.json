@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "RFL Skill ISA composition file",
-  "description": "Validates a Skill ISA composition file (the JSON / YAML form an author writes; reference instance examples/01-cable-insertion/skill.yaml). Structural validation per 01-skill-isa.md: the compositional algebra (sequence / parallel / reactive / repeat / branch / let-bind), that every primitive call key is one of the 50 ISA primitive ids, and that an extension call is namespaced ext.<ns>.<name>. Per-primitive parameter names, types, units, and enums are constrained only for primitives precisely typed so far (approach B, tightened one primitive at a time — currently all of category 1 reach except reach.retract (reach.to_pose § 1.1, reach.approach § 1.2, reach.align § 1.3, reach.hover § 1.5, reach.scan § 1.6), all of category 2 grasp (grasp.pinch § 2.1, grasp.power § 2.2, grasp.hook § 2.3, grasp.precision_tripod § 2.4, grasp.lateral § 2.5, grasp.platform § 2.6, grasp.pin § 2.7, grasp.envelope § 2.8, grasp.adjust § 2.9, grasp.release § 2.10), all of category 3 in_hand (in_hand.rotate § 3.1, in_hand.translate § 3.2, in_hand.regrasp § 3.3, in_hand.roll § 3.4, in_hand.pivot § 3.5, in_hand.slide § 3.6, in_hand.flip § 3.7), transport.move_to_pose § 4.1, all of category 5 place (place.put_down § 5.1, place.stack § 5.2, place.insert_loose § 5.3, place.orient § 5.4, place.hand_to § 5.5, place.discard § 5.6), and all of category 7 sense (sense.probe § 7.1, sense.inspect § 7.2, sense.weigh § 7.3, sense.locate § 7.4, sense.verify § 7.5); every other primitive's params is an open object. Backs conformance test class 1 (parser conformance, 05-conformance.md). The algebra is the abstract BNF of 01 § Compositional algebra; this schema fixes its concrete YAML serialization, where a let-bind is a sequence statement {let, from} whose binding scopes over the rest of the enclosing sequence (the BNF's explicit in(...) is accepted as an optional key).",
+  "description": "Validates a Skill ISA composition file (the JSON / YAML form an author writes; reference instance examples/01-cable-insertion/skill.yaml). Structural validation per 01-skill-isa.md: the compositional algebra (sequence / parallel / reactive / repeat / branch / let-bind), that every primitive call key is one of the 50 ISA primitive ids, and that an extension call is namespaced ext.<ns>.<name>. Per-primitive parameter names, types, units, and enums are constrained only for primitives precisely typed so far (approach B, tightened one primitive at a time — currently all of category 1 reach except reach.retract (reach.to_pose § 1.1, reach.approach § 1.2, reach.align § 1.3, reach.hover § 1.5, reach.scan § 1.6), all of category 2 grasp (grasp.pinch § 2.1, grasp.power § 2.2, grasp.hook § 2.3, grasp.precision_tripod § 2.4, grasp.lateral § 2.5, grasp.platform § 2.6, grasp.pin § 2.7, grasp.envelope § 2.8, grasp.adjust § 2.9, grasp.release § 2.10), all of category 3 in_hand (in_hand.rotate § 3.1, in_hand.translate § 3.2, in_hand.regrasp § 3.3, in_hand.roll § 3.4, in_hand.pivot § 3.5, in_hand.slide § 3.6, in_hand.flip § 3.7), all of category 4 transport (transport.move_to_pose § 4.1, transport.follow_trajectory § 4.2, transport.handoff § 4.3, transport.carry § 4.4, transport.lift § 4.5, transport.lower § 4.6), all of category 5 place (place.put_down § 5.1, place.stack § 5.2, place.insert_loose § 5.3, place.orient § 5.4, place.hand_to § 5.5, place.discard § 5.6), and all of category 7 sense (sense.probe § 7.1, sense.inspect § 7.2, sense.weigh § 7.3, sense.locate § 7.4, sense.verify § 7.5); the only untyped primitives are category 6 force (10) and reach.retract — all gated on the pre-freeze 01 § 6 formatting pass that aligns the StopCondition family and reach.retract spelling with the reference; every such primitive's params is an open object. Backs conformance test class 1 (parser conformance, 05-conformance.md). The algebra is the abstract BNF of 01 § Compositional algebra; this schema fixes its concrete YAML serialization, where a let-bind is a sequence statement {let, from} whose binding scopes over the rest of the enclosing sequence (the BNF's explicit in(...) is accepted as an optional key).",
   "type": "object",
   "required": ["skill", "body"],
   "additionalProperties": false,
@@ -159,6 +159,17 @@
     "Direction": {
       "description": "A unit vector in a named frame (01 § Geometric types), or a let-reference. Inline object (the vector / its components) or a reference; the planner literal auto is accepted only where a parameter's own schema lists it.",
       "anyOf": [ { "type": "object" }, { "$ref": "#/$defs/Ref" } ]
+    },
+    "EffectorRef": {
+      "description": "A reference to a control frame on the same embodiment (a bare frame name) or another (embodiment_id:frame_name) (01 § EffectorRef resolution; transport.handoff receiver). A frame name, an embodiment_id:frame_name string, or a let-reference.",
+      "anyOf": [
+        { "type": "string", "pattern": "^[A-Za-z_][A-Za-z0-9_]*(:[A-Za-z_][A-Za-z0-9_]*)?$" },
+        { "$ref": "#/$defs/Ref" }
+      ]
+    },
+    "StatePredicateOrAuto": {
+      "description": "A StatePredicate typed T | auto in the spec (01 § transport.handoff release_condition): the literal auto, an algebra Predicate, or a let-reference to a hoisted predicate.",
+      "anyOf": [ { "$ref": "#/$defs/Auto" }, { "$ref": "#/$defs/Predicate" }, { "$ref": "#/$defs/Ref" } ]
     },
     "Compound": {
       "description": "A perception-derived compound value (01 § Target / reference types — ObjectTarget, FeatureRef, SurfaceTarget, Pose6D, TactileTarget, ContactConfig). RFL fixes the type but not the estimation method; here it is supplied inline as an object or by a let-reference (typically a sense.* result). Internal field typing is a deeper increment.",
@@ -1122,6 +1133,92 @@
         "timeout": { "$ref": "#/$defs/Duration", "description": "Duration | auto, > 0." }
       }
     },
+    "TransportFollowTrajectoryParams": {
+      "type": "object",
+      "description": "Parameters of transport.follow_trajectory (01 § 4.2), precisely typed (approach B) — the eleven parameters of the § 4.2 table, no more. trajectory is required; the rest carry the spec defaults. Trajectory internals are deferred (inline object or reference).",
+      "required": ["trajectory"],
+      "additionalProperties": false,
+      "properties": {
+        "grasp_handle": { "$ref": "#/$defs/GraspHandle", "description": "GraspRef | active (default active) — the grasp whose held object is transported." },
+        "trajectory": { "$ref": "#/$defs/Compound", "description": "Trajectory — parameterized path of the held object in frame (waypoints / spline + timing)." },
+        "frame": { "$ref": "#/$defs/FrameRef", "description": "FrameRef — calibrated reference frame (default task)." },
+        "tracking_tolerance": { "$ref": "#/$defs/Length", "description": "Length > 0 — max deviation of the object from the path (default 3 mm)." },
+        "orientation_tolerance": { "$ref": "#/$defs/Angle", "description": "Angle > 0 — along the path (default 2 deg)." },
+        "timing_mode": { "enum": ["strict", "time_scalable"], "description": "Whether the timing may be slowed to respect dynamic stability (default time_scalable)." },
+        "max_velocity": { "anyOf": [ { "$ref": "#/$defs/Auto" }, { "$ref": "#/$defs/Velocity" } ], "description": "Velocity | auto — clamped to embodiment.limits.v_cartesian_max." },
+        "max_acceleration": { "anyOf": [ { "$ref": "#/$defs/Auto" }, { "$ref": "#/$defs/Acceleration" } ], "description": "Acceleration | auto — clamped to the grasp's dynamic-stability limit." },
+        "clearance": { "$ref": "#/$defs/Length", "description": "Length >= 0 (default 0) — swept volume of object + effector along the path." },
+        "contact_response": { "$ref": "#/$defs/ContactResponse", "description": "Reaction to unplanned contact (default abort)." },
+        "timeout": { "$ref": "#/$defs/Duration", "description": "Duration | auto, > 0." }
+      }
+    },
+    "TransportHandoffParams": {
+      "type": "object",
+      "description": "Parameters of transport.handoff (01 § 4.3), precisely typed (approach B) — the seven parameters of the § 4.3 table, no more. receiver is required; the rest carry the spec defaults. receiver is an EffectorRef (same embodiment or embodiment_id:frame); release_condition is a StatePredicate | auto.",
+      "required": ["receiver"],
+      "additionalProperties": false,
+      "properties": {
+        "grasp_handle": { "$ref": "#/$defs/GraspHandle", "description": "GraspRef | active (default active) — the giving grasp (this embodiment)." },
+        "receiver": { "$ref": "#/$defs/EffectorRef", "description": "EffectorRef — the receiving effector (same embodiment or embodiment_id:frame)." },
+        "handoff_pose": { "$ref": "#/$defs/CompoundOrAuto", "description": "Pose6D | auto — where the exchange happens (default auto = planner-derived midpoint)." },
+        "cograsp_force_budget": { "anyOf": [ { "$ref": "#/$defs/Auto" }, { "$ref": "#/$defs/Force" } ], "description": "Force | auto — combined grip force during the dual-grasp window (default auto)." },
+        "release_condition": { "$ref": "#/$defs/StatePredicateOrAuto", "description": "StatePredicate | auto — when the giver releases (default auto = receiver-secured confirmed)." },
+        "frame": { "$ref": "#/$defs/FrameRef", "description": "FrameRef — reference frame (default task)." },
+        "timeout": { "$ref": "#/$defs/Duration", "description": "Duration | auto, > 0." }
+      }
+    },
+    "TransportCarryParams": {
+      "type": "object",
+      "description": "Parameters of transport.carry (01 § 4.4), precisely typed (approach B) — the nine parameters of the § 4.4 table, no more. motion is required; the rest carry the spec defaults. motion is a MoveSpec (to_pose(Pose6D) | trajectory(Trajectory)), deferred to an inline object or a reference.",
+      "required": ["motion"],
+      "additionalProperties": false,
+      "properties": {
+        "grasp_handle": { "$ref": "#/$defs/GraspHandle", "description": "GraspRef | active (default active) — the grasp whose held object is carried." },
+        "motion": { "$ref": "#/$defs/Compound", "description": "MoveSpec — the relocation: to_pose(Pose6D) or trajectory(Trajectory)." },
+        "disturbance_budget": { "anyOf": [ { "$ref": "#/$defs/Auto" }, { "$ref": "#/$defs/Force" } ], "description": "Force | auto — the external disturbance the carry must reject without dropping (default auto)." },
+        "frame": { "$ref": "#/$defs/FrameRef", "description": "FrameRef — reference frame (default task)." },
+        "position_tolerance": { "$ref": "#/$defs/Length", "description": "Length > 0 — on the final / tracked pose (default 5 mm)." },
+        "max_velocity": { "anyOf": [ { "$ref": "#/$defs/Auto" }, { "$ref": "#/$defs/Velocity" } ], "description": "Velocity | auto — clamped to embodiment.limits.v_cartesian_max." },
+        "max_acceleration": { "anyOf": [ { "$ref": "#/$defs/Auto" }, { "$ref": "#/$defs/Acceleration" } ], "description": "Acceleration | auto — clamped below the dynamic-stability limit to reserve disturbance margin." },
+        "contact_response": { "$ref": "#/$defs/ContactResponse", "description": "Reaction to unplanned contact (default abort)." },
+        "timeout": { "$ref": "#/$defs/Duration", "description": "Duration | auto, > 0." }
+      }
+    },
+    "TransportLiftParams": {
+      "type": "object",
+      "description": "Parameters of transport.lift (01 § 4.5), precisely typed (approach B) — the nine parameters of the § 4.5 table, no more. height is required; the rest carry the spec defaults. anti_slip_margin is Ratio | auto.",
+      "required": ["height"],
+      "additionalProperties": false,
+      "properties": {
+        "grasp_handle": { "$ref": "#/$defs/GraspHandle", "description": "GraspRef | active (default active) — the grasp whose held object is lifted." },
+        "height": { "$ref": "#/$defs/Length", "description": "Length > 0 — vertical lift distance." },
+        "up_direction": { "anyOf": [ { "$ref": "#/$defs/Auto" }, { "$ref": "#/$defs/Direction" } ], "description": "Direction | auto — the lift direction (default auto = anti-gravity)." },
+        "frame": { "$ref": "#/$defs/FrameRef", "description": "FrameRef — reference frame (default task)." },
+        "max_velocity": { "anyOf": [ { "$ref": "#/$defs/Auto" }, { "$ref": "#/$defs/Velocity" } ], "description": "Velocity | auto — clamped to embodiment.limits.v_cartesian_max." },
+        "max_acceleration": { "anyOf": [ { "$ref": "#/$defs/Auto" }, { "$ref": "#/$defs/Acceleration" } ], "description": "Acceleration | auto — clamped to the dynamic-stability limit." },
+        "anti_slip_margin": { "anyOf": [ { "$ref": "#/$defs/Auto" }, { "$ref": "#/$defs/Ratio" } ], "description": "Ratio | auto — extra grip headroom against the inertial load during lift." },
+        "contact_response": { "$ref": "#/$defs/ContactResponse", "description": "Reaction to unplanned contact (default abort)." },
+        "timeout": { "$ref": "#/$defs/Duration", "description": "Duration | auto, > 0." }
+      }
+    },
+    "TransportLowerParams": {
+      "type": "object",
+      "description": "Parameters of transport.lower (01 § 4.6), precisely typed (approach B) — the ten parameters of the § 4.6 table, no more. height is required; the rest carry the spec defaults. touchdown_detect watches for early contact (landing).",
+      "required": ["height"],
+      "additionalProperties": false,
+      "properties": {
+        "grasp_handle": { "$ref": "#/$defs/GraspHandle", "description": "GraspRef | active (default active) — the grasp whose held object is lowered." },
+        "height": { "$ref": "#/$defs/Length", "description": "Length > 0 — vertical lower distance." },
+        "down_direction": { "anyOf": [ { "$ref": "#/$defs/Auto" }, { "$ref": "#/$defs/Direction" } ], "description": "Direction | auto — the lower direction (default auto = gravity)." },
+        "frame": { "$ref": "#/$defs/FrameRef", "description": "FrameRef — reference frame (default task)." },
+        "touchdown_detect": { "type": "boolean", "description": "Watch for early contact (landing) and stop (default true)." },
+        "touchdown_force": { "anyOf": [ { "$ref": "#/$defs/Auto" }, { "$ref": "#/$defs/Force" } ], "description": "Force | auto — contact threshold that signals landing." },
+        "max_velocity": { "anyOf": [ { "$ref": "#/$defs/Auto" }, { "$ref": "#/$defs/Velocity" } ], "description": "Velocity | auto — clamped to embodiment.limits.v_cartesian_max." },
+        "max_acceleration": { "anyOf": [ { "$ref": "#/$defs/Auto" }, { "$ref": "#/$defs/Acceleration" } ], "description": "Acceleration | auto — clamped to the dynamic-stability limit." },
+        "contact_response": { "$ref": "#/$defs/ContactResponse", "description": "Reaction to unplanned contact (default abort)." },
+        "timeout": { "$ref": "#/$defs/Duration", "description": "Duration | auto, > 0." }
+      }
+    },
     "Composition": {
       "description": "A node of the compositional algebra (01 § Compositional algebra). Exactly one of: a primitive call, an extension call, or one of the combinators sequence / parallel / reactive / repeat / branch / let-bind. The forms are disjoint by key namespace, so a well-formed node matches exactly one.",
       "type": "object",
@@ -1279,6 +1376,26 @@
         {
           "if": { "required": ["place.discard"] },
           "then": { "properties": { "place.discard": { "$ref": "#/$defs/PlaceDiscardParams" } } }
+        },
+        {
+          "if": { "required": ["transport.follow_trajectory"] },
+          "then": { "properties": { "transport.follow_trajectory": { "$ref": "#/$defs/TransportFollowTrajectoryParams" } } }
+        },
+        {
+          "if": { "required": ["transport.handoff"] },
+          "then": { "properties": { "transport.handoff": { "$ref": "#/$defs/TransportHandoffParams" } } }
+        },
+        {
+          "if": { "required": ["transport.carry"] },
+          "then": { "properties": { "transport.carry": { "$ref": "#/$defs/TransportCarryParams" } } }
+        },
+        {
+          "if": { "required": ["transport.lift"] },
+          "then": { "properties": { "transport.lift": { "$ref": "#/$defs/TransportLiftParams" } } }
+        },
+        {
+          "if": { "required": ["transport.lower"] },
+          "then": { "properties": { "transport.lower": { "$ref": "#/$defs/TransportLowerParams" } } }
         }
       ]
     },
