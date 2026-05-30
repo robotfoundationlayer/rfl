@@ -65,7 +65,7 @@ rfl/
 ├── examples/             # ✅ Worked examples (skeleton — 01-cable-insertion)
 ├── crates/               # 🚧 Rust workspace (skeleton — rfl-core, rfl-cli, rfl-conformance)
 ├── docs/                 # 🚧 Documentation site skeleton (getting-started.md only)
-├── schemas/              # 🚧 JSON schemas (embodiment-descriptor present; skill-isa / driver-interface / tactile-manifold planned)
+├── schemas/              # 🚧 JSON schemas (embodiment-descriptor + skill-isa present; driver-interface / tactile-manifold planned)
 ├── bindings/             # ⏳ Python (PyO3) + C (cbindgen) bindings (planned for v1.0)
 └── conformance/          # ⏳ Conformance test suite (planned for v1.0)
 ```

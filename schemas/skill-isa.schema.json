@@ -1,0 +1,207 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "RFL Skill ISA composition file",
+  "description": "Validates a Skill ISA composition file (the JSON / YAML form an author writes; reference instance examples/01-cable-insertion/skill.yaml). Structural validation per 01-skill-isa.md: the compositional algebra (sequence / parallel / reactive / repeat / branch / let-bind), that every primitive call key is one of the 50 ISA primitive ids, and that an extension call is namespaced ext.<ns>.<name>. Per-primitive parameter names, types, units, and enums are NOT constrained here — a primitive's params is an open object (that precise typing is a follow-up, category by category). Backs conformance test class 1 (parser conformance, 05-conformance.md). The algebra is the abstract BNF of 01 § Compositional algebra; this schema fixes its concrete YAML serialization, where a let-bind is a sequence statement {let, from} whose binding scopes over the rest of the enclosing sequence (the BNF's explicit in(...) is accepted as an optional key).",
+  "type": "object",
+  "required": ["skill", "body"],
+  "additionalProperties": false,
+  "properties": {
+    "skill": {
+      "type": "string",
+      "description": "Skill name (the composition's identifier)."
+    },
+    "description": {
+      "type": "string",
+      "description": "Human-readable summary of what the skill does."
+    },
+    "objects": { "$ref": "#/$defs/ObjectMap" },
+    "body": {
+      "$ref": "#/$defs/Composition",
+      "description": "The skill body: a single Composition (typically a sequence)."
+    }
+  },
+  "$defs": {
+    "ObjectMap": {
+      "type": "object",
+      "description": "Task object references, keyed by local name. Each entry names an ObjectRef whose pose is resolved at runtime by a sense.* primitive (01 § Object reference).",
+      "additionalProperties": { "$ref": "#/$defs/ObjectDecl" }
+    },
+    "ObjectDecl": {
+      "type": "object",
+      "required": ["ref"],
+      "additionalProperties": false,
+      "properties": {
+        "ref": {
+          "type": "string",
+          "description": "The object identity (ObjectRef) this local name binds to."
+        }
+      }
+    },
+    "PrimitiveId": {
+      "description": "The 50 Skill ISA primitive ids, category.primitive in lowercase snake_case (01 § Provisional primitive enumeration). The enumeration is closed; extension primitives use the ext.<ns>.<name> form instead.",
+      "enum": [
+        "reach.to_pose", "reach.approach", "reach.align", "reach.retract", "reach.hover", "reach.scan",
+        "grasp.pinch", "grasp.power", "grasp.hook", "grasp.precision_tripod", "grasp.lateral", "grasp.platform", "grasp.pin", "grasp.envelope", "grasp.adjust", "grasp.release",
+        "in_hand.rotate", "in_hand.translate", "in_hand.regrasp", "in_hand.roll", "in_hand.pivot", "in_hand.slide", "in_hand.flip",
+        "transport.move_to_pose", "transport.follow_trajectory", "transport.handoff", "transport.carry", "transport.lift", "transport.lower",
+        "place.put_down", "place.stack", "place.insert_loose", "place.orient", "place.hand_to", "place.discard",
+        "force.insert_fit", "force.push", "force.pull", "force.screw", "force.unscrew", "force.press_button", "force.cut", "force.wipe", "force.scrub", "force.snap_engage",
+        "sense.probe", "sense.inspect", "sense.weigh", "sense.locate", "sense.verify"
+      ]
+    },
+    "Params": {
+      "type": ["object", "null"],
+      "description": "A primitive's parameter block. Structurally an open object (or absent / null for a param-less call); the param names, value types, units, and enums of each primitive are intentionally not constrained at this level (deferred to the per-category fully-typed schema)."
+    },
+    "Composition": {
+      "description": "A node of the compositional algebra (01 § Compositional algebra). Exactly one of: a primitive call, an extension call, or one of the combinators sequence / parallel / reactive / repeat / branch / let-bind. The forms are disjoint by key namespace, so a well-formed node matches exactly one.",
+      "type": "object",
+      "oneOf": [
+        { "$ref": "#/$defs/PrimitiveCall" },
+        { "$ref": "#/$defs/ExtensionCall" },
+        { "$ref": "#/$defs/Sequence" },
+        { "$ref": "#/$defs/Parallel" },
+        { "$ref": "#/$defs/Reactive" },
+        { "$ref": "#/$defs/Repeat" },
+        { "$ref": "#/$defs/Branch" },
+        { "$ref": "#/$defs/LetBind" }
+      ]
+    },
+    "PrimitiveCall": {
+      "type": "object",
+      "description": "A core primitive invocation: a single key that is a PrimitiveId, mapping to its params (BNF Primitive ::= PrimitiveId \"(\" ParamList? \")\").",
+      "minProperties": 1,
+      "maxProperties": 1,
+      "propertyNames": { "$ref": "#/$defs/PrimitiveId" },
+      "additionalProperties": { "$ref": "#/$defs/Params" }
+    },
+    "ExtensionCall": {
+      "type": "object",
+      "description": "An extension primitive invocation (BNF Extension ::= \"ext\" \".\" Identifier \".\" Identifier ...). The id is ext.<namespace>.<name>; the registry (06-extension-registry.md) owns the namespace, not this schema.",
+      "minProperties": 1,
+      "maxProperties": 1,
+      "propertyNames": { "type": "string", "pattern": "^ext\\.[a-z_]+\\.[a-z_]+$" },
+      "additionalProperties": { "$ref": "#/$defs/Params" }
+    },
+    "Sequence": {
+      "type": "object",
+      "description": "Ordered composition: each child runs to completion before the next (BNF Sequence). A let-bind child binds a name visible to the children that follow it in the same sequence.",
+      "required": ["sequence"],
+      "additionalProperties": false,
+      "properties": {
+        "sequence": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "#/$defs/Composition" }
+        }
+      }
+    },
+    "Parallel": {
+      "type": "object",
+      "description": "Concurrent composition of two or more branches (BNF Parallel).",
+      "required": ["parallel"],
+      "additionalProperties": false,
+      "properties": {
+        "parallel": {
+          "type": "array",
+          "minItems": 2,
+          "items": { "$ref": "#/$defs/Composition" }
+        }
+      }
+    },
+    "Reactive": {
+      "type": "object",
+      "description": "Run a body until a predicate confirms true (BNF Reactive ::= \"reactive\" \"(\" Composition \",\" \"until\" \"(\" Predicate \")\" \")\"). Per 01 § three-valued control flow the body terminates only on a confident true; a concurrent envelope violation takes precedence over a clean until completion.",
+      "required": ["reactive"],
+      "additionalProperties": false,
+      "properties": {
+        "reactive": {
+          "type": "object",
+          "required": ["body", "until"],
+          "additionalProperties": false,
+          "properties": {
+            "body": { "$ref": "#/$defs/Composition" },
+            "until": { "$ref": "#/$defs/Predicate" }
+          }
+        }
+      }
+    },
+    "Repeat": {
+      "type": "object",
+      "description": "Repeat a body a fixed count or until satisfied (BNF Repeat ::= \"repeat\" \"(\" Composition \",\" Count \")\", Count ::= Integer | \"until_satisfied\").",
+      "required": ["repeat"],
+      "additionalProperties": false,
+      "properties": {
+        "repeat": {
+          "type": "object",
+          "required": ["body", "count"],
+          "additionalProperties": false,
+          "properties": {
+            "body": { "$ref": "#/$defs/Composition" },
+            "count": {
+              "oneOf": [
+                { "type": "integer", "minimum": 1 },
+                { "const": "until_satisfied" }
+              ]
+            }
+          }
+        }
+      }
+    },
+    "Branch": {
+      "type": "object",
+      "description": "Three-valued conditional (BNF Branch). then / else are taken on a confident true / false; the optional unknown arm is taken on indeterminate, and without it an indeterminate predicate escalates rather than guessing (01 § three-valued control flow).",
+      "required": ["branch"],
+      "additionalProperties": false,
+      "properties": {
+        "branch": {
+          "type": "object",
+          "required": ["predicate", "then", "else"],
+          "additionalProperties": false,
+          "properties": {
+            "predicate": { "$ref": "#/$defs/Predicate" },
+            "then": { "$ref": "#/$defs/Composition" },
+            "else": { "$ref": "#/$defs/Composition" },
+            "unknown": { "$ref": "#/$defs/Composition" }
+          }
+        }
+      }
+    },
+    "LetBind": {
+      "type": "object",
+      "description": "Hoist a planner-derived value (typically a sense.* result) for reuse (BNF LetBind ::= \"let\" \"(\" Identifier \":=\" Expression \")\" \"in\" \"(\" Composition \")\"). Concrete YAML form: a {let, from} statement whose binding scopes over the rest of the enclosing sequence; the BNF's explicit in(...) is accepted as the optional in key. Downstream uncertainty / measured-value flow checks are owned by 01 § LetBind flow checks, not this schema.",
+      "required": ["let", "from"],
+      "additionalProperties": false,
+      "properties": {
+        "let": {
+          "type": "string",
+          "description": "The bound identifier; later primitives reference its value by name."
+        },
+        "from": {
+          "$ref": "#/$defs/Composition",
+          "description": "The expression whose result is bound (typically a sense.* primitive call)."
+        },
+        "in": {
+          "$ref": "#/$defs/Composition",
+          "description": "Optional explicit scope (BNF in(...)); omitted when the binding scopes over the rest of the enclosing sequence."
+        }
+      }
+    },
+    "Predicate": {
+      "type": "object",
+      "description": "A predicate of the algebra (BNF Predicate), consumed by reactive (until) and branch. A single key naming the predicate kind, mapping to its (here unconstrained) argument. value / confidence / evidence verdict semantics are owned by 01 § Predicates, verdicts, and three-valued control flow.",
+      "minProperties": 1,
+      "maxProperties": 1,
+      "propertyNames": {
+        "enum": [
+          "tactile_contact",
+          "pose_reached",
+          "force_exceeds",
+          "object_present",
+          "elapsed",
+          "user_defined"
+        ]
+      }
+    }
+  }
+}
