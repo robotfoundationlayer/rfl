@@ -1,6 +1,6 @@
 # Conformance — Specification
 
-> **Status**: in progress (2026-05-31) — the four test classes, the three-tier regime, and the envelope-class taxonomy (terminal-postcondition / interval-invariant / grasp-continuity / force-torque-trajectory) are specified. Remaining before freeze: the verification units (reversibility + irreversible-operation safety; hazardous-operation benches; audit propagation; the determinism floor + fidelity-tier → badge + trademark gate), tracked in `02-translation-layer.md` § Open issues (Owned by `05`).
+> **Status**: in progress (2026-05-31) — the four test classes, the three-tier regime, and the envelope-class taxonomy (terminal-postcondition / interval-invariant / grasp-continuity / force-torque-trajectory) are specified. Remaining before freeze: the verification units (hazardous-operation benches; audit propagation; the determinism floor + fidelity-tier → badge + trademark gate), tracked in `02-translation-layer.md` § Open issues (Owned by `05`).
 
 ## Scope
 
@@ -151,6 +151,46 @@ The table is the conformance complement of the `01` DOF-admissibility rule: `01`
 
 - **`StabilityMetadata`** (`closure`, `secured_dof`, `flags`), the **lifecycle transition table**, the **DOF-admissibility rule**, and the **supported-state predicate** these checks read — `01-skill-isa.md` § Grasp state model and § World-state model.
 - **The composed-plan algebra** (where the successor table is evaluated) — `01-skill-isa.md` § Composition validity.
+
+## Reversibility and irreversible-operation safety
+
+Primitives differ in how undoable their effect is, and the safety-conformance weight a primitive carries **rises with irreversibility**: a `reach` that can simply be retracted needs little extra scrutiny, while a `force.cut` that severs a part permanently needs the strictest treatment. This unit positions primitives on a **reversibility spectrum** and defines the safety class for its strict end.
+
+### The reversibility spectrum
+
+| Class | Effect | Examples | Safety treatment |
+|---|---|---|---|
+| **Reversible** | undoable by a reverse operation | `reach.*` (retractable), most manipulation | the primitive's own envelope class suffices |
+| **Semi-reversible (persistent)** | persists, but a reverse operation can undo it | `force.snap_engage` (bistable; `snap_disengage` reverses) | engagement-confirmation + a documented reverse path |
+| **Irreversible** | cannot be undone by any operation | `force.cut` (a cut is permanent) | the irreversible-operation safety class (below) |
+
+The spectrum is open at both ends for extensions (`06`): a `weld` or an `adhesive` bond slots into **irreversible**; a `snap_disengage` is the **reverse** that makes snap semi-reversible rather than irreversible.
+
+### Semi-reversible persistent state change
+
+`force.snap_engage` produces a **bistable engagement** that persists after the operation completes — unlike a grasp (held only while the effector holds), the engagement stays without continued effort. This persistence is *intended*, not a continuity break: it is confirmed via engagement-confirmation (`confirm_held`) and carries a documented **reverse-operation path** (`snap_disengage`) so the persistent state can be undone. The suite verifies the engagement was confirmed (not merely commanded) and that a reverse path exists — the discriminator from a truly irreversible operation, which has none.
+
+### The irreversible-operation safety class
+
+`force.cut` is the first **irreversible** primitive: a cut cannot be undone. Irreversible operations get a dedicated safety-conformance treatment, distinct from the envelope classes, because there is no recovery from an error:
+
+- **Strictly bounded action path.** The operation cannot exceed a pre-declared path (a `cut_path`); the bench verifies the realized action stayed within it.
+- **Pre-execution confirmation of the path and the material beyond it.** Before any irreversible action, the path *and what lies beyond the cut plane* are confirmed — so the operation does not sever something behind the intended target.
+- **Precise partial-state reporting on failure.** If an irreversible operation is interrupted, it reports exactly how far it progressed (a partially-cut state), never a binary success / failure — downstream recovery and the audit loop need the precise irreversible state.
+
+This sets the precedent for every future irreversible extension (`weld`, `adhesive`): each must declare a bounded action path, confirm before acting, and report precise partial state on failure. A hazardous tool wielded by an irreversible operation additionally requires the `tool_safety` regime (§ Hazardous-operation benches, next unit).
+
+### Conformance obligations (reversibility)
+
+- **REV1 — reversibility classification.** Every primitive is positioned on the reversibility spectrum (reversible / semi-reversible-persistent / irreversible); its safety-conformance weight rises with irreversibility.
+- **REV2 — semi-reversible confirmation.** A semi-reversible persistent change (`force.snap_engage`) is confirmed via engagement-confirmation (`confirm_held`) and carries a documented reverse-operation path (`snap_disengage`); the persistence is intended, distinct from a continuity break.
+- **REV3 — irreversible-operation safety class.** An irreversible operation (`force.cut`) runs only under a strictly bounded action path, pre-execution confirmation of the path and the material beyond it, and precise partial / irreversible-state reporting on failure; the treatment is the precedent for future irreversible extensions.
+
+### Deferred and referenced
+
+- **The engagement-confirmation parameter (`confirm_held`)** and the `snap_engage` / `snap_disengage` / `cut` primitive definitions — `01-skill-isa.md`.
+- **The `tool_safety` regime** an irreversible hazardous-tool operation also requires — § Hazardous-operation benches (next unit) and `03` § Safety capabilities.
+- **Future irreversible extensions** (`weld`, `adhesive`) and the reverse `snap_disengage` — `06-extension-registry.md`.
 
 ## Three-tier conformance regime
 
