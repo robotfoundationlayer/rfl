@@ -1,6 +1,6 @@
 # Translation Layer — Specification
 
-> **Status**: in progress (2026-05-31) — the canonical action representation, the `Envelope`, the quaternion pose representation with single-scalar geodesic orientation error, the under-constrained-orientation residual rule, and the rest-at-goal terminal semantics are specified. Remaining before freeze: the grasp-force / stability derivations and trajectory generation + time-scaling, tracked in § Open issues (Owned by `02`). This is the last spec-chapter group; closing it resolves the whole cross-chapter Open-issues TODO.
+> **Status**: in progress (2026-05-31) — the canonical action representation, the `Envelope`, the quaternion pose representation with single-scalar geodesic orientation error, the under-constrained-orientation residual rule, and the rest-at-goal terminal semantics are specified. Remaining before freeze: trajectory generation + time-scaling, tracked in § Open issues (Owned by `02`). This is the last spec-chapter group; closing it resolves the whole cross-chapter Open-issues TODO.
 
 ## Scope
 
@@ -114,6 +114,55 @@ Single-embodiment `retarget` is byte-deterministic (above). `transport.handoff` 
 - **The two-party continuity invariant (GC6)** and the **`EffectorRef` addressing** the handoff semantics build on — `05-conformance.md` / `03-driver-interface.md`.
 - **`grasp.envelope`'s declared robustness** the routing reads — `01-skill-isa.md` / `03-driver-interface.md`.
 
+## Grasp-force and stability derivations
+
+The `Envelope` (§ Canonical action representation) carries force and acceleration bounds; this section is where they are **derived**. Four quantities, all computed deterministically from the grasp's `StabilityMetadata` (`01` § Grasp state model), the object mass, the grasp geometry, and a declared friction coefficient — never runtime-measured, so `retarget` generation stays byte-deterministic (RD1c). They share one underlying quantity: the grasp's **holding capacity**.
+
+### Holding capacity — the common quantity
+
+A grasp's **holding capacity** is the maximum external load it can resist before the object moves in-grasp, and it is **directional** — capacity differs by axis and by closure type (`01` `StabilityMetadata.closure` / `secured_dof`):
+
+- a **force-closure** grasp resists load by friction: capacity along an axis ≈ `μ · Σ(normal forces) · geometry factor`, bounded by the available grip force;
+- a **form-closure** grasp resists load by shape along its `stable_directions` (high capacity there, ~none in the free directions);
+- a **support** grasp bears load through the support polygon (balance), with capacity set by the CoM margin, not grip.
+
+The four derivations below all compare a load against this capacity along the relevant axis. The capacity model is schematic and provider-neutral (Principle 4): RFL fixes the *dependency* — capacity is a function of closure, secured DOF, grip / normal force, geometry, and friction — not a single vendor's friction law.
+
+### `min_holding_force` — the static minimum
+
+`min_holding_force` is the grip force below which the object falls under its own weight — the static floor. It is derived from the object **weight** (`target.estimated_mass`), the **grasp mode** (which fixes how capacity scales with grip — force vs. form vs. support), the **friction** coefficient, and the **load direction** (gravity relative to the grasp's secured directions): the grip must produce holding capacity ≥ the gravity load along the unsecured axes. For a force-closure pinch it is roughly `m·g / (μ · geometry)`; for a form or support grasp the shape or balance bears the weight and the grip minimum is lower. It is the floor the grasp-continuity invariant checks (`05` GC1) and that `grasp.adjust` maintains.
+
+### Dynamic stability — the `max_acceleration` clamp
+
+Under acceleration the object's inertial load (`m·a`) adds to gravity (`m·g`); the grasp holds iff the combined load stays within holding capacity along the load direction. The **dynamic-stability limit** is the largest acceleration `a_max` at which `inertial + gravity load ≤ holding capacity` — solved from `StabilityMetadata` (`secured_dof` / `closure` / `flags`) + object mass + grasp geometry. It **clamps `max_acceleration`** in the `Envelope.motion_bounds` of every `transport` primitive (the dynamic counterpart of `min_holding_force`, and the core of transport safety). A `transport.carry`'s acceleration is clamped *below* this to reserve margin for its `disturbance_budget` (`05` ENV3).
+
+### Reaction-load limit
+
+A `force` primitive applies force to a target, and the **reaction** loads the grasp: an insertion's axial reaction, a press's normal reaction. The reaction must not exceed holding capacity along the reaction axis, or the held part slips before the task completes. The **reaction-load limit** is derived from `StabilityMetadata` + grasp geometry along the reaction axis, and bounds the force budget so the task completes without in-grasp slip. Two generalizations:
+
+- **Rotational capacity** (`force.screw` / `force.unscrew`): the reaction is a **torque** about the tool axis; the grasp must resist it with rotational holding capacity (the form / friction resistance to twist), or the tool spins in-grasp.
+- **Periodic-reversal load** (`force.scrub`): the tangential reaction **reverses** each stroke; the tool must be retained at *every* reversal, where the load direction flips — capacity must hold in both tangential directions, not just one.
+
+### Tool-mediated force and coupled motion
+
+`force.screw` (and later `force.cut`) transmit force / torque to the target through a **held tool** — a driver, a cutter. Two consequences for `retarget`:
+
+- **The tool is the force-transmission path, and its grasp bears the reaction.** The reaction-load limit applies to the **tool's grasp** (tool-grasp-under-reaction-load), not the target's — the grip on the driver must resist the driving torque, or the driver slips in-hand. The canonical action represents the held tool as the transmission path so the reaction loads the right grasp.
+- **Coupled DOF.** `force.screw` couples rotation to axial advance at `thread_pitch` (one turn ↔ `thread_pitch` of advance); `retarget` expands this coupling into the canonical action as a linked DOF, and a **decoupling** — advance without turn, or turn without advance — is a failure signal (a cross-thread or a stripped fastener), not a free parameter.
+
+### Conformance obligations (grasp-force derivations)
+
+- **GF1c — `min_holding_force` derivation.** `min_holding_force` is derived deterministically from object weight, grasp mode, friction, and load direction; it is the floor the grasp-continuity invariant (`05` GC1) checks and that `grasp.adjust` maintains.
+- **GF2c — dynamic-stability clamp.** `max_acceleration` is clamped to the largest acceleration at which inertial + gravity load stays within holding capacity along the load direction, derived from `StabilityMetadata` + mass + geometry; applied to every `transport` primitive's `motion_bounds`.
+- **GF3c — reaction-load limit.** A `force` primitive's reaction may not exceed holding capacity along the reaction axis (linear), the rotational capacity about the tool axis (torque reaction), or be lost at a periodic reversal (`scrub`); the limit is derived and the primitive aborts before in-grasp slip.
+- **GF4c — tool-mediated transmission and coupling.** Force through a held tool loads the tool's grasp (tool-grasp-under-reaction-load); `force.screw`'s rotation↔advance coupling at `thread_pitch` is expanded into the canonical action, and a decoupling (advance without turn, or vice versa) is a failure signal.
+
+### Deferred and referenced
+
+- **`StabilityMetadata`** (`closure` / `secured_dof` / `flags`), the grasp modes, and the `force`-category force budgets these derivations bound — `01-skill-isa.md`.
+- **The friction coefficient and object mass** the derivations consume (declared contact / target properties; the perception that estimates them is out of scope) — `01-skill-isa.md` § type system.
+- **The interval force / torque-trajectory verification** that checks the realized profile against the derived bound — `05-conformance.md` § ENV4.
+
 ## Resolved in the 2026-05-30 design pass
 
 These issues surfaced during `reach` / `grasp` primitive design and are now addressed in the Skill ISA type system and the grasp state model (`01-skill-isa.md`). Detail lives in the spec body; retained here as a design-history trail.
@@ -218,10 +267,10 @@ These issues surfaced during `reach` / `grasp` primitive design and are now addr
 - ~~**Under-constrained-orientation residual rule** (*decided*)~~ **[resolved → § Pose representation and orientation error]**: among orientations satisfying the declared constraints, `retarget` picks the minimum-geodesic-rotation one from the current orientation, uniformly — deterministic, binding for `retarget` determinism (CA2c).
 - ~~**Rest-at-goal vs. trajectory blending**~~ **[resolved → § Terminal semantics — rest-at-goal]**: v0.1 guarantees rest-at-goal; `timing` reserves `stop_at_goal: bool` (default `true`) so future non-stop blending is additive without breaking the guarantee (CA3c, Principle 5).
 - **Normative sweep-pattern generators**: `Σ` for `pattern ∈ {raster, spiral, arc, waypoints}` as a deterministic function of `(region, pattern, standoff, overlap, FOV)`, in a normative appendix.
-- **`min_holding_force` derivation**: deterministic from `target` mass, grasp mode, friction, load direction; required for `grasp.adjust` / `transport` safety.
-- **Dynamic grasp-stability limit derivation**: the dynamic counterpart of `min_holding_force` — from stability metadata (`secured_dof` / `closure` / `flags`) + object mass + grasp geometry, derive the maximum acceleration at which the inertial load does not cause in-grasp slip. Clamps `max_acceleration` for all `transport` primitives; the core of transport safety.
-- **Grasp-under-reaction-load**: the contact-reaction analogue of dynamic grasp stability — a `force` primitive's contact reaction (e.g. insertion axial force) must not exceed the grasp's holding capacity along the load axis, or the held part slips before the task completes. Derive the reaction-force limit from stability metadata + grasp geometry; applies across `force`. Includes **rotational** holding capacity for torque reaction (`force.screw` / `force.unscrew`) and **periodic reversal** load (`force.scrub` oscillation stability — the tool must be retained at each tangential reversal).
-- **Tool-mediated force + coupled-motion constraint**: `force.screw` (and later `force.cut`) transmit force / torque to the target through a *held tool* (driver, cutter). Represent the held tool as the force-transmission path, with the tool's grasp bearing the reaction (tool-grasp-under-reaction-load). `force.screw` also couples rotation to axial advance at `thread_pitch`; `retarget` must expand this coupled DOF into the canonical action, and a decoupling (advance without turn, or vice versa) is a failure signal.
+- ~~**`min_holding_force` derivation**~~ **[resolved → § Grasp-force and stability derivations, `min_holding_force`]**: derived deterministically from object weight, grasp mode, friction, and load direction against the grasp's directional holding capacity; the static floor the grasp-continuity invariant (`05` GC1) checks and `grasp.adjust` maintains (GF1c).
+- ~~**Dynamic grasp-stability limit derivation**~~ **[resolved → § Grasp-force and stability derivations, Dynamic stability]**: the largest acceleration at which inertial + gravity load stays within holding capacity, from `StabilityMetadata` + mass + geometry; clamps `max_acceleration` in every `transport` primitive's `Envelope.motion_bounds` (GF2c) — the dynamic counterpart of `min_holding_force`.
+- ~~**Grasp-under-reaction-load**~~ **[resolved → § Grasp-force and stability derivations, Reaction-load limit]**: a `force` primitive's reaction may not exceed holding capacity along the reaction axis, the rotational capacity about the tool axis (torque reaction, screw/unscrew), or be lost at a periodic reversal (scrub); derived and aborted-before-slip (GF3c).
+- ~~**Tool-mediated force + coupled-motion constraint**~~ **[resolved → § Grasp-force and stability derivations, Tool-mediated force and coupled motion]**: a force transmitted through a held tool loads the *tool's* grasp (tool-grasp-under-reaction-load); `force.screw`'s rotation↔advance coupling at `thread_pitch` is expanded into the canonical action, and a decoupling (advance without turn, or vice versa) is a failure signal (GF4c).
 - ~~**Uncertainty-robustness in capability negotiation**~~ **[resolved → § Capability negotiation and routing]**: negotiation matches a task's geometry uncertainty against an embodiment's declared `grasp.envelope` robustness, routing uncertain-geometry tasks to envelope-capable embodiments — the retarget-side complement to `03`'s binary `capability_absent` gate (RD4c).
 - ~~**Passive-drive determinism boundary**~~ **[resolved → § The determinism boundary]**: `retarget` generation is byte-deterministic unconditionally, but the *realized execution* of a contact-dynamics primitive (`in_hand.pivot` passive drive; all `force` compliant search) is not — it is held to Class 2-loose (semantic equivalence within a per-skill ε) on realized execution, Class 2-strict on generation (RD2c). Parallel to `reach.scan`'s purely-kinematic strict archetype.
 - ~~**Multi-embodiment coordination + determinism**~~ **[resolved → § Multi-embodiment coordination]**: bimanual handoff closes within one `retarget` (fully deterministic, in-spec); inter-robot handoff's two-party determinism semantics (GC6 + `EffectorRef`) are specified and its coordination *protocol* (the dual-grasp-window wire mechanism) is a named v0.1 deferral (RD3c). Semantics-now, mechanism-later.
