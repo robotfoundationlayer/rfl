@@ -1,6 +1,6 @@
 # TactileManifold — Specification
 
-> **Status**: foundation + degradation specified (2026-05-31) — the feature-field model, the field-set discipline, the feature taxonomy, the contact-sensor descriptor, the site model, the `TactileTarget` type, and the graceful-degradation proxy discipline. Remaining before freeze: the per-feature semantic units (slip; force-events; deformation; freed-part safety; sensing-scope contracts), tracked in `02-translation-layer.md` § Open issues (Owned by `04`). The formal mathematical specification is in the white paper Appendix B; this chapter is the implementation-facing version.
+> **Status**: foundation + degradation + slip specified (2026-05-31) — the feature-field model, the field-set discipline, the feature taxonomy, the contact-sensor descriptor, the site model, the `TactileTarget` type, the graceful-degradation proxy discipline, and the slip discrimination model. Remaining before freeze: the per-feature semantic units (force-events; deformation; freed-part safety; sensing-scope contracts), tracked in `02-translation-layer.md` § Open issues (Owned by `04`). The formal mathematical specification is in the white paper Appendix B; this chapter is the implementation-facing version.
 
 ## Scope
 
@@ -240,6 +240,80 @@ A `proxy`-tier `Verdict` is still a confident `true` / `false` when its proxy si
 - **The canonical-action encoding of proxy monitoring** — how `retarget` emits the position-convergence and force-hold monitors into the canonical action — `02-translation-layer.md`.
 - **`tool_safety` / `human_collaboration_safety`** as the orthogonal hard gates — `03` § Safety capabilities; their conformance test benches — `05`.
 
+## Slip — controlled migration vs. loss of control
+
+`slip` is the manifold's contact-motion feature (§ Feature taxonomy). It is the hardest feedback to use correctly, because several primitives create relative contact motion *by design*: `in_hand.roll` migrates the contact point as it rolls, and `in_hand.slide` permits slip along one DOF. A raw slip reading therefore cannot be a blanket abort trigger — it would abort the very primitives whose intent is motion. This section defines the `slip` feature and the **intended-slip model** that separates controlled migration from loss of control.
+
+### The `SlipState` feature
+
+The manifold-local `SlipState` type promised in § Feature taxonomy:
+
+```
+SlipState := {
+  stage:     {none, incipient, gross},   # partial-slip onset vs. full relative sliding
+  direction: Direction | None,           # slip-velocity direction at the contact, in the tactile frame
+  rate:      Velocity,                    # slip-speed magnitude (0 when stage = none)
+}
+```
+
+- **`incipient`** is partial slip — the stick-slip onset a contact shows *before* the object visibly displaces. Detecting it requires `shear` (the tangential-force feature); it is the early warning a tactile sensor gives and a force/position proxy cannot (§ Proxy-degradable vs. proxy-irreducible confirmations).
+- **`gross`** is full relative sliding — the object is moving against the effector. Because the object's pose changes, gross slip *is* position-observable, which is what lets the reactive-only proxy fallback (§ Graceful degradation) catch gross slip but not incipient slip.
+- **`direction`** is the discriminator the directional primitives turn on.
+
+### The intended-slip model
+
+A primitive that commands relative motion supplies an **intended-slip model** — the slip the command is expected to produce. The manifold classifies an observed `SlipState` against it:
+
+```
+classify(observed, intended_model) :=
+  | controlled       if observed is consistent with intended_model
+  | loss_of_control  otherwise   (a securing DOF slips, or magnitude / direction exceeds the model)
+```
+
+A primitive with **no** commanded motion (every `grasp` mode, `transport`) supplies the **empty** intended-slip model, under which *any* slip is `loss_of_control` — the blanket-abort base case that `01`'s grasp `slip` failure mode and `slip_response` already assume. The two motion primitives supply non-empty models, defined next. The classification is the single construct; roll and slide are its two instances, so the discrimination is not re-derived per primitive.
+
+### Rolling discriminator — `in_hand.roll`
+
+`in_hand.roll` rolls the object about `roll_axis` over its declared rolling surface (the `GeometryRef` rolling aspect, `01`). The intended-slip model is the **rolling kinematics**: at the commanded angular velocity ω, rolling contact migrates the contact point at the tangential rate the rolling radius predicts, along the roll tangent. An observed `SlipState` is `controlled` iff its direction lies along the roll tangent and its rate matches the kinematic migration rate within the primitive's `orientation_tolerance`-derived band. It is `loss_of_control` (the `gross_slip` failure, `01`) when:
+
+- the rate **exceeds** the kinematic migration (the object skids faster than it rolls), or
+- the direction has a component **off** the roll tangent (a lateral slide or along-axis creep the rolling model does not predict), or
+- slip **persists while ω = 0** (the object is moving when it should be still).
+
+The "rolling degenerates toward line / point contact" envelope concern (`01` safety envelope) is the manifold concurrently checking that the migrating contact stays a *securing* contact — `normal_force ≥ min_holding_force` at the moving contact — so a roll that is kinematically correct but losing normal force is still arrested.
+
+### Sliding discriminator — `in_hand.slide`
+
+`in_hand.slide` permits slip along `slide_direction` (a `friction_held` translational DOF) while the orthogonal DOF keep securing (`01`). The intended-slip model is **directional**: decompose the observed slip velocity into its `slide_direction` component and its orthogonal component.
+
+- the `slide_direction` component is **intended feed** — it advances the slide toward the stop condition;
+- an orthogonal component beyond a tolerance band is **drop-slip** — a securing DOF is slipping and the object is escaping the grasp (the `drop_slip` failure, `01`).
+
+Direction, not magnitude, is the discriminator: a fast slide along `slide_direction` is fine, while a slow slip orthogonal to it is an abort. This is the precise content of `01`'s "distinguish intended slip (along `slide_direction`) from unintended drop-slip (object escaping)."
+
+### Closed-loop slip sensing and its degradation
+
+`in_hand.slide` names **closed-loop slip sensing** a requirement (`01`): the `slip` feature must be available *and* fed back within the control loop's temporal resolution, both to arrest at the stop condition and to detect drop-slip as it begins. Per § Proxy-degradable vs. proxy-irreducible confirmations, slip's *incipient* stage has no force/position surrogate, so when slip sensing is absent the degradation is the irreducible rule:
+
+- the slide's **displacement tracking** still runs — position observes the advance, so the primitive is not hard-rejected (proxy-degradable);
+- **drop-slip detection** degrades to **reactive-only** — only *gross* escape is caught, as an orthogonal-DOF object-pose change, not incipient orthogonal slip;
+- the result discloses the `proxy_reactive` tier and the unavailable incipient-slip guard (§ Fidelity tier and audit honesty).
+
+The same degradation governs `grasp.adjust(reason = slip_recovery)` (`01`): preemptive incipient-slip recovery needs the feature; without it, recovery can only react to gross slip.
+
+#### Conformance obligations (slip)
+
+- **TM9c — slip staging.** The manifold reports `SlipState` with `stage ∈ {none, incipient, gross}`, a `direction`, and a `rate`; the `incipient` stage is reported only from a shear-bearing feature, never inferred from position.
+- **TM10c — rolling consistency.** During `in_hand.roll`, slip consistent with the rolling kinematics at the commanded ω is classified `controlled`; slip that skids beyond the migration rate, runs off the roll tangent, or persists at ω = 0 is classified `gross_slip`.
+- **TM11c — slide directionality.** During `in_hand.slide`, the slip component along `slide_direction` is intended feed; an orthogonal-DOF slip component beyond the tolerance band is `drop_slip`. The discrimination is by direction, not by rate.
+- **TM12c — closed-loop degradation.** With slip sensing absent, `in_hand.slide` still tracks displacement (position proxy) but its drop-slip guard degrades to reactive-only gross-escape detection, reported at `proxy_reactive` tier.
+
+#### Deferred to other chapters
+
+- **The rolling-surface geometry** (`GeometryRef` rolling aspect) and the DOF-admissibility that gates which DOF a primitive may move — `01-skill-isa.md`.
+- **The canonical-action encoding** of the slip monitor and the intended-slip model — `02-translation-layer.md`.
+- **The continuity-verification test classes** (gaiting, make-before-break, the slide / roll C-tests) that consume the slip classification — `05-conformance.md`.
+
 ## Deferred to other chapters
 
 The manifold owns the feature *definitions*. Coupled concerns are owned elsewhere and referenced, not redefined:
@@ -253,7 +327,6 @@ The manifold owns the feature *definitions*. Coupled concerns are owned elsewher
 
 The remaining items of the `04` group in `02-translation-layer.md` § Open issues, each a unit still to be written on this foundation:
 
-- **Slip** feature semantics (intended-migration vs. loss-of-control; closed-loop slip sensing)
 - **Force-event** semantics (breakaway / detent; detent vs. bottoming-out) and the multi-rate **temporal-alignment** model (the chapter's second skeleton open issue)
 - **Deformation** semantics (bend / crease vs. crush)
 - **Freed-part** safety handling at constraint-release
