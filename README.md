@@ -47,9 +47,9 @@ The whitepaper is the long-form argument; the [`spec/`](spec/) directory hosts t
 | File | Status |
 |---|---|
 | [`spec/00-overview.md`](spec/00-overview.md) | Drafted |
-| [`spec/01-skill-isa.md`](spec/01-skill-isa.md) | In progress (full semantic design across grasp, place, force, transport, in-hand) |
-| [`spec/02-translation-layer.md`](spec/02-translation-layer.md) | In progress |
-| [`spec/03-driver-interface.md`](spec/03-driver-interface.md) | In progress |
+| [`spec/01-skill-isa.md`](spec/01-skill-isa.md) | Design complete — 50 primitives, type system, algebra (predicates / three-valued verdict), world-state model, composition validity |
+| [`spec/02-translation-layer.md`](spec/02-translation-layer.md) | In progress (canonical action + retargeting contract; § Open issues is the cross-chapter design driver) |
+| [`spec/03-driver-interface.md`](spec/03-driver-interface.md) | Design complete — frame model, capability manifest, collision model, sensor / gravity / safety descriptors, multi-embodiment addressing |
 | [`spec/04-tactile-manifold.md`](spec/04-tactile-manifold.md) | Skeleton |
 | [`spec/05-conformance.md`](spec/05-conformance.md) | Skeleton |
 | [`spec/06-extension-registry.md`](spec/06-extension-registry.md) | Skeleton |
