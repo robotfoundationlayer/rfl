@@ -2507,7 +2507,7 @@ The determinism boundary from `reach.scan` / `in_hand.pivot` applies throughout:
 | `grasp_handle` | `GraspRef \| active` | `active` | — | the grasp on the fastener, or on the tool driving it (tool-mediated) |
 | `thread_axis` | `Direction` | — (required) | — | the screw / thread axis, in `frame` |
 | `torque_budget` | `Torque` | — (required) | N·m | max torque about `thread_axis` (thread-strip / fastener-break limit) |
-| `force_budget` | `Force \| auto` | `auto` | N | max axial seating force |
+| `axial_force_budget` | `Force \| auto` | `auto` | N | max axial seating force |
 | `thread_pitch` | `Length \| auto` | `auto` | mm/rev | couples rotation to advance; `auto` = from `target_fit` thread spec |
 | `completion` | `ScrewStop` | — (required) | — | `torque_rise(T)` (tight), `turns(n)`, or `torque_and_advance(T,d)` |
 | `tool_mediated` | `bool` | `auto` | — | whether a held tool (driver) transmits the torque; `auto` = inferred from grasp |
@@ -2522,11 +2522,11 @@ The determinism boundary from `reach.scan` / `in_hand.pivot` applies throughout:
 
 **Postconditions (on `success`).**
 - The fastener advanced along `thread_axis` coupled to rotation at `thread_pitch`, reaching `completion` (tight torque rise, turn count, or torque-at-advance).
-- Torque stayed `≤ torque_budget` and axial force `≤ force_budget` throughout (no thread strip, no fastener break).
+- Torque stayed `≤ torque_budget` and axial force `≤ axial_force_budget` throughout (no thread strip, no fastener break).
 - No cross-threading occurred; the grasp / tool transmitted torque without slip; `GraspState` unchanged.
 
 **Safety envelope (holds throughout execution — torque + force trajectory bound).**
-- **Torque-trajectory bound (the new axis):** torque about `thread_axis` `≤ torque_budget` at every instant; axial force `≤ force_budget`. Both are trajectory bounds — a torque spike without the expected advance is cross-threading, not seating.
+- **Torque-trajectory bound (the new axis):** torque about `thread_axis` `≤ torque_budget` at every instant; axial force `≤ axial_force_budget`. Both are trajectory bounds — a torque spike without the expected advance is cross-threading, not seating.
 - **Cross-threading discrimination:** torque rising **without** axial advance (per pitch) indicates cross-threading or a jam — abort and back off; torque rising **at** the seated advance is correct tightening. (The screw analogue of `force.insert_fit`'s seating / jam rule.)
 - **Coupled-motion constraint:** rotation and advance stay coupled at `thread_pitch`; a decoupling (advancing without turning, or turning without advancing) signals stripped threads or disengagement.
 - Grasp / tool continuity under torque reaction; tool not dropped or slipped.
