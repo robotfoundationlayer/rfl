@@ -1,0 +1,59 @@
+name: Spec clarification
+description: Ask a question about the RFL specification text or report an ambiguity
+title: "[spec] "
+labels: ["spec", "question"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reading the spec carefully. Use this template when the existing text is ambiguous, contradicts itself, or doesn't cover a case you need to handle.
+
+        If you're proposing a *new* capability that requires changes to the spec, use the **Extension proposal** template instead.
+
+  - type: dropdown
+    id: chapter
+    attributes:
+      label: Which chapter does this concern?
+      options:
+        - "00 Overview / constitutional principles"
+        - "01 Skill ISA"
+        - "02 Translation Layer"
+        - "03 Driver Interface"
+        - "04 TactileManifold"
+        - "05 Conformance"
+        - "06 Extension Registry"
+        - Cross-cutting / multiple chapters
+    validations:
+      required: true
+
+  - type: textarea
+    id: passage
+    attributes:
+      label: Specific passage (paste the lines you're asking about)
+      placeholder: |
+        From spec/02-translation-layer.md § "Retargeting algorithm — determinism requirement":
+        > "retarget(skill, embodiment) must be deterministic: identical inputs produce identical canonical-action sequences, byte-for-byte."
+    validations:
+      required: true
+
+  - type: textarea
+    id: question
+    attributes:
+      label: Your question or proposed clarification
+      placeholder: |
+        Does "identical inputs" include the local system clock? E.g., if the retargeting algorithm seeds a planner with the current timestamp, is that a conformance violation?
+    validations:
+      required: true
+
+  - type: textarea
+    id: context
+    attributes:
+      label: Context (optional — what you're trying to build, what you've tried)
+
+  - type: checkboxes
+    id: conduct
+    attributes:
+      label: Code of Conduct
+      options:
+        - label: I agree to follow the [Code of Conduct](../CODE_OF_CONDUCT.md)
+          required: true

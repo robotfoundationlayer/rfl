@@ -1,0 +1,20 @@
+[package]
+name = "rfl-cli"
+description = "Robot Foundation Layer — command-line interface (validate, retarget, conformance, ...)"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+authors.workspace = true
+
+[[bin]]
+name = "rfl"
+path = "src/main.rs"
+
+[dependencies]
+rfl-core = { path = "../rfl-core" }
+anyhow.workspace = true
+clap.workspace = true
+serde_json.workspace = true

@@ -1,0 +1,80 @@
+name: Bug report
+description: Report a defect in the reference implementation (`rfl-core`, `rfl-cli`, `rfl-conformance`)
+title: "[bug] "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to file a bug report.
+
+        For spec ambiguities or questions, use **Spec clarification** instead. For proposing new capability, use **Extension proposal**.
+
+  - type: dropdown
+    id: crate
+    attributes:
+      label: Which crate?
+      options:
+        - rfl-core
+        - rfl-cli
+        - rfl-conformance
+        - bindings/python
+        - bindings/c
+        - Other (please specify in description)
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: Version (`rfl --spec-version` output, or commit hash)
+      placeholder: "v0.0.1-pre or commit abc1234"
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+    validations:
+      required: true
+
+  - type: textarea
+    id: repro
+    attributes:
+      label: Minimal reproduction
+      description: A small skill YAML file + the exact command you ran is ideal
+      placeholder: |
+        ```yaml
+        # skill.yaml
+        ...
+        ```
+        ```bash
+        $ cargo run -p rfl-cli -- validate skill.yaml
+        ```
+    validations:
+      required: true
+
+  - type: textarea
+    id: env
+    attributes:
+      label: Environment
+      placeholder: |
+        OS:        macOS 14.5 (arm64)
+        rustc:     1.83.0
+        cargo:     1.83.0
+
+  - type: checkboxes
+    id: conduct
+    attributes:
+      label: Code of Conduct
+      options:
+        - label: I agree to follow the [Code of Conduct](../CODE_OF_CONDUCT.md)
+          required: true

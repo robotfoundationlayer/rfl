@@ -1,0 +1,22 @@
+[package]
+name = "rfl-core"
+description = "Robot Foundation Layer — core specification implementation (Skill ISA parser + Translation Layer)"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+authors.workspace = true
+
+[dependencies]
+anyhow.workspace = true
+thiserror.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+serde_yaml.workspace = true
+nalgebra.workspace = true
+
+[dev-dependencies]
+proptest.workspace = true
+insta.workspace = true

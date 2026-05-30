@@ -1,0 +1,70 @@
+name: Extension proposal
+description: Propose a new RFL extension (namespaced capability addition)
+title: "[ext] "
+labels: ["extension", "needs-review"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Extensions are how RFL accumulates new capability without modifying the core specification. Before submitting, please read [spec/06-extension-registry.md](../../spec/06-extension-registry.md) for the namespace rules and acceptance criteria.
+
+  - type: input
+    id: namespace
+    attributes:
+      label: Proposed namespace
+      description: Format `ext.<vendor-or-domain>.<extension-name>.v<MAJOR>`
+      placeholder: "ext.softrobotics.pneumatic-grasp.v1"
+    validations:
+      required: true
+
+  - type: textarea
+    id: motivation
+    attributes:
+      label: Motivation — what capability does this add, why is it needed?
+      placeholder: |
+        Pneumatic six-finger hands cannot express a thumb-and-index pinch directly using the core Skill ISA `grasp.pinch` primitive because their finger geometry differs from anthropomorphic hands. This extension adds `grasp.opposing-pair` to express the equivalent intent in pneumatic-hand terms.
+    validations:
+      required: true
+
+  - type: textarea
+    id: principle-check
+    attributes:
+      label: Constitutional principle check (all five)
+      description: Address each principle explicitly. See spec/00-overview.md for definitions.
+      value: |
+        - **Principle 1 (embodiment-agnostic):** [your analysis]
+        - **Principle 2 (compositional):** [your analysis]
+        - **Principle 3 (verifiable):** [your analysis]
+        - **Principle 4 (provider-neutral):** [your analysis]
+        - **Principle 5 (forward-compatible):** [your analysis]
+    validations:
+      required: true
+
+  - type: textarea
+    id: cross-vendor
+    attributes:
+      label: Cross-vendor evidence
+      description: At least one realistic example per structurally distinct embodiment class (tendon-driven / direct-drive / pneumatic / other) that this extension addresses
+    validations:
+      required: true
+
+  - type: textarea
+    id: schema
+    attributes:
+      label: Proposed schema (sketch)
+      placeholder: |
+        ```yaml
+        # ext.softrobotics.pneumatic-grasp.v1
+        opposing-pair:
+          chambers: [int, int]     # which two chambers oppose
+          pressure_target: MPa     # target chamber pressure
+          ...
+        ```
+
+  - type: checkboxes
+    id: conduct
+    attributes:
+      label: Code of Conduct
+      options:
+        - label: I agree to follow the [Code of Conduct](../CODE_OF_CONDUCT.md)
+          required: true
