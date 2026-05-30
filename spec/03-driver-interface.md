@@ -89,7 +89,9 @@ The frame model is declared inside the `<rfl:capabilities>` block introduced abo
 
 ```xml
 <rfl:capabilities>
-  <rfl:reference-frames world="world" base="base_link" task="task"/>
+  <rfl:reference-frames world="world" base="base_link" task="task">
+    <rfl:gravity frame="world" x="0" y="0" z="-9.81" unit="m/s^2"/>
+  </rfl:reference-frames>
   <rfl:control-frames default="tcp_right">
     <rfl:frame name="tcp_right"  link="right_tool0" tool-axis="+z" roles="grasp sensor tactile"/>
     <rfl:frame name="tcp_left"   link="left_tool0"  tool-axis="+z" roles="grasp"/>
@@ -414,6 +416,43 @@ With `standoff`, the angular field fixes the observation footprint (`2·standoff
 - **SEN3c — fov determinism.** The suite recomputes `Σ` from the declared `fov` and `reach.scan` C2 (byte-for-byte, cross-implementation) passes.
 - **SEN4c — modality coverage.** A `sense.inspect` request for a modality outside the sensor's `modalities` returns `capability_absent`.
 - **SEN5c — sweep-rate / range enforcement.** Sweep velocity never exceeds `max_sweep_rate` (interval-sampled); an observation outside `working_range` is reported `out_of_range`, never returned as a valid reading.
+
+## Gravity declaration
+
+Several primitives default a direction to gravity — `transport.lift`'s `up_direction` defaults to `−gravity`, `transport.lower`'s `down_direction` to `gravity`, `grasp.platform`'s `support_normal` and `grasp.hook`'s `load_direction` lean on it — and the dynamic grasp-stability limit folds gravity into the inertial load. But RFL must not bake in a "down" (Principle 1): a platform on a tilting base, in orbit, or underwater has a different gravity vector, or none. Gravity is therefore a **declared world vector**, never assumed.
+
+### `world.gravity`
+
+`embodiment.world.gravity` is the gravitational acceleration vector, expressed in the `world` frame (direction and magnitude, m/s²). It is **optional**: omitting it declares a gravity-free environment.
+
+- **Why the `world` frame.** Gravity is an inertial-frame property. For a tilting embodiment (a legged platform, a drone-mounted arm) the gravity vector relative to `base` changes as the body tilts, but relative to `world` it is constant — so declaring it in `world` and resolving into other frames through the frame model's transform chain is the embodiment-agnostic choice.
+- **Why a magnitude, not just a direction.** The direction resolves the `±gravity` defaults; the magnitude feeds the dynamic grasp-stability limit (inertial load `= mass · acceleration + gravity`). That derivation is owned by `02-translation-layer.md` — this declaration only supplies the vector. The mass-vs-weight reconciliation (`estimated_mass` is typed as weight under standard gravity) is the existing `01-skill-isa.md` future-extension note and is not reopened here.
+
+### `±gravity` default resolution
+
+When `world.gravity` is declared, the gravity-defaulted parameters resolve deterministically at plan time and transform into the primitive's `frame`:
+
+- `up_direction` (default `−gravity`) → the normalized anti-gravity unit vector;
+- `down_direction` (default `gravity`) → the normalized gravity unit vector;
+- `grasp.platform`'s `support_normal = auto` and `grasp.hook`'s `load_direction = auto` draw their gravity-leaning defaults from the same source.
+
+### Gravity-free environments
+
+When `world.gravity` is absent or the zero vector:
+
+- The gravity-defaulted parameters lose their default and become **required** — a `transport.lift` / `lower` with no explicit direction is `underdetermined`, no motion.
+- The passively-driven primitives `in_hand.pivot(drive = gravity)` and `in_hand.slide(drive = gravity)` have no drive source and are **rejected**.
+- The dynamic grasp-stability limit drops its gravity term (the `02` derivation accepts gravity = 0).
+
+### Scope boundary
+
+`world.gravity` declares the gravitational field only. Buoyancy and medium effects (an underwater object's effective weight depends on its density) are object dynamics and out of scope; microgravity (orbit, free fall) is declared as a null / zero gravity vector.
+
+### Conformance obligations (gravity)
+
+- **GR1c — resolution determinism.** With `world.gravity` declared, the `±gravity` defaults resolve to identical unit vectors across identical inputs (byte-for-byte).
+- **GR2c — gravity consistency.** A `transport.lift` along the resolved `up_direction` raises the object against the declared gravity (externally measured height increase along `−gravity`).
+- **GR3c — gravity-free fallback.** With `world.gravity` absent, a `lift` / `lower` with no explicit direction is `underdetermined` (no motion), and a `drive = gravity` primitive is rejected.
 
 ## Open issues
 
