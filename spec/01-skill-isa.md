@@ -283,7 +283,7 @@ Verdict := {
 | Type | Definition | Used by |
 |---|---|---|
 | `ObjectRef` | an object *identity* whose pose is not yet known — the precursor to a pose-resolved `ObjectTarget`. The resolution flow is `ObjectRef → sense.locate → Measurement(pose) → ObjectTarget` | `sense.locate` (`target_ref`) |
-| `GeometryRef` | a reference to an object's geometric model (perception-derived; RFL fixes the queryable aspects, not the estimation). Exposes a **rolling surface** aspect — a rollable surface (cylinder / sphere / cone section) and its rolling axis — for `in_hand.roll`; container geometry (opening / interior) is added by the containment item (world-state) | `ObjectTarget.geometry`; `in_hand.roll` (rolling surface) |
+| `GeometryRef` | a reference to an object's geometric model (perception-derived; RFL fixes the queryable aspects, not the estimation). Exposes a **rolling surface** aspect (a rollable surface — cylinder / sphere / cone section — and its rolling axis) for `in_hand.roll`, and a **container** aspect (opening + interior envelope) for `place.insert_loose` (see § World-state model) | `ObjectTarget.geometry`; `in_hand.roll`; `place.insert_loose` |
 | `Measurement` | the perception-derived **output** type of the `sense` category — the dual of the input target types. Optional fields `presence: bool`, `location` (a `Pose6D` position), `normal: Direction`, `stiffness`, `mass: Force`, `center_of_mass` (a `Pose6D` position), `pose: Pose6D`, `predicate_result: Verdict` (the three-valued `sense.verify` outcome, defined with the algebra), plus an `UncertaintyBound`. Flows to later primitives via `LetBind`; `mass` / `center_of_mass` / `pose` populate the matching `ObjectTarget` fields (the observe→target→manipulate loop) | all `sense.*` (output) |
 
 ### Stop / completion conditions
@@ -327,6 +327,48 @@ The seven named types are restrictions of the family (the per-primitive paramete
 ### The `auto` value
 
 Any parameter typed `T | auto` may take the literal `auto`, deferring the value to the Translation Layer's planner (per the BNF `Auto` production). `auto` resolution MUST be deterministic given identical inputs.
+
+## World-state model
+
+Where the grasp state model (§ Grasp state model and stability metadata) tracks what an effector holds, the **world-state model** tracks how objects rest on and contain one another. `place.*` writes these relations; the stability predicates and later operations (removing an object without toppling the stack it supports) read them. It is the structural basis that makes "is this safe to release?" mechanically decidable.
+
+**Scope.** RFL owns the *relations* and the *predicates* over them. The geometry they range over — a center of mass, a contact polygon, a container envelope — is perception-derived (`ObjectTarget.center_of_mass`, `GeometryRef`), produced outside RFL (layer discipline, Principle 4). The world-state model records relations and decides predicates; it does not estimate geometry.
+
+### Support and containment relations
+
+The model tracks two relations between objects (and surfaces):
+
+- **support** — "object A rests on object B (or surface S)". Written by `place.put_down` (rests-on-surface) and `place.stack` (rests-on-object); the basis for recursive stack stability.
+- **containment** — "object A is contained in container C". Written by `place.insert_loose`.
+
+A relation persists in the world-state until a later operation changes it (a subsequent grasp lifts A, clearing its support relation).
+
+### Supported-state predicate
+
+`supported(object)` holds when the object's center of mass projects strictly inside its **contact polygon** — the polygon of contact with whatever it rests on — by a stability margin. This is the `grasp.platform` CoM-over-polygon test (§ Grasp-mode capabilities, `03`) applied to a *resting* object rather than a platform grasp. It gates `grasp.release` and `place.*`: before opening the grasp, the primitive confirms `supported(object)`; if it fails and `require_stable` is set, the grasp is not released (the object is never abandoned in a pose from which it will fall).
+
+### Recursive stack-stability predicate
+
+`stack_stable(object placed on a stack)` holds when, using the support relations above to enumerate the levels:
+
+1. the object's CoM projects inside the supporting level's top-face polygon;
+2. at every level down, that level's CoM projects inside the level-below polygon; and
+3. the augmented stack's combined CoM projects inside the base support polygon.
+
+`place.stack` confirms `stack_stable` before release — the supported-state predicate applied recursively over the tracked support chain, not just the top object's local rest. The support-relation tracking is what makes the recursion decidable, and what lets a later removal reason about which levels it disturbs.
+
+### Containment predicate and container geometry
+
+`GeometryRef` exposes a **container aspect** — an opening and an interior envelope (the addition deferred from the type system). `contained(object, container)` holds when the object lies fully within the container's interior envelope — not protruding through the opening, not jammed. `place.insert_loose` confirms `contained` before release.
+
+The container aspect also fixes the **`insert_loose` vs. `insert_fit` selection criterion**: when the opening clearance exceeds the object's insertion cross-section, the insertion is a geometric drop-in (`place.insert_loose`, clearance, world-state); otherwise it is a tolerance fit (`force.insert_fit`, force-controlled). The planner selects the primitive by this criterion.
+
+### Shared break-contact clause
+
+Three primitives leave a contact rather than form one — `reach.retract`, `grasp.release`, `place.put_down`. They share one reusable safety-envelope clause, **`break_contact`**, defined once here rather than per primitive:
+
+- **Postcondition** — no task contact remains; `external_force ≈ 0`.
+- **Directional force monotonicity** — external force along the retreat / withdraw direction is non-increasing beyond a noise margin; an *increase* signals an obstacle behind the moving frame and triggers `contact_response` (a force *opposing* the retreat — the surface being left — is expected to decay and is not a violation).
 
 ## Per-primitive semantic specification
 
