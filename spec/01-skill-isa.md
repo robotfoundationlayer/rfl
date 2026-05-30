@@ -152,7 +152,8 @@ Reactive        ::= "reactive" "(" Composition "," "until" "(" Predicate ")" ")"
 Repeat          ::= "repeat" "(" Composition "," Count ")"
 Branch          ::= "branch" "(" Predicate ","
                                   "then" "(" Composition ")" ","
-                                  "else" "(" Composition ")" ")"
+                                  "else" "(" Composition ")"
+                                  [ "," "unknown" "(" Composition ")" ] ")"
 
 LetBind         ::= "let" "(" Identifier ":=" Expression ")"
                     "in" "(" Composition ")"           (* hoist a planner-derived
@@ -181,10 +182,37 @@ Duration        ::= Number ("ms" | "s")
 
 ### Notes on the BNF
 
-1. **`Reactive` until-predicate semantics** are subtle: concurrent envelope violation must abort the inner `Composition` deterministically. Full specification deferred to a dedicated subsection in the next pass.
+1. **`Reactive` until-predicate semantics** are specified in § Predicates, verdicts, and three-valued control flow: the `until` predicate terminates the body only on a confident `true`, and a concurrent envelope violation takes precedence over a clean `until` completion (deterministically).
 2. **`LetBind`** is included to allow a planner-derived pose (e.g., the result of `sense.locate`) to flow into subsequent primitives without re-derivation. This is what enables a single Skill ISA file to express "find the cable end, then grasp it, then insert" as a single composition. It is also the canonical way a perception-derived `SurfaceTarget` (point + outward normal) reaches `reach.approach`: `let (t := sense.locate(...)) in (reach.approach(target: &t, standoff: 50mm))`. RFL does not define how `t` is perceived — only how it flows once resolved.
 3. **`Predicate` extensibility via `user_defined`** is the escape valve: domain-specific predicates can ship as extensions without modifying the core grammar.
 4. **`Auto` value** lets the spec author defer choice to the Translation Layer's planner (e.g., a `grasp_pose: auto` parameter delegates pose selection).
+
+### Predicates, verdicts, and three-valued control flow
+
+The `Predicate` of the grammar and the `StatePredicate` of `sense.verify` are **one type**. A `Predicate` evaluates to a `Verdict`, and the same `Verdict` drives `branch`, `reactive`, and a `force.scrub` `state_change` completion.
+
+**`Verdict`.** Evaluating a `Predicate` yields:
+
+```
+Verdict := {
+  value:      {true, false, indeterminate},
+  confidence: Ratio,
+  evidence:   the observations that supported the verdict,
+}
+```
+
+`value` is `true` / `false` only when `confidence ≥ confidence_threshold`; otherwise it is `indeterminate` — RFL does not assert a predicate it cannot support (honesty over a forced boolean). `Measurement.predicate_result` is a `Verdict`.
+
+**Two evaluation paths.** A predicate over the embodiment's own state — `pose_reached`, `force_exceeds`, `elapsed` — evaluates directly from internal state (confidence ≈ 1). A predicate over external state — `object_present`, `tactile_contact`, `user_defined` — is evaluated by `sense.verify`, the general perception-backed evaluator; the grammar's specific predicates are its specializations and `user_defined` is the extension hook.
+
+**Three-valued control flow.** `indeterminate` is never silently coerced to `true` or `false`:
+
+- `branch(pred, then, else [, unknown])` takes an optional `unknown` arm taken on `indeterminate`. Without it, `indeterminate` **escalates** (raises to the caller) rather than guessing `then` or `else`.
+- `reactive(body, until(pred))` terminates the body only on a confident `true`; `false` and `indeterminate` continue it (the body's own envelope and timeout are the backstop). The reactive never completes cleanly on an unsupported predicate.
+
+**Envelope precedence.** When, in the same evaluation step, the body's safety envelope is violated and the `until` predicate reads `true`, the **safety-abort takes precedence**: the `reactive` terminates by abort, not by clean completion. This is deterministic — an identical trace yields an identical termination kind — and resolves the BNF note on concurrent envelope violation.
+
+**Verdict honesty and evidence audit.** A `Verdict` always carries its `evidence`. Safety-critical verifications (e.g. "is the fastener torqued?") persist that evidence so the L4 Certification and L8 Insurance loops can audit *what* an assertion rested on — the same traceability requirement as `in_hand.flip`'s `momentary_release`. RFL owns the production of the evidence-bearing verdict; the audit loops that consume the persisted evidence are owned by `05-conformance.md` / the certification-insurance loops.
 
 ## Skill ISA type system
 
