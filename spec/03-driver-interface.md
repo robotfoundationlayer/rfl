@@ -188,6 +188,58 @@ The XML maps onto the abstract fields `embodiment.capabilities` (the asserted pr
 - **M3 — auxiliary value domain.** Each enumerated auxiliary capability (`compliance`, …) holds a value within its defined domain.
 - **M4 — `capability_absent` determinism.** A primitive requiring an undeclared capability is rejected at validation with no attempt (externally measured displacement `< ε`).
 
+### Grasp-mode capabilities and limits
+
+The `grasp` category contributes eight mode capabilities to the manifest. Each is a primitive capability under § Capability manifest; this section enumerates the limits and frame geometry each mode requires and *why* — the limit set follows from the mode's closure type, which is fixed by the grasp state model (`01-skill-isa.md` § Grasp state model and stability metadata, the canonical source). The manifest does not redeclare closure; asserting `grasp.pinch` carries its `force` closure by definition.
+
+| Capability | Closure | Payload limit | Size limit | Force / velocity | Frame geometry | Stability flags |
+|---|---|---|---|---|---|---|
+| `grasp.pinch` | force | `payload_grasp_pinch` | — | `grip_force_max`, `v_grasp` | `grasp_envelope` | — |
+| `grasp.power` | force | `payload_grasp_power` | `enclosure_span` (max characteristic size) | `grip_force_max`, `v_grasp` | `grasp_envelope` | — |
+| `grasp.tripod` | force | `payload_grasp_tripod` | `precision_object_size_max` | `grip_force_max`, `v_grasp` | `grasp_envelope` | `rotation_constrained` |
+| `grasp.lateral` | force | `payload_grasp_lateral` | `lateral_grasp_max_thickness` | `grip_force_max`, `v_grasp` | `grasp_envelope` | — |
+| `grasp.pin` | force | — (the external surface bears the load) | — | `grip_force_max`, `v_grasp` | `grasp_envelope` | `extrinsic`, `surface_bound` |
+| `grasp.envelope` | form | `payload_grasp_envelope` | `enclosure_range` (a `[min, max]` range) | `grip_force_max`, `v_grasp` | `grasp_envelope` | `compliant` / `residual_mobility` |
+| `grasp.hook` | form | `hook_load_capacity` (directional load rating) | — | `v_grasp` | `grasp_envelope` | — (directional form hold) |
+| `grasp.platform` | support | `payload_support` | — | `v_cartesian_max` | `support_polygon` | balance-held |
+
+Reading the table by closure type explains the limit asymmetries:
+
+- **Force-closure modes** oppose the object with controlled grip force, so they share `grip_force_max` and carry a per-mode payload. `grasp.pin` is the exception with **no payload limit**: it is extrinsic force closure — the pinned object's weight is borne by the external `against_surface`, not the effector — and is `surface_bound` (no free transport). A missing pin payload is correct, not an omission.
+- **`grasp.hook`** is form closure with a directional hold; it applies no opposing grip force, so `grip_force_max` does not apply. Its load capacity is the directional `hook_load_capacity`.
+- **`grasp.platform`** is balance-held support; it forms no closing grip (hence `v_cartesian_max`, the placement-motion bound, not `v_grasp`) and its load limit is `payload_support`.
+
+#### Shared vs. per-mode limits
+
+Two grasp limits are **embodiment-level** — declared once, shared by every force-closure mode the embodiment supports:
+
+- `grip_force_max` — the ceiling on commanded grip force across `grasp.pinch` / `power` / `tripod` / `lateral` / `pin` / `envelope`.
+- `v_grasp` — the closing / threading velocity ceiling for every mode that forms contact by closing (all but `grasp.platform`).
+
+Every other grasp limit (`payload_grasp_*`, `payload_support`, `hook_load_capacity`, the size limits) is **per-mode** and required only when its mode is declared. The manifest's M2 (limit completeness) applies at this granularity: declaring `grasp.power` requires `payload_grasp_power`, `enclosure_span`, and the shared `grip_force_max` / `v_grasp`.
+
+#### Frame-keyed grasp geometry
+
+Two grasp inputs are not scalars but geometry keyed by the grasp frame, alongside the per-frame `embodiment.workspace(frame)` of the frame model:
+
+- **`embodiment.grasp_envelope(controlled_frame)`** — the region (object pose / position) within which the named grasp frame can *form* a closure. The grasp preconditions require `target` to lie within it. It is a subset of `workspace(frame)` (IK reachability): reachability is necessary but not sufficient — `grasp_envelope` is the tighter volume in which the effector can actually close on an object. It bounds the **final approach only**; gross transit to bring the target into the envelope is the `reach` family's responsibility.
+- **`embodiment.support_polygon(support_frame)`** — the support-contact polygon over which a balance-held object's center of mass must project for `grasp.platform`. With the primitive's `support_normal` parameter, it is the embodiment-side input to the CoM-over-polygon stability decision.
+
+Both are declared per frame and extensible through `06-extension-registry.md`. An embodiment that cannot declare `grasp_envelope` for a grasp frame may not assert a grasp mode on it; one that cannot declare `support_polygon` may not assert `grasp.platform`.
+
+#### Tactile sensing is preferred, never required
+
+`grasp` never hard-requires the `tactile_sensing` auxiliary capability (Principle 5). Every mode lists it as *preferred*: when it is declared, contact confirmation uses the TactileManifold; when it is absent, confirmation degrades to a force / position proxy (the proxy is specified in `04-tactile-manifold.md`). A grasp-mode capability is therefore declarable independently of `tactile_sensing` — a non-tactile embodiment can still assert and pass `grasp.pinch`.
+
+#### Conformance obligations (grasp)
+
+- **G1c — per-mode limit completeness.** For each asserted grasp mode, the payload / size limits in the table above plus the shared `grip_force_max` / `v_grasp` are present and SI-valued (the grasp specialization of M2).
+- **G2c — `grasp_envelope` queryable.** For each grasp frame carrying a declared mode, `grasp_envelope(frame)` is declared and a bench object placed within it passes that mode's C1 nominal test.
+- **G3c — `support_polygon` present.** When `grasp.platform` is asserted, `support_polygon(support_frame)` is declared and yields a polygon usable for the CoM-over-polygon decision.
+- **G4c — tactile independence.** With `tactile_sensing` undeclared, each asserted grasp mode still passes its C1 test via the force / position proxy.
+
+The closure-dependent hold test that verifies these grasps (omnidirectional for `force`, `load_direction`-only for `form`, level-gentle for `support`) is owned by `05-conformance.md`.
+
 ## Open issues
 
 - Capability negotiation timing — **static manifest portion resolved** (§ Capability manifest: declared in `<rfl:capabilities>`, acquired at load-time / negotiation; checked per-primitive at validation). Open: per-action *dynamic* renegotiation (session-start vs. per-action) for embodiments whose capabilities change at runtime.
