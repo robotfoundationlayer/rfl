@@ -252,7 +252,12 @@
       "minProperties": 1,
       "properties": {
         "inhand_rotation_range": { "$ref": "#/$defs/GraspModeRangeMap" },
-        "inhand_translation_range": { "$ref": "#/$defs/GraspModeRangeMap" }
+        "inhand_translation_range": { "$ref": "#/$defs/GraspModeRangeMap" },
+        "stability_margin": {
+          "type": "number",
+          "minimum": 0,
+          "description": "transport.carry stability headroom (03 § Transport capabilities): a dimensionless ratio, so a bare number rather than a unit-suffixed quantity."
+        }
       },
       "additionalProperties": {
         "oneOf": [
