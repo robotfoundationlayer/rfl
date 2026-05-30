@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "RFL Skill ISA composition file",
-  "description": "Validates a Skill ISA composition file (the JSON / YAML form an author writes; reference instance examples/01-cable-insertion/skill.yaml). Structural validation per 01-skill-isa.md: the compositional algebra (sequence / parallel / reactive / repeat / branch / let-bind), that every primitive call key is one of the 50 ISA primitive ids, and that an extension call is namespaced ext.<ns>.<name>. Per-primitive parameter names, types, units, and enums are constrained only for primitives precisely typed so far (approach B, tightened one primitive at a time — currently all of category 1 reach except reach.retract (reach.to_pose § 1.1, reach.approach § 1.2, reach.align § 1.3, reach.hover § 1.5, reach.scan § 1.6), all of category 2 grasp (grasp.pinch § 2.1, grasp.power § 2.2, grasp.hook § 2.3, grasp.precision_tripod § 2.4, grasp.lateral § 2.5, grasp.platform § 2.6, grasp.pin § 2.7, grasp.envelope § 2.8, grasp.adjust § 2.9, grasp.release § 2.10), all of category 3 in_hand (in_hand.rotate § 3.1, in_hand.translate § 3.2, in_hand.regrasp § 3.3, in_hand.roll § 3.4, in_hand.pivot § 3.5, in_hand.slide § 3.6, in_hand.flip § 3.7), transport.move_to_pose § 4.1, and all of category 7 sense (sense.probe § 7.1, sense.inspect § 7.2, sense.weigh § 7.3, sense.locate § 7.4, sense.verify § 7.5); every other primitive's params is an open object. Backs conformance test class 1 (parser conformance, 05-conformance.md). The algebra is the abstract BNF of 01 § Compositional algebra; this schema fixes its concrete YAML serialization, where a let-bind is a sequence statement {let, from} whose binding scopes over the rest of the enclosing sequence (the BNF's explicit in(...) is accepted as an optional key).",
+  "description": "Validates a Skill ISA composition file (the JSON / YAML form an author writes; reference instance examples/01-cable-insertion/skill.yaml). Structural validation per 01-skill-isa.md: the compositional algebra (sequence / parallel / reactive / repeat / branch / let-bind), that every primitive call key is one of the 50 ISA primitive ids, and that an extension call is namespaced ext.<ns>.<name>. Per-primitive parameter names, types, units, and enums are constrained only for primitives precisely typed so far (approach B, tightened one primitive at a time — currently all of category 1 reach except reach.retract (reach.to_pose § 1.1, reach.approach § 1.2, reach.align § 1.3, reach.hover § 1.5, reach.scan § 1.6), all of category 2 grasp (grasp.pinch § 2.1, grasp.power § 2.2, grasp.hook § 2.3, grasp.precision_tripod § 2.4, grasp.lateral § 2.5, grasp.platform § 2.6, grasp.pin § 2.7, grasp.envelope § 2.8, grasp.adjust § 2.9, grasp.release § 2.10), all of category 3 in_hand (in_hand.rotate § 3.1, in_hand.translate § 3.2, in_hand.regrasp § 3.3, in_hand.roll § 3.4, in_hand.pivot § 3.5, in_hand.slide § 3.6, in_hand.flip § 3.7), transport.move_to_pose § 4.1, all of category 5 place (place.put_down § 5.1, place.stack § 5.2, place.insert_loose § 5.3, place.orient § 5.4, place.hand_to § 5.5, place.discard § 5.6), and all of category 7 sense (sense.probe § 7.1, sense.inspect § 7.2, sense.weigh § 7.3, sense.locate § 7.4, sense.verify § 7.5); every other primitive's params is an open object. Backs conformance test class 1 (parser conformance, 05-conformance.md). The algebra is the abstract BNF of 01 § Compositional algebra; this schema fixes its concrete YAML serialization, where a let-bind is a sequence statement {let, from} whose binding scopes over the rest of the enclosing sequence (the BNF's explicit in(...) is accepted as an optional key).",
   "type": "object",
   "required": ["skill", "body"],
   "additionalProperties": false,
@@ -1025,6 +1025,103 @@
         "timeout": { "$ref": "#/$defs/Duration", "description": "Duration | auto, > 0." }
       }
     },
+    "PlacePutDownParams": {
+      "type": ["object", "null"],
+      "description": "Parameters of place.put_down (01 § 5.1), precisely typed (approach B) — the nine parameters of the § 5.1 table, no more. All parameters are optional (target_surface defaults to auto = the surface directly below along gravity), so a param-less call (null / empty) is valid.",
+      "additionalProperties": false,
+      "properties": {
+        "grasp_handle": { "$ref": "#/$defs/GraspHandle", "description": "GraspRef | active (default active) — the grasp holding the object." },
+        "target_surface": { "$ref": "#/$defs/CompoundOrAuto", "description": "SurfaceTarget | auto — where to place (default auto = the surface directly below along gravity)." },
+        "place_pose": { "$ref": "#/$defs/CompoundOrAuto", "description": "Pose6D | auto — object pose at placement (default auto = current orientation, lowered onto the surface)." },
+        "frame": { "$ref": "#/$defs/FrameRef", "description": "FrameRef — reference frame (default task)." },
+        "position_tolerance": { "$ref": "#/$defs/Length", "description": "Length > 0 (default 2 mm)." },
+        "touchdown_force": { "anyOf": [ { "$ref": "#/$defs/Auto" }, { "$ref": "#/$defs/Force" } ], "description": "Force | auto — set-down contact threshold (per transport.lower)." },
+        "require_stable": { "type": "boolean", "description": "Confirm a stably-supported state before releasing (default true)." },
+        "withdraw_axis": { "$ref": "#/$defs/SignedAxis", "description": "SignedAxis — effector withdraw direction after release (default -embodiment.default_tool_axis)." },
+        "timeout": { "$ref": "#/$defs/Duration", "description": "Duration | auto, > 0." }
+      }
+    },
+    "PlaceStackParams": {
+      "type": "object",
+      "description": "Parameters of place.stack (01 § 5.2), precisely typed (approach B) — the nine parameters of the § 5.2 table, no more. support_object is required; the rest carry the spec defaults.",
+      "required": ["support_object"],
+      "additionalProperties": false,
+      "properties": {
+        "grasp_handle": { "$ref": "#/$defs/GraspHandle", "description": "GraspRef | active (default active) — the grasp holding the object to stack." },
+        "support_object": { "$ref": "#/$defs/Compound", "description": "ObjectTarget — the object / stack to place on top of." },
+        "alignment": { "enum": ["centered", "edge_aligned", "pose"], "description": "How to align over support_object's top face (default centered)." },
+        "place_pose": { "$ref": "#/$defs/CompoundOrAuto", "description": "Pose6D | auto — (for alignment = pose) explicit placement pose (default auto)." },
+        "frame": { "$ref": "#/$defs/FrameRef", "description": "FrameRef — reference frame (default task)." },
+        "position_tolerance": { "$ref": "#/$defs/Length", "description": "Length > 0 — alignment tolerance over the support (default 2 mm)." },
+        "touchdown_force": { "anyOf": [ { "$ref": "#/$defs/Auto" }, { "$ref": "#/$defs/Force" } ], "description": "Force | auto — set-down threshold (gentle, not to disturb the stack)." },
+        "require_stack_stable": { "type": "boolean", "description": "Confirm whole-stack stability before releasing (default true)." },
+        "timeout": { "$ref": "#/$defs/Duration", "description": "Duration | auto, > 0." }
+      }
+    },
+    "PlaceInsertLooseParams": {
+      "type": "object",
+      "description": "Parameters of place.insert_loose (01 § 5.3), precisely typed (approach B) — the nine parameters of the § 5.3 table, no more. container is required; the rest carry the spec defaults. The clearance fit (vs force.insert_fit) is reflected in the looser position_tolerance default and the jam_force, not a clearance parameter.",
+      "required": ["container"],
+      "additionalProperties": false,
+      "properties": {
+        "grasp_handle": { "$ref": "#/$defs/GraspHandle", "description": "GraspRef | active (default active) — the grasp holding the object." },
+        "container": { "$ref": "#/$defs/Compound", "description": "ObjectTarget — the container / receptacle to insert into (opening + interior)." },
+        "insertion_pose": { "$ref": "#/$defs/CompoundOrAuto", "description": "Pose6D | auto — object pose for insertion (default auto = aligned with the container opening)." },
+        "insertion_depth": { "anyOf": [ { "$ref": "#/$defs/Auto" }, { "$ref": "#/$defs/Length" } ], "description": "Length | auto — how far to insert (default auto = until contained / resting)." },
+        "frame": { "$ref": "#/$defs/FrameRef", "description": "FrameRef — reference frame (default task)." },
+        "position_tolerance": { "$ref": "#/$defs/Length", "description": "Length > 0 — looser (clearance fit) (default 3 mm)." },
+        "jam_force": { "anyOf": [ { "$ref": "#/$defs/Auto" }, { "$ref": "#/$defs/Force" } ], "description": "Force | auto — contact force indicating a jam (wall collision), not a fit." },
+        "require_contained": { "type": "boolean", "description": "Confirm the object is contained before releasing (default true)." },
+        "timeout": { "$ref": "#/$defs/Duration", "description": "Duration | auto, > 0." }
+      }
+    },
+    "PlaceOrientParams": {
+      "type": "object",
+      "description": "Parameters of place.orient (01 § 5.4), precisely typed (approach B) — the eight parameters of the § 5.4 table, no more. required_orientation is required; the rest carry the spec defaults. target_surface is SurfaceTarget | auto. required_orientation (OrientationSpec) internals are deferred.",
+      "required": ["required_orientation"],
+      "additionalProperties": false,
+      "properties": {
+        "grasp_handle": { "$ref": "#/$defs/GraspHandle", "description": "GraspRef | active (default active) — the grasp holding the object." },
+        "target_surface": { "$ref": "#/$defs/CompoundOrAuto", "description": "SurfaceTarget | auto — where to place (default auto)." },
+        "required_orientation": { "$ref": "#/$defs/Compound", "description": "OrientationSpec — the orientation the placed object must have (object axis -> world direction, e.g. label_normal -> up)." },
+        "orientation_tolerance": { "$ref": "#/$defs/Angle", "description": "Angle > 0 — on the placed orientation (default 3 deg)." },
+        "frame": { "$ref": "#/$defs/FrameRef", "description": "FrameRef — reference frame (default task)." },
+        "position_tolerance": { "$ref": "#/$defs/Length", "description": "Length > 0 (default 2 mm)." },
+        "require_stable": { "type": "boolean", "description": "Confirm stable support before release (default true)." },
+        "timeout": { "$ref": "#/$defs/Duration", "description": "Duration | auto, > 0." }
+      }
+    },
+    "PlaceHandToParams": {
+      "type": "object",
+      "description": "Parameters of place.hand_to (01 § 5.5), precisely typed (approach B) — the eight parameters of the § 5.5 table, no more. present_timeout is required; the rest carry the spec defaults. weight_transfer_threshold is Ratio (with an auto default).",
+      "required": ["present_timeout"],
+      "additionalProperties": false,
+      "properties": {
+        "grasp_handle": { "$ref": "#/$defs/GraspHandle", "description": "GraspRef | active (default active) — the grasp holding the object." },
+        "handover_pose": { "$ref": "#/$defs/CompoundOrAuto", "description": "Pose6D | auto — pose to present the object to the human (default auto = a reachable, ergonomic offer pose)." },
+        "weight_transfer_threshold": { "anyOf": [ { "$ref": "#/$defs/Auto" }, { "$ref": "#/$defs/Ratio" } ], "description": "Ratio | auto — fraction of the object's weight the human must take before release (default auto)." },
+        "max_interaction_force": { "anyOf": [ { "$ref": "#/$defs/Auto" }, { "$ref": "#/$defs/Force" } ], "description": "Force | auto — hard cap on force exchanged with the human (human-safety limit)." },
+        "present_timeout": { "$ref": "#/$defs/Duration", "description": "Duration — how long to hold the offer before giving up." },
+        "on_no_take": { "enum": ["retain", "retract"], "description": "If the human never takes it: keep holding, or withdraw to a safe pose (default retain)." },
+        "frame": { "$ref": "#/$defs/FrameRef", "description": "FrameRef — reference frame (default task)." },
+        "timeout": { "$ref": "#/$defs/Duration", "description": "Duration | auto, > 0." }
+      }
+    },
+    "PlaceDiscardParams": {
+      "type": "object",
+      "description": "Parameters of place.discard (01 § 5.6), precisely typed (approach B) — the seven parameters of the § 5.6 table, no more. discard_zone is required; the rest carry the spec defaults.",
+      "required": ["discard_zone"],
+      "additionalProperties": false,
+      "properties": {
+        "grasp_handle": { "$ref": "#/$defs/GraspHandle", "description": "GraspRef | active (default active) — the grasp holding the object." },
+        "discard_zone": { "$ref": "#/$defs/Compound", "description": "Region — the region the object must land within (bin interior, hopper, coarse area)." },
+        "release_pose": { "$ref": "#/$defs/CompoundOrAuto", "description": "Pose6D | auto — pose from which to release (default auto = a pose over discard_zone minimizing drop height)." },
+        "max_drop_height": { "anyOf": [ { "$ref": "#/$defs/Auto" }, { "$ref": "#/$defs/Length" } ], "description": "Length | auto — cap on release height above the landing surface (limit impact)." },
+        "safe_impact": { "type": "boolean", "description": "Require the predicted impact to be non-damaging (default true)." },
+        "frame": { "$ref": "#/$defs/FrameRef", "description": "FrameRef — reference frame (default task)." },
+        "timeout": { "$ref": "#/$defs/Duration", "description": "Duration | auto, > 0." }
+      }
+    },
     "Composition": {
       "description": "A node of the compositional algebra (01 § Compositional algebra). Exactly one of: a primitive call, an extension call, or one of the combinators sequence / parallel / reactive / repeat / branch / let-bind. The forms are disjoint by key namespace, so a well-formed node matches exactly one.",
       "type": "object",
@@ -1158,6 +1255,30 @@
         {
           "if": { "required": ["in_hand.flip"] },
           "then": { "properties": { "in_hand.flip": { "$ref": "#/$defs/InHandFlipParams" } } }
+        },
+        {
+          "if": { "required": ["place.put_down"] },
+          "then": { "properties": { "place.put_down": { "$ref": "#/$defs/PlacePutDownParams" } } }
+        },
+        {
+          "if": { "required": ["place.stack"] },
+          "then": { "properties": { "place.stack": { "$ref": "#/$defs/PlaceStackParams" } } }
+        },
+        {
+          "if": { "required": ["place.insert_loose"] },
+          "then": { "properties": { "place.insert_loose": { "$ref": "#/$defs/PlaceInsertLooseParams" } } }
+        },
+        {
+          "if": { "required": ["place.orient"] },
+          "then": { "properties": { "place.orient": { "$ref": "#/$defs/PlaceOrientParams" } } }
+        },
+        {
+          "if": { "required": ["place.hand_to"] },
+          "then": { "properties": { "place.hand_to": { "$ref": "#/$defs/PlaceHandToParams" } } }
+        },
+        {
+          "if": { "required": ["place.discard"] },
+          "then": { "properties": { "place.discard": { "$ref": "#/$defs/PlaceDiscardParams" } } }
         }
       ]
     },
