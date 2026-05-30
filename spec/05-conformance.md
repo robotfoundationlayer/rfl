@@ -1,6 +1,6 @@
 # Conformance — Specification
 
-> **Status**: in progress (2026-05-31) — the four test classes, the three-tier regime, and the envelope-class taxonomy (terminal-postcondition / interval-invariant / grasp-continuity / force-torque-trajectory) are specified. Remaining before freeze: the verification units (grasp-continuity modes; closure / stability / composition; reversibility + irreversible-operation safety; hazardous-operation benches; audit propagation; the determinism floor + fidelity-tier → badge + trademark gate), tracked in `02-translation-layer.md` § Open issues (Owned by `05`).
+> **Status**: in progress (2026-05-31) — the four test classes, the three-tier regime, and the envelope-class taxonomy (terminal-postcondition / interval-invariant / grasp-continuity / force-torque-trajectory) are specified. Remaining before freeze: the verification units (closure / stability / composition; reversibility + irreversible-operation safety; hazardous-operation benches; audit propagation; the determinism floor + fidelity-tier → badge + trademark gate), tracked in `02-translation-layer.md` § Open issues (Owned by `05`).
 
 ## Scope
 
@@ -56,6 +56,65 @@ The `force` category bounds the force *profile over the whole motion*, not a sin
 - **The per-primitive tolerances and safety envelopes** the classes instantiate — `01-skill-isa.md` (each primitive's safety-envelope + conformance-test sketch).
 - **The interval sampling timebase** — `04-tactile-manifold.md` § Temporal alignment across multi-rate features (the common monotonic timebase the sampling rate references).
 - **The grasp-continuity class's sub-modes** — § Grasp-continuity modes (next unit).
+
+## Grasp-continuity modes
+
+The grasp-continuity envelope class (§ The envelope-class taxonomy) is the most elaborate, because the `grasp` / `in_hand` / `transport` / `place` categories hold an object across operations that *change the contact set* — gaiting migrates contacts, regrasp swaps them, a pivot releases one DOF, a flip releases entirely, a handoff transfers between two parties. The class's invariant is uniform — **a securing contact set maintains the object at ≥ `min_holding_force` at every sampled instant, verified from the force trace** — but *what counts as the securing set* and *how continuity survives a transition* differ by mode. This section defines the operational closure test and the five continuity modes.
+
+### The hold test and closure branching
+
+A grasp's success is operationally defined by a **hold test**: apply a calibrated perturbation below the grasp's force budget and verify the object is retained. The hold test is what every grasp primitive's C1 means by "the grasp held." It branches on the closure type (`01` `StabilityMetadata.closure`):
+
+| Closure | Perturbation | Retention criterion |
+|---|---|---|
+| `force` | **omnidirectional** | the object resists a sub-budget perturbation from any direction |
+| `form` | **`load_direction`-only** | the object resists along the form-held load direction(s); reverse / lateral are free by design |
+| `support` | **level, gentle** | a balanced object resists a gentle perturbation; it cannot be released by opening, only set down |
+
+The closure branch is what makes the hold test a single canonical procedure across ten grasp modes: the perturbation profile is selected by `closure`, not re-specified per mode.
+
+### Base continuity — held → held
+
+The simplest mode: a single established grasp holds across an operation that does not change the contact topology (`grasp.adjust`, `transport.move_to_pose`, `place.put_down`). The force trace shows holding force never dropping below `min_holding_force` from the start of the operation to its end. Every other mode relaxes "the *same* contacts secure throughout" into "*some* securing set exists throughout."
+
+### Make-before-break and gaiting
+
+Finger gaiting (`in_hand.rotate` / `in_hand.translate`) and regrasp (`in_hand.regrasp`, and the single-party part of `transport.handoff`) pass through **intermediate contact sets** — a finger lifts and replaces, a grasp is swapped. Continuity holds iff at every instant the **union** of engaged contacts (old, new, or both) satisfies `min_holding_force`: a securing set exists at all times even though no single contact persists. For a regrasp the discipline is stricter — **make-before-break**: the new grasp is confirmed *before* the old is released, so the two overlap rather than gap. The suite verifies both "a securing contact set exists at every instant" and the make-before-break ordering from the force trace. This is the most general form of the class; base continuity is its degenerate case (the union is a single unchanging contact set).
+
+### Controlled under-actuation
+
+`in_hand.pivot` deliberately releases **exactly one** DOF — the pivot rotation — while the remaining DOF keep the object secured at ≥ `min_holding_force` (a controlled under-actuation, not a release). The suite verifies that exactly the named DOF is under-constrained while all others secure, and that the released DOF is **re-secured** at completion (the object returns to fully held). A third continuity mode alongside base and make-before-break: continuity is preserved, but through a deliberately relaxed — not swapped — contact constraint.
+
+### Bounded continuity-exception
+
+`in_hand.flip` is the **only** primitive that *suspends* grasp continuity: a momentary release tosses and recatches the object. The suite verifies the exception is **bounded** rather than continuity-preserving:
+
+- the unsecured window ≤ `max_release_time`;
+- the re-catch occurs within `catch_envelope`;
+- on a failed catch, the object lands within `safe_drop_zone` (the no-uncontrolled-drop guarantee shared with the freed-part disposition contract, `04` § Freed-part handling at constraint release).
+
+This is an explicit, bounded **subclass** of the grasp-continuity class, distinct from the continuity-preserving modes above: continuity *is* broken, but only within a verified bound with a safe-landing fallback.
+
+### Two-party co-grasp
+
+`transport.handoff` (inter-party) extends make-before-break to **two parties**: at every instant at least one party secures the object at ≥ `min_holding_force`, and during the dual-grasp window the **combined** force stays ≤ `cograsp_force_budget` (no crushing, no tug-of-war). The suite verifies both — at-least-one-secures continuity and the combined-force ceiling — from the two-party force trace. Bimanual handoff within one embodiment is fully verifiable here; the inter-robot coordination protocol and its two-party determinism are owned by `02-translation-layer.md` (the multi-embodiment-coordination open issue).
+
+### Conformance obligations (grasp continuity)
+
+- **GC1 — continuous securing.** The grasp-continuity class verifies from the force trace that a securing contact set maintains the object at ≥ `min_holding_force` at every sampled instant.
+- **GC2 — hold-test closure.** A successful closure is operationally defined by the hold test (calibrated sub-budget perturbation → retention), with the perturbation profile branched on `closure ∈ {force: omnidirectional, form: load-direction, support: level-gentle}`.
+- **GC3 — make-before-break.** Through a contact-set transition (gaiting, regrasp) the union of engaged contacts satisfies `min_holding_force` at every instant; a regrasp confirms the new grasp before releasing the old.
+- **GC4 — controlled under-actuation.** A pivot releases exactly the named DOF while all others secure at ≥ `min_holding_force`, and re-secures the released DOF at completion.
+- **GC5 — bounded exception.** A flip's continuity suspension is bounded: unsecured window ≤ `max_release_time`, re-catch within `catch_envelope`, and on failure the object lands within `safe_drop_zone`.
+- **GC6 — two-party continuity.** In a co-grasp handoff, at every instant at least one party secures the object at ≥ `min_holding_force`, and the combined force stays ≤ `cograsp_force_budget` during the dual-grasp window.
+
+### Deferred and referenced
+
+- **The lifecycle transition table and `StabilityMetadata`** the modes read (`closure`, `secured_dof`, the held → manipulated → held FSM) — `01-skill-isa.md` § Grasp state model.
+- **The `min_holding_force` derivation** (from mass / mode / friction / load direction) — `02-translation-layer.md`.
+- **The force trace and slip classification** the verification reads — `04-tactile-manifold.md`.
+- **The `momentary_release` audit propagation** a flip raises — § Audit and transparency (later unit).
+- **The inter-robot handoff coordination protocol** (two-party determinism) — `02-translation-layer.md`.
 
 ## Three-tier conformance regime
 
