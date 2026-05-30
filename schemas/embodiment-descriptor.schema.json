@@ -1,0 +1,177 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "RFL embodiment descriptor",
+  "description": "Validates an RFL embodiment descriptor (the JSON / YAML form of the <rfl:capabilities> manifest). Structure per 03-driver-interface.md (frame model, capability manifest, limits, sensor descriptor) and 04-tactile-manifold.md (contact-sensor descriptor); file format owned by 02-translation-layer.md. Backs conformance test class 1 (parser conformance, 05-conformance.md). Quantities are unit-suffixed strings (e.g. \"20 N\"), the JSON/YAML equivalent of the spec's XML value+unit attributes.",
+  "type": "object",
+  "required": ["embodiment"],
+  "additionalProperties": false,
+  "properties": {
+    "embodiment": { "$ref": "#/$defs/Embodiment" }
+  },
+  "$defs": {
+    "Quantity": {
+      "type": "string",
+      "pattern": "^-?[0-9]+(\\.[0-9]+)?\\s+\\S+$",
+      "description": "A numeric value with a unit, e.g. \"20 N\", \"0.05 m/s\", \"60 deg\", \"1.5 m/s^2\"."
+    },
+    "Range": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/Quantity" },
+      "minItems": 2,
+      "maxItems": 2,
+      "description": "A [min, max] pair of quantities."
+    },
+    "SignedAxis": {
+      "type": "string",
+      "pattern": "^[+-][xyz]$",
+      "description": "A signed principal axis of a frame, e.g. \"+z\"."
+    },
+    "Embodiment": {
+      "type": "object",
+      "required": ["id", "class", "frames", "capabilities", "limits"],
+      "additionalProperties": false,
+      "properties": {
+        "id": { "type": "string", "description": "Stable, unique embodiment id (03 § Embodiment identity)." },
+        "class": { "type": "string", "description": "Structural class label (documentary)." },
+        "frames": { "$ref": "#/$defs/Frames" },
+        "capabilities": { "$ref": "#/$defs/Capabilities" },
+        "limits": { "$ref": "#/$defs/Limits" },
+        "tactile": { "$ref": "#/$defs/TactileMap" },
+        "sensors": { "$ref": "#/$defs/SensorMap" }
+      }
+    },
+    "Frames": {
+      "type": "object",
+      "description": "Embodiment frame model (03 § Embodiment frame model). Roles, never body parts.",
+      "required": ["control_frames", "role_defaults"],
+      "additionalProperties": false,
+      "properties": {
+        "control_frames": {
+          "type": "array",
+          "items": { "type": "string" },
+          "minItems": 1
+        },
+        "role_defaults": {
+          "type": "object",
+          "description": "Default frame per manipulation role. grasp is the minimum; a tactile default is absent on a non-tactile embodiment.",
+          "required": ["grasp"],
+          "additionalProperties": false,
+          "properties": {
+            "grasp": { "type": "string" },
+            "sensor": { "type": "string" },
+            "tactile": { "type": "string" },
+            "support": { "type": "string" }
+          }
+        },
+        "tool_axis": {
+          "type": "object",
+          "additionalProperties": { "$ref": "#/$defs/SignedAxis" }
+        }
+      }
+    },
+    "Capabilities": {
+      "type": "object",
+      "description": "Capability manifest (03 § Capability manifest).",
+      "required": ["skills"],
+      "additionalProperties": false,
+      "properties": {
+        "skills": {
+          "type": "array",
+          "items": { "type": "string", "pattern": "^[a-z_]+(\\.[a-z_]+)?$" },
+          "minItems": 1,
+          "description": "Skill ISA primitive or category ids (e.g. grasp.pinch, transport). The full enumeration is owned by skill-isa.schema.json; this schema checks only the key shape."
+        },
+        "aux": {
+          "type": "object",
+          "description": "Auxiliary capabilities (03 § Auxiliary capabilities). Known keys below; extension-namespaced keys are permitted. Absence of tactile_sensing routes grasp/force confirmation to the force/position proxy (04).",
+          "properties": {
+            "tactile_sensing": { "type": "boolean" },
+            "compliance": { "enum": ["passive", "active", "virtual"] },
+            "tool_safety": { "type": "object" },
+            "human_collaboration_safety": { "type": "object" }
+          }
+        }
+      }
+    },
+    "Limits": {
+      "type": "object",
+      "description": "Flat namespace embodiment.limits.* (03 § Limits). Each value is a quantity or a [min, max] range.",
+      "minProperties": 1,
+      "additionalProperties": {
+        "oneOf": [
+          { "$ref": "#/$defs/Quantity" },
+          { "$ref": "#/$defs/Range" }
+        ]
+      }
+    },
+    "TactileMap": {
+      "type": "object",
+      "description": "Contact-sensor descriptor, keyed by tactile-role frame (04 § The contact-sensor descriptor). The whole block is absent on an embodiment that does not declare tactile_sensing.",
+      "additionalProperties": { "$ref": "#/$defs/TactileEntry" }
+    },
+    "TactileEntry": {
+      "type": "object",
+      "required": ["sites", "features", "resolution"],
+      "additionalProperties": false,
+      "properties": {
+        "sites": {
+          "description": "Discrete contact-site count, or a dense-grid layout (extent + spacing). Only the discrete count is exercised in v0.1.",
+          "oneOf": [
+            { "type": "integer", "minimum": 1 },
+            { "type": "object" }
+          ]
+        },
+        "features": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "enum": [
+              "contact", "normal_force", "shear", "pressure", "contact_area",
+              "contact_centroid", "load_distribution", "slip", "force_derivative",
+              "deformation_rate", "bending"
+            ]
+          },
+          "description": "Subset of the closed-core feature taxonomy this frame reports (04 § Feature taxonomy). Extension features carry a namespace prefix (handled by the registry, 06)."
+        },
+        "resolution": {
+          "type": "object",
+          "required": ["spatial", "temporal", "value"],
+          "additionalProperties": false,
+          "properties": {
+            "spatial": { "$ref": "#/$defs/Quantity" },
+            "temporal": { "$ref": "#/$defs/Quantity" },
+            "value": { "$ref": "#/$defs/Quantity" }
+          }
+        }
+      }
+    },
+    "SensorMap": {
+      "type": "object",
+      "description": "Non-contact sensor descriptor, keyed by sensor-role frame (03 § Sensor descriptor).",
+      "additionalProperties": { "$ref": "#/$defs/SensorEntry" }
+    },
+    "SensorEntry": {
+      "type": "object",
+      "required": ["bore_axis", "fov", "working_range", "modalities"],
+      "additionalProperties": false,
+      "properties": {
+        "bore_axis": { "$ref": "#/$defs/SignedAxis" },
+        "fov": {
+          "type": "object",
+          "required": ["h_angle", "v_angle"],
+          "additionalProperties": false,
+          "properties": {
+            "h_angle": { "$ref": "#/$defs/Quantity" },
+            "v_angle": { "$ref": "#/$defs/Quantity" }
+          }
+        },
+        "working_range": { "$ref": "#/$defs/Range" },
+        "modalities": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "enum": ["presence", "pose", "appearance", "defect", "custom"] }
+        }
+      }
+    }
+  }
+}

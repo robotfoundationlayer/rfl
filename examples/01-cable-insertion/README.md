@@ -1,6 +1,6 @@
 # Example 01 — Cable insertion across three hand classes
 
-> **Status**: worked example populated (2026-05-31). `skill.yaml` and the three embodiment descriptors are complete reference instances of the (forthcoming) `schemas/` formats; `run.py` invokes the reference CLI (`crates/rfl-cli`, in progress). The trace below is the design-level walkthrough.
+> **Status**: worked example populated (2026-05-31). The three embodiment descriptors **validate against `schemas/embodiment-descriptor.schema.json`** (Draft 2020-12, verified); `skill.yaml` is a reference instance of the forthcoming `skill-isa.schema.json`; `run.py` invokes the reference CLI (`crates/rfl-cli`, in progress). The trace below is the design-level walkthrough.
 
 One Skill ISA composition (`skill.yaml`) executes on three **structurally distinct** hand classes without change — the operational test of Principle 1 (embodiment-agnostic):
 
