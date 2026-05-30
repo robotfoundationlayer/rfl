@@ -1162,6 +1162,381 @@ Downstream primitives consume this: `transport` reads `secured_dof` / `flags` to
 - **C1 — nominal release + clear.** Hold a bench object resting on a surface; command `grasp.release`. PASS iff `result == success` ∧ grip force → 0 ∧ the effector withdrew clear (no residual contact) ∧ object pose unchanged (not dragged / knocked) ∧ `end_effector_free = true`.
 - **C2 — unsupported rejection.** Hold an object in mid-air (unsupported); command `grasp.release(allow_drop = false)`. PASS iff `result == unsupported_object` ∧ the grasp is maintained (object **not** dropped) ∧ safe state.
 
+### Category 3 — `in_hand`
+
+`in_hand` primitives manipulate a held object **without releasing it** — the mirror image of `reach` (which moves an effector with no object). They drive the `held → manipulated → held` segment of the grasp lifecycle, preserving grasp identity (`mode`, `closure`, contact topology) across the operation. Two foundations from Category 2 are consumed throughout: the **active-grasp state** (every `in_hand` primitive reads a `GraspRef` and asserts `status = held`), and the **stability metadata** — an operation is admissible only if the DOF it moves is `friction_held` (movable), not `form_held` (geometrically fixed). The defining safety invariant is a strengthened **grasp continuity**: the object is never in an unsecured state, including across intermediate regrips (finger gaiting).
+
+#### 3.1 `in_hand.rotate`
+
+**Intent.** Reorient a held object about an axis, relative to the grasp frame, without releasing it — repositioning the object within the grasp while preserving grasp identity and stability class throughout.
+
+**Parameters.** (Held → manipulated → held; in_hand core.)
+
+| Name | Type | Default | Units | Constraint |
+|---|---|---|---|---|
+| `grasp_handle` | `GraspRef \| active` | `active` | — | the established grasp to manipulate within |
+| `axis` | `Direction` | — (required) | — | rotation axis, in the grasp frame |
+| `angle` | `Angle` | — (required) | rad | signed rotation magnitude |
+| `controlled_frame` | `FrameRef` | (from `grasp_handle`) | — | grasp frame |
+| `orientation_tolerance` | `Angle` | `2` | deg | `> 0`; geodesic on the achieved reorientation |
+| `keep_position` | `bool` | `true` | — | hold the object's in-grasp position fixed (rotate, not translate) |
+| `position_tolerance` | `Length` | `2` | mm | drift bound while rotating (when `keep_position`) |
+| `max_angular_velocity` | `AngularVelocity \| auto` | `auto` | rad/s | clamped to `embodiment.limits.w_inhand_max` |
+| `regrip_policy` | `{gaiting, continuous, auto}` | `auto` | — | how the embodiment effects the reorientation (finger gaiting vs continuous) — a hint; resolved by the Translation Layer |
+| `timeout` | `Duration \| auto` | `auto` | s | `> 0` |
+
+**Preconditions.**
+- `grasp_handle` resolves to a `held` `GraspState` (`status = held`) — there is an object to manipulate.
+- **The requested rotation is admissible under the grasp's stability metadata:** the rotation `axis` lies within the grasp's manipulable DOF — i.e. it is not a `form_held` DOF. A `rotation_constrained` grasp (e.g. tripod) **rejects** rotation about its constrained axis.
+- The reorientation is within the embodiment's in-hand workspace (`embodiment.limits.inhand_rotation_range` for the grasp mode), possibly via intermediate regrips.
+- `embodiment` declares `in_hand_manipulation` capability with rotation support.
+
+**Postconditions (on `success`).**
+- The held object's orientation, relative to the grasp frame, has changed by `angle` about `axis` within `orientation_tolerance`.
+- **Grasp identity preserved:** `mode`, `closure`, and contact topology are unchanged from before; `GraspState` returns to `status = held`.
+- If `keep_position`: the object's in-grasp position is unchanged within `position_tolerance`.
+- The object remains held throughout (continuity); world-frame object pose reflects the in-grasp reorientation composed with the (stationary) grasp-frame pose.
+
+**Safety envelope (holds throughout execution).**
+- **Continuity (strengthened):** holding force never drops below `min_holding_force` AND the grasp's stability class (`closure`, `secured_dof`) is maintained throughout — including across intermediate regrips (gaiting), where each transient sub-grasp must itself satisfy `min_holding_force`. The object is never in an unsecured state.
+- `‖object_angular_velocity (grasp frame)‖ ≤ min(max_angular_velocity, embodiment.limits.w_inhand_max)`.
+- `grip_force ≤ force_budget · (1 + transient_margin)`; crush protection per `target` fragility.
+- If `keep_position`: in-grasp position drift `≤ position_tolerance`.
+- On any breach: arrest motion and revert to the last stable held configuration within `embodiment.limits.stop_time` (object retained — never dropped to "recover").
+
+**Failure modes (detection → invariant).**
+
+| Mode | Detection | Invariant |
+|---|---|---|
+| `no_active_grasp` | `grasp_handle` not `held` | reject; no attempt |
+| `capability_absent` | no `in_hand_manipulation` rotation support | reject; no attempt |
+| `rotation_inadmissible` | `axis` is a `form_held` / `rotation_constrained` DOF | reject; grasp preserved unchanged |
+| `out_of_range` | `angle` exceeds in-hand rotation range even with regrips | partial rotation to limit, or reject; report achieved angle |
+| `grasp_lost` | continuity breach (force or stability-class drop) mid-rotation | arrest; revert to last stable held; report |
+| `orientation_not_reached` | post-motion angle vs tolerance | MUST NOT report `success` |
+| `timeout` | wall clock vs `timeout` | revert to last stable held |
+
+**Conformance test sketch.**
+- **C1 — nominal rotate + continuity.** Establish a force-closure grasp on a bench object, then command `in_hand.rotate(axis, angle = 90°)`. PASS iff `result == success` ∧ externally measured object reorientation within `orientation_tolerance` of 90° about `axis` ∧ the force trace shows holding force **never dropped below `min_holding_force`** throughout (continuity, incl. any gaiting) ∧ grasp mode/closure unchanged ∧ (with `keep_position`) in-grasp position drift within tolerance.
+- **C2 — inadmissible-axis rejection.** Establish a `rotation_constrained` (tripod) grasp; command `in_hand.rotate` about the constrained axis. PASS iff `result == rotation_inadmissible` (not falsely attempted) ∧ grasp preserved unchanged.
+
+#### 3.2 `in_hand.translate`
+
+**Intent.** Shift a held object's position within the grasp envelope, relative to the grasp frame, without releasing it and without reorienting it — preserving grasp identity and stability class throughout.
+
+**Parameters.** (Held → manipulated → held; in_hand core.)
+
+| Name | Type | Default | Units | Constraint |
+|---|---|---|---|---|
+| `grasp_handle` | `GraspRef \| active` | `active` | — | the established grasp to manipulate within |
+| `direction` | `Direction` | — (required) | — | translation direction, in the grasp frame |
+| `distance` | `Length` | — (required) | mm | `> 0`; translation magnitude |
+| `controlled_frame` | `FrameRef` | (from `grasp_handle`) | — | grasp frame |
+| `position_tolerance` | `Length` | `2` | mm | `> 0`; on the achieved displacement |
+| `keep_orientation` | `bool` | `true` | — | hold the object's in-grasp orientation fixed (translate, not rotate) |
+| `orientation_tolerance` | `Angle` | `2` | deg | drift bound while translating (when `keep_orientation`) |
+| `max_velocity` | `Velocity \| auto` | `auto` | m/s | clamped to `embodiment.limits.v_inhand_max` |
+| `regrip_policy` | `{gaiting, continuous, auto}` | `auto` | — | gaiting vs continuous — a hint; resolved by the Translation Layer |
+| `timeout` | `Duration \| auto` | `auto` | s | `> 0` |
+
+**Preconditions.**
+- `grasp_handle` resolves to a `held` `GraspState`.
+- **Admissible under stability metadata:** the translation `direction` lies within the grasp's manipulable (`friction_held`) DOF — not a `form_held` DOF. (A `pin` grasp permits translation only within the support surface plane; a `hook` only along its compatible directions.)
+- The displacement is within the grasp's in-hand translation range (`embodiment.limits.inhand_translation_range` for the grasp mode), possibly via intermediate regrips.
+- `embodiment` declares `in_hand_manipulation` with translation support.
+
+**Postconditions (on `success`).**
+- The held object's position, relative to the grasp frame, has shifted by `distance` along `direction` within `position_tolerance`.
+- **Grasp identity preserved:** `mode`, `closure`, contact topology unchanged; `GraspState` returns to `held`.
+- If `keep_orientation`: in-grasp orientation unchanged within `orientation_tolerance`.
+- Object held throughout (continuity); world-frame object pose reflects the in-grasp shift.
+
+**Safety envelope (holds throughout execution).**
+- **Continuity (strengthened):** holding force never below `min_holding_force` AND stability class maintained throughout, including across gaiting regrips.
+- `‖object_velocity (grasp frame)‖ ≤ min(max_velocity, embodiment.limits.v_inhand_max)`.
+- `grip_force ≤ force_budget · (1 + transient_margin)`; crush protection per fragility.
+- If `keep_orientation`: in-grasp orientation drift `≤ orientation_tolerance`.
+- On any breach: arrest and revert to the last stable held configuration within `embodiment.limits.stop_time` (object retained).
+
+**Failure modes (detection → invariant).**
+
+| Mode | Detection | Invariant |
+|---|---|---|
+| `no_active_grasp` | `grasp_handle` not `held` | reject; no attempt |
+| `capability_absent` | no `in_hand_manipulation` translation support | reject; no attempt |
+| `translation_inadmissible` | `direction` is a `form_held` DOF | reject; grasp preserved unchanged |
+| `workspace_limit` | `distance` exceeds in-hand translation range even with regrips | partial translate to limit, or reject; report achieved distance |
+| `grasp_lost` | continuity breach mid-translation | arrest; revert to last stable held; report |
+| `position_not_reached` | post-motion displacement vs tolerance | MUST NOT report `success` |
+| `timeout` | wall clock vs `timeout` | revert to last stable held |
+
+**Conformance test sketch.**
+- **C1 — nominal translate + continuity.** Establish a force-closure grasp, then command `in_hand.translate(direction, distance = 20 mm)`. PASS iff `result == success` ∧ externally measured in-grasp displacement within `position_tolerance` of 20 mm along `direction` ∧ continuity (force never below `min_holding_force`) ∧ grasp mode/closure unchanged ∧ (with `keep_orientation`) orientation drift within tolerance.
+- **C2 — inadmissible-direction rejection.** Establish a `pin` grasp; command `in_hand.translate` along the surface-normal (`form_held`, out-of-plane) direction. PASS iff `result == translation_inadmissible` ∧ grasp preserved unchanged.
+
+#### 3.3 `in_hand.regrasp`
+
+**Intent.** Transition a held object from its current grasp to a different stable grasp — changing contact topology and possibly grasp mode — without releasing the object, using make-before-break so the object is continuously secured throughout the handover.
+
+**Parameters.** (Held → manipulated → held, with a **changed** grasp identity.)
+
+| Name | Type | Default | Units | Constraint |
+|---|---|---|---|---|
+| `grasp_handle` | `GraspRef \| active` | `active` | — | the current grasp to transition from |
+| `target_mode` | `GraspMode` | — (required) | — | the grasp mode to transition to (may equal current mode with different contacts) |
+| `target_contacts` | `ContactConfig \| auto` | `auto` | — | desired new contact configuration; `auto` = planner-derived for `target_mode` |
+| `target_force_budget` | `Force \| auto` | `auto` | N | force budget of the new grasp; `auto` = re-derive; clamped per `target_mode` |
+| `controlled_frame` | `FrameRef` | (from `grasp_handle`) | — | grasp frame |
+| `preserve_pose` | `bool` | `true` | — | keep the object's world pose fixed during the handover |
+| `position_tolerance` | `Length` | `2` | mm | object pose drift bound during handover |
+| `timeout` | `Duration \| auto` | `auto` | s | `> 0` |
+
+**Preconditions.**
+- `grasp_handle` resolves to a `held` `GraspState`.
+- **A make-before-break path exists:** there is a transition in which the new contacts can be established while the old contacts still secure the object — i.e. an overlap window where old ∪ new jointly satisfy `min_holding_force` exists for the embodiment and `target_mode`.
+- The `target_mode` is supported (`embodiment` declares the corresponding grasp capability) and feasible on `target.geometry`.
+- `embodiment` declares `in_hand_manipulation` with `regrasp` support.
+
+**Postconditions (on `success`).**
+- The object is now held in a **new** `GraspState`: `mode = target_mode`, with new contact topology and `stability` recomputed for the new grasp; `status = held`.
+- **Grasp identity changed (by design):** unlike `rotate` / `translate`, `mode` / `closure` / topology differ from the input grasp. The originating `GraspRef` is superseded; the result returns a new `GraspRef`.
+- If `preserve_pose`: the object's world pose is unchanged within `position_tolerance` (the handover repositioned contacts, not the object).
+- Object held throughout (continuity via make-before-break).
+
+**Safety envelope (holds throughout execution).**
+- **Make-before-break continuity:** at every instant of the handover, the union of currently-engaged contacts (old, new, or both) secures the object at `≥ min_holding_force`. The old grasp is released **only after** the new grasp is confirmed to secure the object. There is no instant of unsecured state.
+- `grip_force ≤ max(force_budget, target_force_budget) · (1 + transient_margin)` across the transition; crush protection per fragility throughout.
+- If `preserve_pose`: object world-pose drift `≤ position_tolerance` during handover.
+- On any breach (new grasp fails to establish): **abort to the original grasp** — never release the old grasp until the new one is confirmed. The object falls back to the known-good prior state.
+
+**Failure modes (detection → invariant).**
+
+| Mode | Detection | Invariant |
+|---|---|---|
+| `no_active_grasp` | `grasp_handle` not `held` | reject; no attempt |
+| `capability_absent` | no `regrasp` support, or `target_mode` unsupported | reject; original grasp preserved |
+| `no_makebeforebreak_path` | no overlap window where old ∪ new secures the object | reject; original grasp preserved (do not attempt an unsafe break-before-make) |
+| `target_grasp_failed` | new contacts fail to confirm securing | **retain original grasp**; result ≠ `success` |
+| `pose_drift` | `preserve_pose` and drift > `position_tolerance` | abort to original grasp |
+| `crush_abort` | force / deformation exceeded during handover | abort to original grasp |
+| `timeout` | wall clock vs `timeout` | abort to original grasp |
+
+**Conformance test sketch.**
+- **C1 — nominal regrasp + make-before-break.** Establish a `pinch` grasp on a bench object, then command `in_hand.regrasp(target_mode = power)`. PASS iff `result == success` ∧ the final grasp is confirmed `power` (new stability metadata) ∧ the force trace shows **at no instant did total securing force drop below `min_holding_force`** (make-before-break — there is always a securing contact set) ∧ (with `preserve_pose`) object world pose unchanged within tolerance.
+- **C2 — failed-target fallback.** Force the target grasp to fail to establish (e.g. `target_mode` infeasible on the presented geometry). PASS iff `result == target_grasp_failed` ∧ the **original grasp is retained** (object not dropped, not in an unsecured state) ∧ the original `GraspRef` remains valid.
+
+#### 3.4 `in_hand.roll`
+
+**Intent.** Continuously roll a held object about a rolling axis through rolling contact — the contact point migrating over both the object surface and the effector surface — typical for cylindrical or spherical objects, enabling reorientation beyond the fixed-contact range of `in_hand.rotate`.
+
+**Parameters.** (Held → manipulated → held; rolling contact.)
+
+| Name | Type | Default | Units | Constraint |
+|---|---|---|---|---|
+| `grasp_handle` | `GraspRef \| active` | `active` | — | the established grasp to roll within |
+| `roll_axis` | `Direction` | — (required) | — | rolling axis, in the grasp frame (the object's rolling axis) |
+| `angle` | `Angle` | — (required) | rad | signed roll magnitude (may exceed 2π for continuous rolling) |
+| `controlled_frame` | `FrameRef` | (from `grasp_handle`) | — | grasp frame |
+| `orientation_tolerance` | `Angle` | `2` | deg | `> 0` |
+| `keep_contact_line` | `bool` | `true` | — | keep the object's rolling axis stationary in the grasp frame |
+| `max_angular_velocity` | `AngularVelocity \| auto` | `auto` | rad/s | clamped to `embodiment.limits.w_inhand_max` |
+| `timeout` | `Duration \| auto` | `auto` | s | `> 0` |
+
+**Preconditions.**
+- `grasp_handle` resolves to a `held` `GraspState`.
+- **Rollable geometry:** `target.geometry` exposes a rolling surface (cylinder / sphere / cone section) whose rolling axis is compatible with `roll_axis` — a non-rollable (e.g. flat-faced box) target is rejected.
+- **Admissible under stability metadata:** rolling is compatible with the grasp mode (force-closure modes that permit controlled slip; a `rotation_constrained` tripod or a `form_held` lock about `roll_axis` is rejected).
+- `embodiment` declares `in_hand_manipulation` with `roll` support.
+
+**Postconditions (on `success`).**
+- The held object has rolled by `angle` about `roll_axis` (reorientation via rolling contact), within `orientation_tolerance`.
+- **Grasp identity preserved:** `mode`, `closure`, contact topology unchanged (the *contact point migrates*, but the grasp's identity does not); `GraspState` returns to `held`.
+- If `keep_contact_line`: the object's rolling axis stayed stationary in the grasp frame (rolled in place).
+- Object held throughout (continuity under rolling contact).
+
+**Safety envelope (holds throughout execution).**
+- **Continuity under rolling:** holding force never below `min_holding_force` AND `rolling_stability` maintained — rolling contact tends to degenerate to line / point contact, so the envelope monitors that the migrating contact remains a securing contact throughout.
+- `‖object_angular_velocity (grasp frame)‖ ≤ min(max_angular_velocity, embodiment.limits.w_inhand_max)`.
+- `grip_force ≤ force_budget · (1 + transient_margin)`; crush protection per fragility.
+- Slip discrimination: rolling is *intended* contact-point migration; the envelope must distinguish intended rolling from unintended gross slip (loss of control) and abort only on the latter.
+- On any breach: arrest the roll and revert to a stable held configuration within `embodiment.limits.stop_time` (object retained).
+
+**Failure modes (detection → invariant).**
+
+| Mode | Detection | Invariant |
+|---|---|---|
+| `no_active_grasp` | `grasp_handle` not `held` | reject; no attempt |
+| `capability_absent` | no `in_hand_manipulation` roll support | reject; no attempt |
+| `non_rollable_geometry` | `target.geometry` has no rolling surface for `roll_axis` | reject; grasp preserved unchanged |
+| `roll_inadmissible` | grasp mode forbids rolling about `roll_axis` (`form_held` / `rotation_constrained`) | reject; grasp preserved |
+| `gross_slip` | contact migration exceeds the rolling model (loss of control) | arrest; revert to last stable held; report |
+| `orientation_not_reached` | post-motion roll angle vs tolerance | MUST NOT report `success` |
+| `timeout` | wall clock vs `timeout` | revert to last stable held |
+
+**Conformance test sketch.**
+- **C1 — nominal roll + continuity.** Establish a grasp on a bench cylinder, then command `in_hand.roll(roll_axis, angle = 180°)`. PASS iff `result == success` ∧ externally measured object roll within `orientation_tolerance` of 180° about `roll_axis` ∧ continuity (force never below `min_holding_force`) throughout the rolling ∧ grasp mode/closure unchanged ∧ (with `keep_contact_line`) the rolling axis stayed stationary in the grasp frame.
+- **C2 — non-rollable rejection.** Present a flat-faced (non-rollable) object; command `in_hand.roll`. PASS iff `result == non_rollable_geometry` ∧ grasp preserved unchanged.
+
+#### 3.5 `in_hand.pivot`
+
+**Intent.** Pivot a held object about a single contact point, swinging the object's body around that fixed pivot — optionally exploiting gravity or an external wrench to drive the rotation — while keeping the pivot contact secured. Used to reorient elongated objects through a larger angle than in-grasp rotation allows.
+
+**Parameters.** (Held → manipulated → held; controlled under-actuation about one DOF.)
+
+| Name | Type | Default | Units | Constraint |
+|---|---|---|---|---|
+| `grasp_handle` | `GraspRef \| active` | `active` | — | the established grasp providing the pivot contact |
+| `pivot_point` | `FeatureRef \| auto` | `auto` | — | the contact point to pivot about; `auto` = current securing contact |
+| `pivot_axis` | `Direction` | — (required) | — | axis of the pivot rotation, in the grasp frame |
+| `angle` | `Angle` | — (required) | rad | target swing angle about `pivot_axis` |
+| `drive` | `{actuated, gravity, external}` | `actuated` | — | what drives the swing: active control, gravity, or a declared external wrench |
+| `controlled_frame` | `FrameRef` | (from `grasp_handle`) | — | grasp frame |
+| `orientation_tolerance` | `Angle` | `5` | deg | `> 0`; looser default for passively-driven pivots |
+| `max_angular_velocity` | `AngularVelocity \| auto` | `auto` | rad/s | bounds the swing rate (esp. for gravity drive) |
+| `timeout` | `Duration \| auto` | `auto` | s | `> 0` |
+
+**Preconditions.**
+- `grasp_handle` resolves to a `held` `GraspState` providing a pivot contact that can secure the object while one rotational DOF is released.
+- **Pivot DOF admissible:** the `pivot_axis` rotation is a DOF the grasp can release while the remaining DOF still secure the object at `≥ min_holding_force` (controlled under-actuation, not a full release).
+- For `drive = gravity`: the gravity-induced swing about `pivot_axis` is in the intended direction (the geometry permits gravity to drive, not fight, the pivot).
+- `embodiment` declares `in_hand_manipulation` with `pivot` support.
+
+**Postconditions (on `success`).**
+- The held object has pivoted by `angle` about `pivot_axis` around `pivot_point`, within `orientation_tolerance` (looser than active in-hand rotation, reflecting partially-passive drive).
+- **Grasp identity preserved:** the pivot contact and grasp `mode` are unchanged; the released DOF is re-secured at completion; `GraspState` returns to `held` (fully secured again).
+- The pivot point stayed fixed in the grasp frame; the object body swung around it.
+- Object retained throughout (the pivot contact never dropped below `min_holding_force`).
+
+**Safety envelope (holds throughout execution).**
+- **Controlled under-actuation:** exactly the `pivot_axis` DOF is released; all other DOF keep the object secured at `≥ min_holding_force` throughout. The released DOF is the *only* under-constrained freedom — the object is never fully unsecured.
+- Swing-rate bound: `‖object_angular_velocity‖ ≤ min(max_angular_velocity, embodiment.limits.w_inhand_max)` — critical for `gravity` / `external` drive, where an unchecked swing could exceed safe velocity or overshoot.
+- Overshoot guard: the object must arrest at `angle` and not continue swinging past it (gravity / inertia overshoot is an envelope violation).
+- `grip_force ≤ force_budget · (1 + transient_margin)`; crush protection per fragility.
+- On any breach: re-secure the released DOF (arrest the swing) and revert to a fully-held state within `embodiment.limits.stop_time`.
+
+**Failure modes (detection → invariant).**
+
+| Mode | Detection | Invariant |
+|---|---|---|
+| `no_active_grasp` | `grasp_handle` not `held` | reject; no attempt |
+| `capability_absent` | no `in_hand_manipulation` pivot support | reject; no attempt |
+| `pivot_inadmissible` | releasing `pivot_axis` would drop the object (remaining DOF cannot secure) | reject; grasp preserved fully |
+| `wrong_drive_direction` | `drive = gravity` but gravity opposes the intended pivot | reject; no attempt |
+| `overshoot` | swing passed `angle` beyond tolerance (passive overshoot) | arrest; re-secure; result ≠ `success` |
+| `pivot_lost` | pivot contact dropped below securing force mid-swing | arrest; re-secure if possible; report |
+| `orientation_not_reached` | post-pivot angle vs tolerance | MUST NOT report `success` |
+| `timeout` | wall clock vs `timeout` | re-secure to fully-held state |
+
+**Conformance test sketch.**
+- **C1 — actuated pivot + continuity.** Establish a grasp on a bench elongated object, command `in_hand.pivot(pivot_axis, angle = 90°, drive = actuated)`. PASS iff `result == success` ∧ externally measured pivot within `orientation_tolerance` of 90° about `pivot_axis` ∧ the pivot contact force **never dropped below `min_holding_force`** (controlled under-actuation, never fully released) ∧ grasp mode unchanged ∧ object re-secured (fully held) at completion.
+- **C2 — gravity-drive overshoot guard.** Command `in_hand.pivot(drive = gravity, angle = 45°)` on a pendulum-like object. PASS iff the swing arrests at 45° within tolerance **without overshoot**, OR `result == overshoot` with the object re-secured — never an uncontrolled continued swing.
+
+#### 3.6 `in_hand.slide`
+
+**Intent.** Slide a held object along one effector contact surface through controlled sliding contact — intentionally permitting relative slip along one translational DOF, then re-securing at a stop condition — to reposition or feed the object without a full regrasp. The translational counterpart of `in_hand.roll`.
+
+**Parameters.** (Held → manipulated → held; controlled slip along one translational DOF.)
+
+| Name | Type | Default | Units | Constraint |
+|---|---|---|---|---|
+| `grasp_handle` | `GraspRef \| active` | `active` | — | the established grasp to slide within |
+| `slide_direction` | `Direction` | — (required) | — | direction of slip along the contact surface, in the grasp frame |
+| `stop_condition` | `SlideStop` | — (required) | — | what ends the slide: `distance(d)`, `tactile_landmark(ref)`, or `external_reference(ref)` |
+| `drive` | `{actuated, gravity}` | `actuated` | — | active feed vs gravity-fed slip |
+| `controlled_frame` | `FrameRef` | (from `grasp_handle`) | — | grasp frame |
+| `position_tolerance` | `Length` | `3` | mm | `> 0`; looser default (slip is friction-dependent) |
+| `max_velocity` | `Velocity \| auto` | `auto` | m/s | bounds slip rate (esp. for gravity feed) |
+| `timeout` | `Duration \| auto` | `auto` | s | `> 0` |
+
+**Preconditions.**
+- `grasp_handle` resolves to a `held` `GraspState`.
+- **Slide DOF admissible:** `slide_direction` is a `friction_held` translational DOF that can be partially released (reduce normal force to permit slip) while the remaining DOF keep the object from dropping (`≥ min_holding_force` orthogonal to the slide).
+- The `stop_condition` is resolvable (a finite distance, a detectable tactile landmark, or a valid external reference).
+- `embodiment` declares `in_hand_manipulation` with `slide` support and closed-loop slip sensing (or a force / position proxy).
+
+**Postconditions (on `success`).**
+- The held object has slid along `slide_direction` until `stop_condition` was met; final in-grasp position recorded.
+- **Grasp identity preserved:** `mode`, `closure`, contact topology unchanged (the contact *slid*, identity did not change); `GraspState` returns to `held`, fully re-secured (normal force restored).
+- For `stop_condition = distance(d)`: displacement within `position_tolerance` of `d`.
+- Object retained throughout (never dropped; orthogonal DOF kept securing).
+
+**Safety envelope (holds throughout execution).**
+- **Controlled slip:** only the `slide_direction` DOF is allowed to slip; orthogonal DOF maintain `≥ min_holding_force` so the object cannot fall. Normal force is reduced to permit slip, never to zero on the securing DOF.
+- Slip-rate bound: `‖slip_velocity‖ ≤ min(max_velocity, embodiment.limits.v_inhand_max)` — bounds gravity-fed runaway.
+- Overshoot guard: closed-loop re-securing must arrest the slide at `stop_condition`; sliding past it beyond `position_tolerance` is an envelope violation.
+- Distinguish intended slip (along `slide_direction`) from unintended drop-slip (object escaping the grasp) — abort only on the latter.
+- On any breach: re-secure (restore normal force, arrest slip) to a fully-held state within `embodiment.limits.stop_time`.
+
+**Failure modes (detection → invariant).**
+
+| Mode | Detection | Invariant |
+|---|---|---|
+| `no_active_grasp` | `grasp_handle` not `held` | reject; no attempt |
+| `capability_absent` | no `slide` support / no slip sensing | reject; no attempt |
+| `slide_inadmissible` | `slide_direction` is `form_held`, or releasing it drops the object | reject; grasp preserved |
+| `stop_unreachable` | `stop_condition` cannot be met within range | slide to limit; re-secure; result ≠ `success` |
+| `overshoot` | slid past `stop_condition` beyond tolerance | re-secure; result ≠ `success` |
+| `drop_slip` | unintended slip on a securing DOF (object escaping) | abort; re-secure if possible; report |
+| `position_not_reached` | (distance stop) displacement vs tolerance | MUST NOT report `success` |
+| `timeout` | wall clock vs `timeout` | re-secure to fully-held state |
+
+**Conformance test sketch.**
+- **C1 — nominal slide-to-distance + continuity.** Establish a grasp on a bench rod, command `in_hand.slide(slide_direction, stop_condition = distance(30 mm))`. PASS iff `result == success` ∧ externally measured slip within `position_tolerance` of 30 mm along `slide_direction` ∧ orthogonal securing force **never dropped below `min_holding_force`** (object never escaped) ∧ grasp identity unchanged ∧ object re-secured (full normal force restored) at the stop.
+- **C2 — landmark stop + overshoot guard.** Use `stop_condition = tactile_landmark(ref)` (slide until a feature is detected). PASS iff the slide arrests at the landmark within tolerance, OR `result == overshoot` / `stop_unreachable` with the object re-secured — never a continued uncontrolled slide or a drop.
+
+#### 3.7 `in_hand.flip`
+
+**Intent.** Reorient a held object through a large angle (typically ~180°) that requires a **momentary release** — tossing or releasing-and-recatching the object so the effector can re-engage on a previously inaccessible face. This is the single `in_hand` primitive that suspends grasp continuity, and it does so under a strictly bounded, recoverable unsecured window.
+
+**Parameters.** (Held → [unsecured window] → held; the continuity exception.)
+
+| Name | Type | Default | Units | Constraint |
+|---|---|---|---|---|
+| `grasp_handle` | `GraspRef \| active` | `active` | — | the current grasp to flip from |
+| `flip_axis` | `Direction` | — (required) | — | reorientation axis, in the grasp frame |
+| `angle` | `Angle` | — (required) | rad | reorientation magnitude (the angle unreachable without release) |
+| `target_mode` | `GraspMode \| same` | `same` | — | grasp mode to re-establish after the flip |
+| `catch_envelope` | `Region \| auto` | `auto` | — | spatial region within which the re-catch must occur; `auto` = planner-derived |
+| `max_release_time` | `Duration` | — (required) | s | `> 0`; hard upper bound on the unsecured window |
+| `safe_drop_zone` | `Region` | — (required) | — | region below the operation where an uncaught object lands without harm |
+| `controlled_frame` | `FrameRef` | (from `grasp_handle`) | — | grasp frame |
+| `timeout` | `Duration \| auto` | `auto` | s | `> 0` |
+
+**Preconditions.**
+- `grasp_handle` resolves to a `held` `GraspState`.
+- **The reorientation genuinely requires release:** the `angle` about `flip_axis` is unreachable by `in_hand.rotate` / `roll` / `regrasp` (which preserve continuity). `flip` is rejected if a continuity-preserving alternative exists (`flip` is the last resort).
+- **Safe-drop precondition (mandatory):** a `safe_drop_zone` is established below the operation such that, if the re-catch fails, the object falls into it without harm. `flip` MUST NOT be attempted without a safe drop zone.
+- The predicted ballistic / release trajectory keeps the object within reach for a re-catch inside `catch_envelope` within `max_release_time`.
+- `embodiment` declares `in_hand_manipulation` with `flip` support.
+
+**Postconditions (on `success`).**
+- The object is re-secured in a new `GraspState` (`mode = target_mode` or the prior mode if `same`), reoriented by `angle` about `flip_axis`; `status = held`.
+- **`momentary_release = true` (declared):** the result explicitly records that grasp continuity was suspended — visible to downstream primitives and audit.
+- The unsecured window did not exceed `max_release_time`; the re-catch occurred within `catch_envelope`.
+- A new `GraspRef` is returned (the prior grasp was fully released and re-established).
+
+**Safety envelope (the continuity exception, bounded).**
+- **Bounded unsecured window:** the object is unsecured for at most `max_release_time`; exceeding it is an envelope violation that triggers the safe-drop contingency.
+- **Re-catch-or-safe-drop:** if the re-catch is not confirmed within `catch_envelope` and `max_release_time`, the object is allowed to fall into `safe_drop_zone` (a controlled failure, not a hazard) — the envelope guarantees no uncaught object lands outside the safe zone.
+- Release velocity / toss energy bounded so the object stays within `catch_envelope` and does not become a projectile beyond the safe zone.
+- This is the *only* primitive whose envelope permits an unsecured object state; the permission is explicit, time-bounded, and paired with a mandatory safe-drop guarantee.
+
+**Failure modes (detection → invariant).**
+
+| Mode | Detection | Invariant |
+|---|---|---|
+| `no_active_grasp` | `grasp_handle` not `held` | reject; no attempt |
+| `capability_absent` | no `flip` support | reject; no attempt |
+| `continuity_alternative_exists` | a `rotate` / `roll` / `regrasp` achieves `angle` without release | reject; recommend the continuity-preserving primitive (flip is last resort) |
+| `no_safe_drop_zone` | `safe_drop_zone` absent or invalid | reject; **flip is never attempted without a safe drop zone** |
+| `recatch_failed` | object not re-secured within `catch_envelope` / `max_release_time` | object falls into `safe_drop_zone`; report (controlled failure) |
+| `orientation_not_reached` | re-caught but angle out of tolerance | result ≠ `success` (object held but mis-oriented) |
+| `timeout` | wall clock vs `timeout` | safe-drop contingency |
+
+**Conformance test sketch.**
+- **C1 — nominal flip + bounded window.** Establish a grasp on a bench object requiring a 180° flip; command `in_hand.flip(flip_axis, angle = 180°, max_release_time, safe_drop_zone)`. PASS iff `result == success` ∧ re-caught and re-secured with reorientation within tolerance ∧ the measured unsecured window `≤ max_release_time` ∧ re-catch occurred within `catch_envelope` ∧ the result declares `momentary_release = true`.
+- **C2 — recatch failure → safe drop.** Force a re-catch failure (perturb the toss). PASS iff `result == recatch_failed` ∧ the object landed **within `safe_drop_zone`** (controlled failure, no hazard outside the zone) ∧ no attempt was made without a safe drop zone in the first place.
+
 ## Open issues for v0.1 freeze
 
 - [ ] Final primitive list per category — pending external red-team review (see `CONTRIBUTING.md` spec-change discipline) across structurally distinct partners (tendon-driven / direct-drive / pneumatic at minimum)
