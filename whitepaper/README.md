@@ -13,7 +13,31 @@
 
 ## How to obtain the PDF
 
-Until the arXiv preprint goes live, the PDF will be attached to the next GitHub release of this repository. Until then, the source markdown lives in a private working repository — open an Issue if you want early access.
+The current draft is checked into this repository at [`RFL_v1.0_en.pdf`](RFL_v1.0_en.pdf) (71 pages, 290 KB). The arXiv preprint will be linked here once accepted.
+
+## Figures
+
+The 17 figures referenced from the white paper are rendered as standalone SVG files under [`figures/`](figures/):
+
+| Figure | Title | Section |
+|---|---|---|
+| F1.1 | The N × M Combinatorial Crisis | § 1.1 |
+| F1.2 | Per-Pair Integration Cost Decomposition | § 1.2 |
+| F1.3 | Fragmentation Tax Decomposition (4 components) | § 1.3 |
+| F1.4 | Triple Inflection Timeline (2020–2027) | § 1.4 |
+| F2.1 | Adjacent-Effort Capability Matrix | § 2 |
+| F3.1 | Five First Principles (Pentagon) | § 3.2 |
+| F3.2 | RFL ↔ ARM ISA Isomorphism | § 3.3 |
+| F4.1 | Three-Layer RFL Architecture | § 4 intro |
+| F4.4 | Worked Example — One Instruction, Three Embodiments | § 4.4 |
+| F5.1 | Two-Sided Market Structure of Physical AI | § 5.1 |
+| F5.2 | Bilateral Intelligence Spectrum (L0–L4) for VLA × Embodiment | § 5.2 |
+| F5.4 | Two-Sided Cold Start — Hard Side First | § 5.3 |
+| F5.5 | Nine Reinforcement Loops (Causal Diagram) | § 5.4 |
+| F5.8 | Helmer 7 Powers Comparison | § 5.6 |
+| F6.1 | Three-Track Roadmap Timeline | § 6 |
+| F7.1 | Foundation Governance Structure | § 7 |
+| F8.6 | Coordination-Layer Positioning | § 8.6 |
 
 ## Structure
 
