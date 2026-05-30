@@ -240,6 +240,58 @@ Both are declared per frame and extensible through `06-extension-registry.md`. A
 
 The closure-dependent hold test that verifies these grasps (omnidirectional for `force`, `load_direction`-only for `form`, level-gentle for `support`) is owned by `05-conformance.md`.
 
+### Compliance capability
+
+The `force` category makes contact force the objective, and most of its primitives cannot run on a rigid embodiment: they need the effector to *yield* in a controlled way. **Compliance** is the auxiliary capability (introduced in the auxiliary-capability table above) that declares how an embodiment can do that. A rigid-only embodiment — one that declares no compliance mode — cannot run any `force` primitive that requires compliance.
+
+#### Modes
+
+The compliance capability declares the **set** of modes the embodiment provides, each drawn from:
+
+| Mode | Meaning | Typical realization |
+|---|---|---|
+| `passive` | Mechanical compliance — the effector yields physically with no control loop. | springs, elastic materials, series-elastic actuators |
+| `active` | Active closed-loop force control — force/torque sensing regulates the contact force. | F/T sensor + force-control loop |
+| `virtual` (virtual force control, VFC) | Compliance *rendered* by impedance / admittance control over position control — no direct force sensing required. | impedance / admittance control |
+
+#### Declaration vs. request — two levels
+
+Compliance appears at two levels, and they are not the same enumeration:
+
+- **Capability declaration** (manifest auxiliary `compliance`): the *set* of modes the embodiment provides, each ∈ `{passive, active, virtual}`.
+- **Primitive request** (the `compliance` parameter on each `force` primitive, typed `{passive, active, auto}`): the mode the primitive asks for. `auto` lets the Translation Layer pick any declared mode; an explicit request must name a declared mode, else `capability_absent`.
+
+The primitive parameter enum omits `virtual`; the capability domain `{passive, active, virtual}` is the authority, and aligning the parameter enum is a pre-freeze formatting pass (as with the grasp-mode key spellings), not a semantic change.
+
+#### Normal-direction compliance and contour following
+
+`force.wipe` and `force.scrub` use hybrid force/position control — force-controlled along the surface normal, position-controlled along the tangent — and require a distinct **normal-direction compliance** sub-capability. It carries one limit:
+
+- **`embodiment.limits.normal_compliance_range`** (`Length`) — the maximum surface-height variation contour following can absorb while holding the normal force. A step or hole beyond this range causes loss of contact (`contact_lost`), which the primitive detects and handles rather than gouging.
+
+An embodiment that does not declare normal-direction compliance may not assert `force.wipe` or `force.scrub`.
+
+#### Capability gate (force specialization of the `capability_absent` rule)
+
+- A `force` primitive requiring compliance is rejected at validation (`capability_absent`, no attempt) on a rigid-only embodiment.
+- `force.wipe` / `force.scrub` additionally require normal-direction compliance.
+- `force.cut` additionally requires the tool-safety capability (defined in the safety-capability unit); the dependency is noted here only as a seam.
+
+#### Deferred to other chapters
+
+The compliance capability owns only the *declaration*. Three coupled concerns are owned elsewhere and referenced, not redefined here:
+
+- **Hybrid-axis encoding** — which canonical-action axes are force-controlled vs. position-controlled — is owned by `02-translation-layer.md`.
+- **The determinism boundary** — `retarget` generates the canonical action deterministically, but compliant search runs against contact dynamics, so the realized trajectory is not byte-for-byte reproducible — is owned by `02-translation-layer.md`.
+- **The force-trajectory envelope class** — interval-sampled bounding of the force profile over the whole motion — is owned by `05-conformance.md`.
+
+#### Conformance obligations (compliance)
+
+- **CMP1c — mode demonstrability.** For each declared compliance mode, a `force` primitive requesting that mode passes its C1 test with the force trajectory within budget.
+- **CMP2c — normal-compliance range.** When `force.wipe` / `force.scrub` is asserted, `normal_compliance_range` is present; a height step within range is absorbed (contour following succeeds), and a step beyond range produces a clean lift-off (no gouge).
+- **CMP3c — rigid-only rejection.** An embodiment declaring no compliance mode rejects every compliance-requiring `force` primitive at validation, with no attempt.
+- **CMP4c — undeclared-mode request.** An explicit `compliance` request naming an undeclared mode returns `capability_absent`.
+
 ## Collision model
 
 Every motion primitive states its safety in terms of a clearance against a *static collision model* — `min_clearance(…, static_model) ≥ clearance`. This section defines what that model is, the query it must answer, and the obligations it carries. The model is not a Skill ISA capability flag: `reach.align` (a `reach`-family baseline primitive) already needs swept-volume clearance, so the full model is **mandatory** for every conformant embodiment, like the `reach` family itself.
