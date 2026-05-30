@@ -6,24 +6,27 @@ The project's argument is published in **two complementary documents**, both che
 
 | Document | Audience | Pages | Genre |
 |---|---|---|---|
-| [`RFL_SPEC_v0.1_en.pdf`](RFL_SPEC_v0.1_en.pdf) | Academic peers, implementers, arXiv reviewers | 47 | **Specification proposal** (academic register) |
-| [`RFL_position_paper_v1.0_en.pdf`](RFL_position_paper_v1.0_en.pdf) | Industry stakeholders, prospective partners, ecosystem readers | 72 | **Position paper** (specification + network-effect analysis + call for partners) |
+| [`RFL_SPEC_v0.1_en.pdf`](RFL_SPEC_v0.1_en.pdf) | Academic peers, implementers, arXiv reviewers | **60** | **Specification proposal** (academic register) |
+| [`RFL_v1.0_en.pdf`](RFL_v1.0_en.pdf) | Industry stakeholders, prospective partners, ecosystem readers | **73** | **Position paper** (specification + network-effect analysis + call for partners) |
 
 ### Which to read
 
-- **If you want the technical specification only**: read the spec extract (`RFL_SPEC_v0.1_en.pdf`). It covers the coordination problem, why existing approaches fail, the five constitutional principles, the three-layer specification (Skill ISA + Translation Layer interface contract + Driver Interface), comparative analysis against ARM/CUDA/USB/ROS 2/LeRobot, the implementation roadmap, and the supermodularity property of bilateral translation.
-- **If you want the strategic / institutional / network-effect framing as well**: read the position paper (`RFL_position_paper_v1.0_en.pdf`). It contains everything the spec extract contains, plus a chapter on network effects and ecosystem design (§ 5), a chapter on foundation governance (§ 7), and a chapter inviting founding partners (§ 9). The position paper's own preface marks it as a position paper (not a peer-reviewable academic paper) and explains the choice.
+- **If you want the technical specification only**: read the spec extract (`RFL_SPEC_v0.1_en.pdf`). It covers the coordination problem, why existing approaches fail, the five constitutional principles, the three-layer specification (Skill ISA + Translation Layer interface contract with 5 binding invariants + Driver Interface), a reference retargeting recipe (grasp_pinch on Allegro Hand) demonstrating I1–I5 satisfaction by construction, the split conformance regime (Class 2-strict for byte-equality / Class 2-loose for bounded-difference equivalence admitting learned native-precision retargeters), the stewardship commitments C1–C5 with operational mechanism for C1 (30%-rebalancing process, three-tier membership) and C4 (RFC and webcast mechanics), the cold-start adoption strategy, comparative analysis against ARM/CUDA/USB/ROS 2/LeRobot, and the implementation roadmap to v1.0 (2027 Q4). The conditional supermodularity property of bilateral translation is in Appendix B.
+- **If you want the strategic / institutional / network-effect framing as well**: read the position paper (`RFL_v1.0_en.pdf`). It overlaps with the spec extract on the technical core (§§ 3–4) and adds: the full Master Equation derivation, the nine reinforcement loops (§ 5), the full Foundation governance design (§ 7), the Crémer-McLean structural parallel and empirical-evidence discussion for bilateral compounding, the Call to Action and Founding Consortium recruitment frame (§ 9), and Comparative Analysis at greater length (§ 8). The position paper's own preface marks it as a position paper (not a peer-reviewable academic paper) and explains the choice.
 
-A legacy filename `RFL_v1.0_en.pdf` is maintained as a symbolic alias to the position paper to preserve external links.
+The two documents share Abstract content, Keywords, References, and Appendix A (TactileManifold formal specification) by construction; everything else is independently developed.
+
+A legacy filename `RFL_position_paper_v1.0_en.pdf` (294 KB, 21:43) exists from an earlier naming convention. `RFL_v1.0_en.pdf` is the canonical filename for the position paper (newer, used in external citation including the Sergey Levine endorsement request).
 
 ## Status (2026-05-30)
 
 | Item | Status |
 |---|---|
-| **Spec extract (English, v0.1)** | Drafted, intended for arXiv submission |
-| **Position paper (English, v1.0)** | Drafted |
-| **Position paper (Japanese, v1.0)** | Drafted (not yet in this repository) |
-| **arXiv preprint ID** | Pending endorsement; will be filled once accepted |
+| **Spec extract (English, v0.1)** | Publication-candidate state after four rounds of external review; arXiv submission prepared, awaiting endorsement |
+| **Position paper (English, v1.0)** | Drafted, sync with spec v0.1 cross-references complete |
+| **Position paper (Japanese, v1.0)** | Drafted (vault source only, not yet rendered in this repository) |
+| **arXiv preprint ID** | Pending endorsement (Sergey Levine, sent 2026-05-30); will be filled once accepted |
+| **Reference implementation v0.0.1** | Targeted 2027 Q2–Q3 (single (VLA, embodiment) pair existence proof) |
 | **17 figures** | Rendered to SVG and indexed below |
 
 ## Figures
@@ -66,11 +69,24 @@ Appendices: Data Sources and Methodology, TactileManifold formal specification, 
 
 ## Citation
 
+For the **specification extract** (academic register, arXiv submission target):
+
 ```bibtex
-@misc{hara2026rfl,
+@misc{hara2026rflspec,
+  title   = {The Embodiment Abstraction: A Specification for the Coordination Layer between Vision-Language-Action Models and Robotic Embodiments},
+  author  = {Yoichiro Hara},
+  year    = {2026},
+  note    = {RFL Specification v0.1, arXiv preprint forthcoming; project page \url{https://github.com/robotfoundationlayer}}
+}
+```
+
+For the **companion position paper**:
+
+```bibtex
+@misc{hara2026rflposition,
   title   = {The Embodiment Abstraction: A Foundation Layer for Physical AI},
   author  = {Yoichiro Hara},
   year    = {2026},
-  note    = {arXiv preprint forthcoming; project page \url{https://github.com/robotfoundationlayer}}
+  note    = {RFL Position Paper v1.0; project page \url{https://github.com/robotfoundationlayer}}
 }
 ```
