@@ -756,48 +756,57 @@
     },
     "GraspPowerParams": {
       "type": "object",
-      "description": "Parameters of grasp.power (01 § 2.2), precisely typed (approach B) — the seven parameters of the § 2.2 table, no more. target + force_budget are required; the rest carry the spec defaults.",
+      "description": "Parameters of grasp.power (01 § 2.2), precisely typed (approach B) — the eight parameters of the § 2.2 table, no more. target + force_budget are required; the rest carry the spec defaults.",
       "required": ["target", "force_budget"],
       "additionalProperties": false,
       "properties": {
         "target": { "$ref": "#/$defs/Compound", "description": "ObjectTarget — object to enclose." },
         "force_budget": { "$ref": "#/$defs/Force", "description": "Force > 0; clamped to embodiment.limits.grip_force_max and target.max_contact_force." },
-        "grasp_pose": { "$ref": "#/$defs/CompoundOrAuto", "description": "Pose6D | auto — palm / enclosure pose (default auto)." },
+        "grasp_pose": { "$ref": "#/$defs/CompoundOrAuto", "description": "Pose6D | auto — enclosure contact-frame pose (default auto)." },
         "controlled_frame": { "$ref": "#/$defs/FrameRef", "description": "FrameRef — declared grasp frame (default embodiment.default_grasp_frame)." },
-        "enclosure_target": { "$ref": "#/$defs/CompoundOrAuto", "description": "TactileTarget | auto — desired wrap / contact state (default auto)." },
+        "enclosure_completeness": {
+          "anyOf": [ { "$ref": "#/$defs/Auto" }, { "$ref": "#/$defs/Ratio" } ],
+          "description": "Ratio | auto — required fraction of available contact sites that must engage (default auto)."
+        },
+        "tactile_target": { "$ref": "#/$defs/CompoundOrAuto", "description": "TactileTarget | auto — desired enclosure contact state (default auto)." },
         "slip_response": { "$ref": "#/$defs/SlipResponse", "description": "Reaction to detected slip (default retighten)." },
         "timeout": { "$ref": "#/$defs/Duration", "description": "Duration | auto, > 0." }
       }
     },
     "GraspHookParams": {
       "type": "object",
-      "description": "Parameters of grasp.hook (01 § 2.3), precisely typed (approach B) — the six parameters of the § 2.3 table, no more. hook_feature + force_budget are required; the rest carry the spec defaults.",
-      "required": ["hook_feature", "force_budget"],
+      "description": "Parameters of grasp.hook (01 § 2.3), precisely typed (approach B) — the nine parameters of the § 2.3 table, no more. target + load_budget are required; the rest carry the spec defaults. load_budget (not force_budget) is the load the engagement must support — there is no opposing squeeze.",
+      "required": ["target", "load_budget"],
       "additionalProperties": false,
       "properties": {
-        "hook_feature": { "$ref": "#/$defs/Compound", "description": "FeatureRef — the handle / loop / bar to hook." },
-        "force_budget": { "$ref": "#/$defs/Force", "description": "Force > 0; clamped to limits." },
-        "grasp_pose": { "$ref": "#/$defs/CompoundOrAuto", "description": "Pose6D | auto — hook pose (default auto)." },
-        "controlled_frame": { "$ref": "#/$defs/FrameRef", "description": "FrameRef — declared grasp frame (default embodiment.default_grasp_frame)." },
+        "target": { "$ref": "#/$defs/Compound", "description": "ObjectTarget — must expose a hookable feature." },
+        "hook_feature": { "$ref": "#/$defs/CompoundOrAuto", "description": "FeatureRef | auto — the handle / loop / bar to engage (default auto)." },
+        "load_budget": { "$ref": "#/$defs/Force", "description": "Force > 0 — load the engagement must support (replaces force_budget; no opposing squeeze)." },
         "load_direction": {
           "anyOf": [ { "$ref": "#/$defs/Auto" }, { "$ref": "#/$defs/Direction" } ],
-          "description": "Direction | auto — expected load direction once hooked (default auto)."
+          "description": "Direction | auto — primary supported load direction (default auto = anticipated load, often gravity)."
         },
+        "seating_force": {
+          "anyOf": [ { "$ref": "#/$defs/Auto" }, { "$ref": "#/$defs/Force" } ],
+          "description": "Force | auto — small force to fully seat the hook; bounded by target.max_contact_force."
+        },
+        "grasp_pose": { "$ref": "#/$defs/CompoundOrAuto", "description": "Pose6D | auto — hook engagement pose (default auto)." },
+        "controlled_frame": { "$ref": "#/$defs/FrameRef", "description": "FrameRef — declared grasp frame (default embodiment.default_grasp_frame)." },
+        "tactile_target": { "$ref": "#/$defs/CompoundOrAuto", "description": "TactileTarget | auto — contact along the hook inner curve / full seating (default auto)." },
         "timeout": { "$ref": "#/$defs/Duration", "description": "Duration | auto, > 0." }
       }
     },
     "GraspPrecisionTripodParams": {
       "type": "object",
-      "description": "Parameters of grasp.precision_tripod (01 § 2.4), precisely typed (approach B) — the eight parameters of the § 2.4 table, no more. target + force_budget are required; the rest carry the spec defaults.",
+      "description": "Parameters of grasp.precision_tripod (01 § 2.4), precisely typed (approach B) — the seven parameters of the § 2.4 table, no more. target + force_budget are required; the rest carry the spec defaults.",
       "required": ["target", "force_budget"],
       "additionalProperties": false,
       "properties": {
         "target": { "$ref": "#/$defs/Compound", "description": "ObjectTarget — small object for three-finger opposition." },
-        "force_budget": { "$ref": "#/$defs/Force", "description": "Force > 0; clamped to limits." },
+        "force_budget": { "$ref": "#/$defs/Force", "description": "Force > 0; clamped to grip_force_max and target.max_contact_force." },
         "grasp_pose": { "$ref": "#/$defs/CompoundOrAuto", "description": "Pose6D | auto — tripod contact-frame pose (default auto)." },
         "controlled_frame": { "$ref": "#/$defs/FrameRef", "description": "FrameRef — declared grasp frame (default embodiment.default_grasp_frame)." },
-        "contact_config": { "$ref": "#/$defs/CompoundOrAuto", "description": "ContactConfig | auto — three-finger placement (default auto)." },
-        "tactile_target": { "$ref": "#/$defs/CompoundOrAuto", "description": "TactileTarget | auto — per-finger contact target (default auto)." },
+        "tactile_target": { "$ref": "#/$defs/CompoundOrAuto", "description": "TactileTarget | auto — auto = normal_force >= epsilon at 3 non-collinear sites (default auto)." },
         "slip_response": { "$ref": "#/$defs/SlipResponse", "description": "Reaction to detected slip (default retighten)." },
         "timeout": { "$ref": "#/$defs/Duration", "description": "Duration | auto, > 0." }
       }
@@ -820,18 +829,19 @@
     },
     "GraspPlatformParams": {
       "type": "object",
-      "description": "Parameters of grasp.platform (01 § 2.6), precisely typed (approach B) — the six parameters of the § 2.6 table, no more. target is required; the rest carry the spec defaults. There is no force_budget (an open-palm support, not a closing grasp).",
-      "required": ["target"],
+      "description": "Parameters of grasp.platform (01 § 2.6), precisely typed (approach B) — the seven parameters of the § 2.6 table, no more. target + load_budget are required; the rest carry the spec defaults. The force parameter is load_budget (max supported weight), not force_budget — this is an open-palm support, not a closing grasp.",
+      "required": ["target", "load_budget"],
       "additionalProperties": false,
       "properties": {
-        "target": { "$ref": "#/$defs/Compound", "description": "ObjectTarget — object to support on the open effector." },
-        "support_pose": { "$ref": "#/$defs/CompoundOrAuto", "description": "Pose6D | auto — platform / palm pose under the object's CoM (default auto)." },
-        "controlled_frame": { "$ref": "#/$defs/FrameRef", "description": "FrameRef — declared support frame (default embodiment.default_support_frame)." },
-        "balance_tolerance": { "$ref": "#/$defs/Length", "description": "Length — max CoM offset from the support-polygon centroid (default 5 mm)." },
-        "tilt_response": {
-          "enum": ["abort", "recenter", "hold"],
-          "description": "Reaction to CoM drift toward the polygon edge (default recenter)."
+        "target": { "$ref": "#/$defs/Compound", "description": "ObjectTarget — must carry a center-of-mass estimate." },
+        "load_budget": { "$ref": "#/$defs/Force", "description": "Force > 0 — max supported weight; clamped to embodiment.limits.payload_support." },
+        "support_pose": { "$ref": "#/$defs/CompoundOrAuto", "description": "Pose6D | auto — pose of the support surface under the object (default auto = center CoM)." },
+        "support_normal": {
+          "anyOf": [ { "$ref": "#/$defs/Auto" }, { "$ref": "#/$defs/Direction" } ],
+          "description": "Direction | auto — direction the support resists, usually anti-gravity (default auto = opposing the load)."
         },
+        "controlled_frame": { "$ref": "#/$defs/FrameRef", "description": "FrameRef — support-surface frame (default embodiment.default_support_frame)." },
+        "tactile_target": { "$ref": "#/$defs/CompoundOrAuto", "description": "TactileTarget | auto — auto = distributed load over the support area with CoM inside the polygon (default auto)." },
         "timeout": { "$ref": "#/$defs/Duration", "description": "Duration | auto, > 0." }
       }
     },
@@ -843,12 +853,9 @@
       "properties": {
         "target": { "$ref": "#/$defs/Compound", "description": "ObjectTarget — object to pin against an opposing surface." },
         "against_surface": { "$ref": "#/$defs/Compound", "description": "SurfaceTarget — the surface to pin the object against." },
-        "force_budget": { "$ref": "#/$defs/Force", "description": "Force > 0 — the pinning force." },
-        "pin_direction": {
-          "anyOf": [ { "$ref": "#/$defs/Auto" }, { "$ref": "#/$defs/Direction" } ],
-          "description": "Direction | auto — direction to press (default auto = surface inward normal)."
-        },
-        "controlled_frame": { "$ref": "#/$defs/FrameRef", "description": "FrameRef — declared frame doing the pinning (default embodiment.default_grasp_frame)." },
+        "force_budget": { "$ref": "#/$defs/Force", "description": "Force > 0 — normal force pressing the object onto the surface; clamped to grip_force_max and target.max_contact_force." },
+        "pin_pose": { "$ref": "#/$defs/CompoundOrAuto", "description": "Pose6D | auto — effector contact pose on the object's exposed face (default auto = opposite against_surface)." },
+        "controlled_frame": { "$ref": "#/$defs/FrameRef", "description": "FrameRef — declared contact frame (default embodiment.default_grasp_frame)." },
         "tactile_target": { "$ref": "#/$defs/CompoundOrAuto", "description": "TactileTarget | auto — contact target (default auto)." },
         "timeout": { "$ref": "#/$defs/Duration", "description": "Duration | auto, > 0." }
       }
