@@ -1,6 +1,6 @@
 # Translation Layer — Specification
 
-> **Status**: design-complete (2026-05-31) — the canonical action representation + `Envelope`, the quaternion pose representation with single-scalar geodesic orientation error, the under-constrained-orientation residual rule, rest-at-goal terminal semantics, the determinism boundary (Class 2-strict generation / Class 2-loose contact-dynamics execution), multi-embodiment coordination, capability negotiation, the grasp-force / stability derivations, and trajectory generation + time-scaling are specified. The `02` group of § Open issues is closed (12/12) — and with it the entire cross-chapter Open-issues TODO (`01` / `03` / `04` / `05` / `02` all resolved). Remaining before freeze: the JSON Schema and the normative `Σ` appendix.
+> **Status**: design-complete (2026-05-31) — the canonical action representation + `Envelope`, the quaternion pose representation with single-scalar geodesic orientation error, the under-constrained-orientation residual rule, rest-at-goal terminal semantics, the determinism boundary (Class 2-strict generation / Class 2-loose contact-dynamics execution), multi-embodiment coordination, capability negotiation, the grasp-force / stability derivations, and trajectory generation + time-scaling are specified. The `02` group of § Open issues is closed (12/12) — and with it the entire cross-chapter Open-issues TODO (`01` / `03` / `04` / `05` / `02` all resolved). The normative `Σ`-generator construction is fixed in § Appendix A. Remaining before freeze: the JSON Schema.
 
 ## Scope
 
@@ -188,7 +188,7 @@ A trajectory that is safe slowly but would exceed dynamic stability at full spee
 
 ### Conformance obligations (trajectory generation)
 
-- **TG1c — normative sweep set.** The sweep set `Σ` for `pattern ∈ {raster, spiral, arc, waypoints}` is a deterministic function of `(region, pattern, standoff, coverage_overlap, fov)` per the normative appendix; identical inputs yield a byte-identical `Σ` (`reach.scan` C2).
+- **TG1c — normative sweep set.** The sweep set `Σ` for `pattern ∈ {raster, spiral, arc, waypoints}` is a deterministic function of `(region, pattern, standoff, coverage_overlap, fov)` per § Appendix A — Normative sweep-pattern generators; identical inputs yield a byte-identical `Σ` (`reach.scan` C2).
 - **TG2c — time-scaling determinism and shape preservation.** `time_scalable` re-times a trajectory — preserving the geometric path shape — until its curvature-and-speed profile fits within the dynamic-stability limit and the embodiment's kinematic limits; the re-timing is a deterministic function of `(path, limits)` and never alters the path.
 
 ### Deferred and referenced
@@ -196,7 +196,7 @@ A trajectory that is safe slowly but would exceed dynamic stability at full spee
 - **The `Trajectory` and `ScanRegion` types**, and `reach.scan` / `transport.follow_trajectory` — `01-skill-isa.md`.
 - **The `fov` and kinematic limits** the generators consume — `03-driver-interface.md` § Sensor descriptor / § Capability manifest.
 - **The dynamic grasp-stability `a_max`** time-scaling fits within — § Grasp-force and stability derivations.
-- **The normative `Σ` appendix** (the exact per-pattern construction) — a normative appendix / `schemas/` artifact, before v0.1 freeze.
+- **The exact per-pattern `Σ` construction** — § Appendix A — Normative sweep-pattern generators (this chapter).
 
 ## Resolved in the 2026-05-30 design pass
 
@@ -213,7 +213,7 @@ These issues surfaced during `reach` / `grasp` primitive design and are now addr
 
 ## Open issues
 
-> **All groups resolved (2026-05-31).** Every item below is marked `[resolved → … § …]`: the `03`, `01`, `04`, and `05` chapter groups and this chapter's own `02` group are all closed. The section is retained as the cross-chapter design-history trail. Remaining pre-freeze work is implementation artifacts — the JSON Schema, the normative `Σ` appendix, and the per-skill ε-tolerance table — not open design questions.
+> **All groups resolved (2026-05-31).** Every item below is marked `[resolved → … § …]`: the `03`, `01`, `04`, and `05` chapter groups and this chapter's own `02` group are all closed. The section is retained as the cross-chapter design-history trail. The normative `Σ`-generator construction is now fixed in § Appendix A. Remaining pre-freeze work is implementation artifacts — the JSON Schema and the per-skill ε-tolerance table — not open design questions.
 
 ### Owned by `03-driver-interface.md` (embodiment descriptor + collision model)
 
@@ -303,7 +303,7 @@ These issues surfaced during `reach` / `grasp` primitive design and are now addr
 - ~~**Pose representation choice** (SE(3) / quat+t / axis-angle)~~ **[resolved → § Pose representation and orientation error]**: `Pose6D` is position (R³) + unit quaternion (ROS 2 `geometry_msgs/Pose` parity; SE(3) the group beneath). The single-scalar geodesic orientation error `θ_orient = 2·arccos|⟨q_t, q_c⟩|` makes `pose_not_reached` decidable (CA1c).
 - ~~**Under-constrained-orientation residual rule** (*decided*)~~ **[resolved → § Pose representation and orientation error]**: among orientations satisfying the declared constraints, `retarget` picks the minimum-geodesic-rotation one from the current orientation, uniformly — deterministic, binding for `retarget` determinism (CA2c).
 - ~~**Rest-at-goal vs. trajectory blending**~~ **[resolved → § Terminal semantics — rest-at-goal]**: v0.1 guarantees rest-at-goal; `timing` reserves `stop_at_goal: bool` (default `true`) so future non-stop blending is additive without breaking the guarantee (CA3c, Principle 5).
-- ~~**Normative sweep-pattern generators**~~ **[resolved → § Trajectory generation and timing, Normative sweep-pattern generators]**: `Σ` for `pattern ∈ {raster, spiral, arc, waypoints}` is a deterministic, byte-reproducible function of `(region, pattern, standoff, coverage_overlap, fov)` — footprint `2·standoff·tan(half_fov)`, spacing reduced by overlap (TG1c); the exact per-pattern construction goes to a normative appendix before freeze.
+- ~~**Normative sweep-pattern generators**~~ **[resolved → § Trajectory generation and timing, Normative sweep-pattern generators]**: `Σ` for `pattern ∈ {raster, spiral, arc, waypoints}` is a deterministic, byte-reproducible function of `(region, pattern, standoff, coverage_overlap, fov)` — footprint `2·standoff·tan(half_fov)`, spacing reduced by overlap (TG1c); the exact per-pattern construction is fixed in § Appendix A — Normative sweep-pattern generators.
 - ~~**`min_holding_force` derivation**~~ **[resolved → § Grasp-force and stability derivations, `min_holding_force`]**: derived deterministically from object weight, grasp mode, friction, and load direction against the grasp's directional holding capacity; the static floor the grasp-continuity invariant (`05` GC1) checks and `grasp.adjust` maintains (GF1c).
 - ~~**Dynamic grasp-stability limit derivation**~~ **[resolved → § Grasp-force and stability derivations, Dynamic stability]**: the largest acceleration at which inertial + gravity load stays within holding capacity, from `StabilityMetadata` + mass + geometry; clamps `max_acceleration` in every `transport` primitive's `Envelope.motion_bounds` (GF2c) — the dynamic counterpart of `min_holding_force`.
 - ~~**Grasp-under-reaction-load**~~ **[resolved → § Grasp-force and stability derivations, Reaction-load limit]**: a `force` primitive's reaction may not exceed holding capacity along the reaction axis, the rotational capacity about the tool axis (torque reaction, screw/unscrew), or be lost at a periodic reversal (scrub); derived and aborted-before-slip (GF3c).
@@ -312,3 +312,65 @@ These issues surfaced during `reach` / `grasp` primitive design and are now addr
 - ~~**Passive-drive determinism boundary**~~ **[resolved → § The determinism boundary]**: `retarget` generation is byte-deterministic unconditionally, but the *realized execution* of a contact-dynamics primitive (`in_hand.pivot` passive drive; all `force` compliant search) is not — it is held to Class 2-loose (semantic equivalence within a per-skill ε) on realized execution, Class 2-strict on generation (RD2c). Parallel to `reach.scan`'s purely-kinematic strict archetype.
 - ~~**Multi-embodiment coordination + determinism**~~ **[resolved → § Multi-embodiment coordination]**: bimanual handoff closes within one `retarget` (fully deterministic, in-spec); inter-robot handoff's two-party determinism semantics (GC6 + `EffectorRef`) are specified and its coordination *protocol* (the dual-grasp-window wire mechanism) is a named v0.1 deferral (RD3c). Semantics-now, mechanism-later.
 - ~~**Time-scaling semantics**~~ **[resolved → § Trajectory generation and timing, Time-scaling]**: `transport.follow_trajectory(timing_mode = time_scalable)` re-times a trajectory (preserving path shape, slowing not rejecting) until its curvature-and-speed profile fits within the dynamic-stability limit and the embodiment's kinematic limits; a deterministic function of `(path, limits)` that preserves `retarget` determinism (TG2c).
+
+## Appendix A — Normative sweep-pattern generators
+
+This appendix fixes the exact construction of the scan sweep set `Σ` for each `pattern`, making `Σ` a byte-reproducible function of `(region, pattern, standoff, coverage_overlap, fov)` (TG1c; `reach.scan` C2). The construction is **normative**: a conformant `retarget` produces the identical `Σ` for identical inputs. RFL fixes the geometric coverage; the perception that interprets the captured observations is out of scope (`04`).
+
+### Common construction
+
+All patterns share a setup, computed in the region's reference frame (`Region` = geometry + `frame`, `01`):
+
+- **Footprint.** The `fov` (`03` § Sensor descriptor — an angular field `{h_angle, v_angle}` about the bore axis) and the `standoff` give a rectangular observation footprint on the surface: `f_u = 2 · standoff · tan(h_angle / 2)`, `f_v = 2 · standoff · tan(v_angle / 2)`.
+- **Pass spacing.** Reduced by overlap: `s_u = f_u · (1 − coverage_overlap)`, `s_v = f_v · (1 − coverage_overlap)`, with `coverage_overlap ∈ [0, 1)`.
+- **Surface parameterization.** A surface `ScanRegion` is parameterized over its axis-aligned bounding rectangle `[0, U] × [0, V]` in the region frame (the bounds computed deterministically from the region geometry). A station at parameter `(u, v)` maps to a sensor pose: position `= surface_point(u, v) + standoff · n̂(u, v)` (outward normal); orientation `=` the sensor `bore_axis` anti-parallel to `n̂`, with the bore frame's secondary axis aligned to the `+u` direction (a fixed roll convention, so the pose is fully determined).
+
+`Σ` is the ordered list of these poses; the order is the scan path (a continuous sweep). Counts use `ceil` and centered placement so coverage is symmetric and complete.
+
+### `raster`
+
+Parallel passes across the surface, serpentine-ordered:
+
+```
+n_v = ceil(V / s_v)                          # number of passes
+v_k = (k + 0.5) · V / n_v,   k = 0 … n_v−1
+n_u = ceil(U / s_u)                          # stations per pass
+u_j = (j + 0.5) · U / n_u,   j = 0 … n_u−1
+Σ   = [ pose(u_j, v_k) ]   with j ascending on even k, descending on odd k   # boustrophedon
+```
+
+The serpentine (boustrophedon) order makes `Σ` a continuous path — each pass starts where the previous ended — minimizing transit and fixing the order deterministically.
+
+### `spiral`
+
+An Archimedean spiral outward from the surface centroid, for a centered region:
+
+```
+s     = min(s_u, s_v)                         # isotropic pass spacing
+r(θ)  = (s / 2π) · θ                          # radial pitch per turn = s
+stations at constant arc-length step Δℓ = s, from θ = 0 outward
+       until r(θ) exceeds the region's bounding radius
+Σ     = [ pose at polar (r(θ), θ) ]           # CCW from the centroid, by convention
+```
+
+The fixed start (centroid), fixed radial pitch (`s`), fixed arc-length step, and fixed direction (CCW) make the spiral byte-reproducible.
+
+### `arc`
+
+A swept arc at fixed radius about a declared pivot (e.g. circumferential inspection of a cylindrical surface):
+
+```
+radius = standoff                             # sensor sweeps at standoff from the pivot
+Δθ     = s_u / standoff                        # angular step so the footprint advances by s_u along the arc
+n      = ceil(arc_extent / Δθ)
+θ_i    = arc_start + (i + 0.5) · arc_extent / n,   i = 0 … n−1
+Σ      = [ pose on the arc at θ_i, bore pointing at the pivot ]
+```
+
+### `waypoints`
+
+The degenerate generator: the caller supplies the ordered poses and `Σ` is exactly them, verbatim. `standoff` / `coverage_overlap` / `fov` are ignored — the caller owns coverage. This is the escape hatch for coverage geometries the three parametric patterns do not capture, kept deterministic because the poses are given, not generated.
+
+### Region kinds beyond surface
+
+A `surface` `ScanRegion` uses the generators directly. A `path` region sweeps stations spaced `s_u` along the given path (a one-dimensional `raster`). A `volume` region is covered as a deterministic stack of surface layers at depth intervals `s_v` along the volume's principal axis, each layer a surface sweep — so the volume reduces to repeated surface coverage. The per-kind reduction keeps one parametric construction rather than three.
