@@ -186,6 +186,57 @@ Duration        ::= Number ("ms" | "s")
 3. **`Predicate` extensibility via `user_defined`** is the escape valve: domain-specific predicates can ship as extensions without modifying the core grammar.
 4. **`Auto` value** lets the spec author defer choice to the Translation Layer's planner (e.g., a `grasp_pose: auto` parameter delegates pose selection).
 
+## Skill ISA type system
+
+**Scope.** This section defines the value types referenced across all primitive specifications. Types whose values originate from perception (`SurfaceTarget`, `ObjectTarget`, `FeatureRef`, `ScanRegion`) are **consumed** by RFL but **produced** outside it: RFL fixes the type (fields + uncertainty bound), not the estimation method (layer discipline, Principle 4). Such values reach a primitive via `LetBind` (typically a `sense.*` result).
+
+### Dimensioned scalars
+
+| Type | Canonical unit (wire) | Notes |
+|---|---|---|
+| `Length` | m | parameter tables may author in mm; the value is SI |
+| `Angle` | rad | geodesic where applied to SO(3) |
+| `Force` | N | |
+| `Velocity` | m/s | |
+| `AngularVelocity` | rad/s | |
+| `Duration` | s | |
+| `Ratio` | dimensionless | `[0,1]` unless stated |
+
+> **Canonical-unit rule.** All wire / interchange values are SI (m, rad, N, s). The "Units" column in primitive parameter tables is an authoring convenience; conformance and `retarget` operate on SI values. This is binding for `retarget` byte-for-byte determinism (`02-translation-layer.md`).
+
+### Geometric types
+
+| Type | Definition | Constraint |
+|---|---|---|
+| `FrameRef` | reference to a calibrated frame on the kinematic tree or in the world | must be `calibration_valid` when used |
+| `Axis` | one of `{x, y, z}` of a named frame | — |
+| `SignedAxis` | `±` an `Axis` | direction-bearing |
+| `Direction` | unit vector in a named frame | `‖·‖ = 1` |
+| `Pose6D` | rigid pose (position + orientation) in a `FrameRef` | representation (SE(3) / quat+t / axis-angle) deferred to `02`; MUST admit a single-scalar geodesic orientation error |
+
+### Target types (perception-derived; carry uncertainty)
+
+| Type | Fields | Used by |
+|---|---|---|
+| `SurfaceTarget` | `point` (a `Pose6D` position), `normal: Direction` (outward), `frame: FrameRef`, `uncertainty: UncertaintyBound` | `reach.approach`, `reach.hover`, `grasp.pin.against_surface` |
+| `ObjectTarget` | `pose: Pose6D`, `geometry: GeometryRef`, `estimated_mass: Force`, `center_of_mass` (a `Pose6D` position), `max_contact_force: Force?` (fragility), `features: set<FeatureRef>`, `uncertainty: UncertaintyBound` | all `grasp.*`, `in_hand.*`, `transport.*`, `place.*` |
+| `FeatureRef` | `parent: ObjectTarget`, `kind: {handle, loop, bar, edge, face, …}`; resolves to a `SurfaceTarget` or sub-geometry | `grasp.hook.hook_feature`, `grasp.lateral.grasp_edge` |
+| `ScanRegion` | `kind: {volume, surface, path}`, geometry in a `frame: FrameRef` | `reach.scan` |
+| `UncertaintyBound` | scalar or covariance bounding the pose / geometry estimate error | every target type; gates `*_underdetermined` |
+
+> `estimated_mass` is typed `Force` (weight under standard gravity) for unit consistency with force budgets; a future extension may separate mass (kg) from weight if needed.
+
+### Tactile + grasp reference types
+
+| Type | Definition | Used by |
+|---|---|---|
+| `TactileTarget` | contact criterion expressed in TactileManifold terms (sites, feature thresholds); see `04-tactile-manifold.md` | all `grasp.*` |
+| `GraspRef` | handle to an established grasp on a `controlled_frame`; `active` resolves to the current grasp | `grasp.adjust`, `grasp.release`, `in_hand.*`, `transport.*`, `place.*` |
+
+### The `auto` value
+
+Any parameter typed `T | auto` may take the literal `auto`, deferring the value to the Translation Layer's planner (per the BNF `Auto` production). `auto` resolution MUST be deterministic given identical inputs.
+
 ## Per-primitive semantic specification
 
 > **Status**: this section is filled category-by-category as each primitive reaches v0.1 freeze-ready text. A primitive that appears in the enumeration above but not here is still skeleton-only. The enumeration table is the index; this section is the normative semantics.
@@ -531,6 +582,78 @@ Duration        ::= Number ("ms" | "s")
 
 `grasp` primitives form and commit a contact pattern on a target object. Unlike `reach`, contact is the *intent*. At the Skill ISA level a `grasp` primitive commits only the contact pattern and a force budget; the force-controlled completion (joint torques for tendon-driven hands, pneumatic pressure for bellows hands, jaw force for parallel-jaw grippers) is resolved per embodiment by the Translation Layer. `grasp` primitives are the first to carry a **capability requirement** (not every embodiment supports every grasp) and to integrate the **TactileManifold** for contact confirmation, with a graceful-degradation proxy for embodiments lacking tactile sensing (Principle 5).
 
+All ten `grasp` primitives share a common **grasp core** (`target`, `force_budget`, `grasp_pose`, tactile confirmation, capability requirement, hold-test verification) and differ only in a **contact-pattern abstraction** (antipodal pair / whole-volume enclosure / hook / tripod / lateral clamp / support / extrinsic pin / compliant-or-caged enclosure). The two held-state operations (`grasp.adjust`, `grasp.release`) act on the active-grasp state defined next rather than forming a new contact.
+
+##### Grasp state model and stability metadata
+
+**Active-grasp state.** The Skill ISA maintains, per `controlled_frame`, a first-class **active-grasp state** that `grasp.*`, `in_hand.*`, `transport.*`, and `place.*` read and write. Earlier prose references to `object_held` / `end_effector_free` are shorthand for this state.
+
+```
+GraspState := {
+  status:       {free, held, manipulated, placed},
+  held_object:  ObjectTarget | None,
+  mode:         GraspMode | None,    # pinch | power | hook | tripod | lateral
+                                     # | platform | pin | envelope_conform | envelope_cage
+  stability:    StabilityMetadata | None,
+  force_budget: Force | None,
+}
+```
+
+A `GraspRef` is a handle to a `GraspState`; the literal `active` resolves to the current `GraspState` of the addressed `controlled_frame`.
+
+**Grasp lifecycle.**
+
+```
+   free ──grasp.*──▶ held ──in_hand.*──▶ manipulated ──┐
+    ▲                 │  ▲                    │         │
+    │                 │  └────────────────────┘         │
+    │                 │     (returns to held)           │
+    │                 ▼                                  │
+    └──grasp.release──┴──place.*──▶ placed ──release──▶ free
+```
+
+| Primitive class | Transition |
+|---|---|
+| `grasp.{pinch, power, hook, …}` | `free → held` (sets `held_object`, `mode`, `stability`) |
+| `grasp.adjust` | `held → held` (modifies parameters; preserves identity) |
+| `in_hand.*` | `held → manipulated → held` (preserves grasp identity) |
+| `transport.*` | `held → held` (object pose changes; grasp preserved) |
+| `place.*` | `held → placed` |
+| `grasp.release` | `held \| placed → free` (clears state) |
+
+**Composition validity.** The algebra checks transitions: a primitive requiring `held` input rejects a `free` frame (`no_active_grasp`); a `surface_bound` grasp rejects a free-transport successor (see flags below). This is the mechanically checkable basis for composition conformance (`05-conformance.md`).
+
+**Stability metadata.** Decomposed into orthogonal axes so grasp variety does not explode the type:
+
+```
+StabilityMetadata := {
+  closure:           {force, form, support},
+  secured_dof:       Map<DOF, {form_held, friction_held, balance_held}>,
+  stable_directions: set<Direction> | omnidirectional,
+  flags:             subset of {
+                       extrinsic,            # opposed by an environment surface (pin)
+                       surface_bound,        # invalid if surface lost; no free transport (pin)
+                       compliant,            # soft / conforming contact (envelope_conform)
+                       rotation_constrained, # resists torque about the grasp axis (tripod)
+                     },
+  residual_mobility: Length | None,          # caged object's in-enclosure freedom (envelope_cage)
+  min_holding_force: Force,                  # below which the object drops; from mass / mode / friction
+}
+```
+
+| Grasp mode | closure | securing summary | flags |
+|---|---|---|---|
+| pinch / power | force | friction_held (all DOF) | — |
+| precision_tripod | force | friction_held + rotation about axis form-constrained | `rotation_constrained` |
+| lateral | force | clamp-normal friction_held; in-plane friction_held (weaker) | — |
+| hook | form | `stable_directions` form_held; reverse / lateral free | — |
+| platform | support | balance_held over the CoM polygon | — |
+| pin | force | clamp-normal friction_held | `extrinsic`, `surface_bound` |
+| envelope_conform | form | distributed friction_held, gentle | `compliant` |
+| envelope_cage | form | trapped, not fixed | `residual_mobility` set |
+
+Downstream primitives consume this: `transport` reads `secured_dof` / `flags` to choose conservative acceleration; `in_hand.rotate` reads `rotation_constrained`; `grasp.release` reads `min_holding_force` and the supported-state predicate.
+
 #### 2.1 `grasp.pinch`
 
 **Intent.** Form a stable two-opposing-point (antipodal) pinch on a target object, driving opposing contact regions together until force closure is achieved within a force budget, with contact confirmed through the tactile manifold. Force-controlled completion is resolved per embodiment by the Translation Layer.
@@ -555,7 +678,7 @@ Duration        ::= Number ("ms" | "s")
 - The derived `grasp_pose` admits ≥ 1 IK solution and an antipodal contact pair exists on `target` for the embodiment's opposing geometry.
 
 **Postconditions (on `success`).**
-- `object_held(target, mode = pinch)`: the object is held in a stable two-opposing-point pinch (force closure), grip force `≤ force_budget`.
+- `object_held(target, mode = pinch, closure = force, stable_directions = omnidirectional)`: the object is held in a stable two-opposing-point pinch (force closure), grip force `≤ force_budget`.
 - `tactile_target` satisfied (or its degraded proxy): contact confirmed at the opposing sites.
 - `controlled_frame` now owns `target`; `end_effector_free = false`.
 
@@ -608,7 +731,7 @@ Duration        ::= Number ("ms" | "s")
 - The derived `grasp_pose` admits ≥ 1 IK solution and an enclosing contact configuration exists for the embodiment's geometry.
 
 **Postconditions (on `success`).**
-- `object_held(target, mode = power)`: enclosed grasp with distributed contact (force closure), grip force `≤ force_budget`.
+- `object_held(target, mode = power, closure = force, stable_directions = omnidirectional)`: enclosed grasp with distributed contact (force closure), grip force `≤ force_budget`.
 - `tactile_target` satisfied (or proxy): contact confirmed at ≥ the enclosure-completeness threshold.
 - `controlled_frame` owns `target`; `end_effector_free = false`.
 
