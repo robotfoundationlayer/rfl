@@ -167,10 +167,6 @@
         { "$ref": "#/$defs/Ref" }
       ]
     },
-    "StatePredicateOrAuto": {
-      "description": "A StatePredicate typed T | auto in the spec (01 § transport.handoff release_condition): the literal auto, an algebra Predicate, or a let-reference to a hoisted predicate.",
-      "anyOf": [ { "$ref": "#/$defs/Auto" }, { "$ref": "#/$defs/Predicate" }, { "$ref": "#/$defs/Ref" } ]
-    },
     "Compound": {
       "description": "A perception-derived compound value (01 § Target / reference types — ObjectTarget, FeatureRef, SurfaceTarget, Pose6D, TactileTarget, ContactConfig). RFL fixes the type but not the estimation method; here it is supplied inline as an object or by a let-reference (typically a sense.* result). Internal field typing is a deeper increment.",
       "anyOf": [ { "type": "object" }, { "$ref": "#/$defs/Ref" } ]
@@ -1154,68 +1150,69 @@
     },
     "TransportHandoffParams": {
       "type": "object",
-      "description": "Parameters of transport.handoff (01 § 4.3), precisely typed (approach B) — the seven parameters of the § 4.3 table, no more. receiver is required; the rest carry the spec defaults. receiver is an EffectorRef (same embodiment or embodiment_id:frame); release_condition is a StatePredicate | auto.",
+      "description": "Parameters of transport.handoff (01 § 4.3), precisely typed (approach B) — the eight parameters of the § 4.3 table, no more. receiver is required; the rest carry the spec defaults. receiver is an EffectorRef (same embodiment or embodiment_id:frame); receiver_mode is GraspMode | auto.",
       "required": ["receiver"],
       "additionalProperties": false,
       "properties": {
-        "grasp_handle": { "$ref": "#/$defs/GraspHandle", "description": "GraspRef | active (default active) — the giving grasp (this embodiment)." },
-        "receiver": { "$ref": "#/$defs/EffectorRef", "description": "EffectorRef — the receiving effector (same embodiment or embodiment_id:frame)." },
-        "handoff_pose": { "$ref": "#/$defs/CompoundOrAuto", "description": "Pose6D | auto — where the exchange happens (default auto = planner-derived midpoint)." },
-        "cograsp_force_budget": { "anyOf": [ { "$ref": "#/$defs/Auto" }, { "$ref": "#/$defs/Force" } ], "description": "Force | auto — combined grip force during the dual-grasp window (default auto)." },
-        "release_condition": { "$ref": "#/$defs/StatePredicateOrAuto", "description": "StatePredicate | auto — when the giver releases (default auto = receiver-secured confirmed)." },
-        "frame": { "$ref": "#/$defs/FrameRef", "description": "FrameRef — reference frame (default task)." },
+        "grasp_handle": { "$ref": "#/$defs/GraspHandle", "description": "GraspRef | active (default active) — the giver's current grasp." },
+        "receiver": { "$ref": "#/$defs/EffectorRef", "description": "EffectorRef — the partner effector (a control frame on the same or another embodiment)." },
+        "receiver_mode": { "$ref": "#/$defs/CompoundOrAuto", "description": "GraspMode | auto — the grasp the receiver should form (default auto = planner-derived)." },
+        "handoff_pose": { "$ref": "#/$defs/CompoundOrAuto", "description": "Pose6D | auto — object pose at which the transfer occurs (default auto = mutually reachable pose)." },
+        "cograsp_force_budget": { "anyOf": [ { "$ref": "#/$defs/Auto" }, { "$ref": "#/$defs/Force" } ], "description": "Force | auto — max combined force during the dual-grasp window (default auto)." },
+        "frame": { "$ref": "#/$defs/FrameRef", "description": "FrameRef — shared reference frame (default task)." },
+        "position_tolerance": { "$ref": "#/$defs/Length", "description": "Length — object pose drift during transfer (default 2 mm)." },
         "timeout": { "$ref": "#/$defs/Duration", "description": "Duration | auto, > 0." }
       }
     },
     "TransportCarryParams": {
       "type": "object",
-      "description": "Parameters of transport.carry (01 § 4.4), precisely typed (approach B) — the nine parameters of the § 4.4 table, no more. motion is required; the rest carry the spec defaults. motion is a MoveSpec (to_pose(Pose6D) | trajectory(Trajectory)), deferred to an inline object or a reference.",
+      "description": "Parameters of transport.carry (01 § 4.4), precisely typed (approach B) — the ten parameters of the § 4.4 table, no more. motion is required; the rest carry the spec defaults. motion is a MoveSpec (to_pose(P) | trajectory(T)), deferred to an inline object or a reference.",
       "required": ["motion"],
       "additionalProperties": false,
       "properties": {
         "grasp_handle": { "$ref": "#/$defs/GraspHandle", "description": "GraspRef | active (default active) — the grasp whose held object is carried." },
-        "motion": { "$ref": "#/$defs/Compound", "description": "MoveSpec — the relocation: to_pose(Pose6D) or trajectory(Trajectory)." },
-        "disturbance_budget": { "anyOf": [ { "$ref": "#/$defs/Auto" }, { "$ref": "#/$defs/Force" } ], "description": "Force | auto — the external disturbance the carry must reject without dropping (default auto)." },
+        "motion": { "$ref": "#/$defs/Compound", "description": "MoveSpec — the underlying relocation: to_pose(P) or trajectory(T); carry wraps it with disturbance rejection." },
+        "disturbance_budget": { "anyOf": [ { "$ref": "#/$defs/Auto" }, { "$ref": "#/$defs/Force" } ], "description": "Force | auto — the external perturbation the carry must reject without losing the grasp (default auto)." },
+        "stability_margin": { "anyOf": [ { "$ref": "#/$defs/Auto" }, { "$ref": "#/$defs/Ratio" } ], "description": "Ratio | auto — required headroom of holding capacity over inertial + disturbance load (default auto)." },
         "frame": { "$ref": "#/$defs/FrameRef", "description": "FrameRef — reference frame (default task)." },
-        "position_tolerance": { "$ref": "#/$defs/Length", "description": "Length > 0 — on the final / tracked pose (default 5 mm)." },
-        "max_velocity": { "anyOf": [ { "$ref": "#/$defs/Auto" }, { "$ref": "#/$defs/Velocity" } ], "description": "Velocity | auto — clamped to embodiment.limits.v_cartesian_max." },
-        "max_acceleration": { "anyOf": [ { "$ref": "#/$defs/Auto" }, { "$ref": "#/$defs/Acceleration" } ], "description": "Acceleration | auto — clamped below the dynamic-stability limit to reserve disturbance margin." },
-        "contact_response": { "$ref": "#/$defs/ContactResponse", "description": "Reaction to unplanned contact (default abort)." },
+        "position_tolerance": { "$ref": "#/$defs/Length", "description": "Length > 0 — on the object relative to motion, looser (disturbances perturb the path) (default 3 mm)." },
+        "max_velocity": { "anyOf": [ { "$ref": "#/$defs/Auto" }, { "$ref": "#/$defs/Velocity" } ], "description": "Velocity | auto — clamped, conservative under disturbance." },
+        "max_acceleration": { "anyOf": [ { "$ref": "#/$defs/Auto" }, { "$ref": "#/$defs/Acceleration" } ], "description": "Acceleration | auto — clamped to leave stability_margin for disturbance rejection." },
+        "contact_response": { "$ref": "#/$defs/ContactResponse", "description": "Reaction to unplanned contact (default comply; carry expects environmental contact)." },
         "timeout": { "$ref": "#/$defs/Duration", "description": "Duration | auto, > 0." }
       }
     },
     "TransportLiftParams": {
       "type": "object",
-      "description": "Parameters of transport.lift (01 § 4.5), precisely typed (approach B) — the nine parameters of the § 4.5 table, no more. height is required; the rest carry the spec defaults. anti_slip_margin is Ratio | auto.",
+      "description": "Parameters of transport.lift (01 § 4.5), precisely typed (approach B) — the nine parameters of the § 4.5 table, no more. height is required; the rest carry the spec defaults. up_direction is a Direction (default -gravity, declared not assumed).",
       "required": ["height"],
       "additionalProperties": false,
       "properties": {
-        "grasp_handle": { "$ref": "#/$defs/GraspHandle", "description": "GraspRef | active (default active) — the grasp whose held object is lifted." },
+        "grasp_handle": { "$ref": "#/$defs/GraspHandle", "description": "GraspRef | active (default active) — the grasp holding the object." },
         "height": { "$ref": "#/$defs/Length", "description": "Length > 0 — vertical lift distance." },
-        "up_direction": { "anyOf": [ { "$ref": "#/$defs/Auto" }, { "$ref": "#/$defs/Direction" } ], "description": "Direction | auto — the lift direction (default auto = anti-gravity)." },
+        "up_direction": { "$ref": "#/$defs/Direction", "description": "Direction — the up direction (default -gravity, declared not assumed)." },
         "frame": { "$ref": "#/$defs/FrameRef", "description": "FrameRef — reference frame (default task)." },
-        "max_velocity": { "anyOf": [ { "$ref": "#/$defs/Auto" }, { "$ref": "#/$defs/Velocity" } ], "description": "Velocity | auto — clamped to embodiment.limits.v_cartesian_max." },
-        "max_acceleration": { "anyOf": [ { "$ref": "#/$defs/Auto" }, { "$ref": "#/$defs/Acceleration" } ], "description": "Acceleration | auto — clamped to the dynamic-stability limit." },
-        "anti_slip_margin": { "anyOf": [ { "$ref": "#/$defs/Auto" }, { "$ref": "#/$defs/Ratio" } ], "description": "Ratio | auto — extra grip headroom against the inertial load during lift." },
-        "contact_response": { "$ref": "#/$defs/ContactResponse", "description": "Reaction to unplanned contact (default abort)." },
+        "position_tolerance": { "$ref": "#/$defs/Length", "description": "Length > 0 (default 2 mm)." },
+        "max_velocity": { "anyOf": [ { "$ref": "#/$defs/Auto" }, { "$ref": "#/$defs/Velocity" } ], "description": "Velocity | auto — clamped, conservative through load transfer." },
+        "max_acceleration": { "anyOf": [ { "$ref": "#/$defs/Auto" }, { "$ref": "#/$defs/Acceleration" } ], "description": "Acceleration | auto — clamped to dynamic-stability limit (full weight engaged)." },
+        "clearance": { "$ref": "#/$defs/Length", "description": "Length >= 0 (default 0) — for object + effector swept volume." },
         "timeout": { "$ref": "#/$defs/Duration", "description": "Duration | auto, > 0." }
       }
     },
     "TransportLowerParams": {
       "type": "object",
-      "description": "Parameters of transport.lower (01 § 4.6), precisely typed (approach B) — the ten parameters of the § 4.6 table, no more. height is required; the rest carry the spec defaults. touchdown_detect watches for early contact (landing).",
-      "required": ["height"],
+      "description": "Parameters of transport.lower (01 § 4.6), precisely typed (approach B) — the ten parameters of the § 4.6 table, no more. No required parameter (height defaults to auto = until touchdown). stop_mode chooses fixed-descent vs contact-detected stop; down_direction is a Direction (default gravity).",
       "additionalProperties": false,
       "properties": {
-        "grasp_handle": { "$ref": "#/$defs/GraspHandle", "description": "GraspRef | active (default active) — the grasp whose held object is lowered." },
-        "height": { "$ref": "#/$defs/Length", "description": "Length > 0 — vertical lower distance." },
-        "down_direction": { "anyOf": [ { "$ref": "#/$defs/Auto" }, { "$ref": "#/$defs/Direction" } ], "description": "Direction | auto — the lower direction (default auto = gravity)." },
+        "grasp_handle": { "$ref": "#/$defs/GraspHandle", "description": "GraspRef | active (default active) — the grasp holding the object." },
+        "stop_mode": { "enum": ["height", "touchdown"], "description": "Stop after a fixed descent, or when surface contact is detected (default touchdown)." },
+        "height": { "anyOf": [ { "$ref": "#/$defs/Auto" }, { "$ref": "#/$defs/Length" } ], "description": "Length | auto — (height mode) descent distance (default auto = until touchdown)." },
+        "down_direction": { "$ref": "#/$defs/Direction", "description": "Direction — descent direction (default gravity, declared not assumed)." },
+        "touchdown_force": { "anyOf": [ { "$ref": "#/$defs/Auto" }, { "$ref": "#/$defs/Force" } ], "description": "Force | auto — contact force threshold marking touchdown (default auto = small fraction of weight)." },
         "frame": { "$ref": "#/$defs/FrameRef", "description": "FrameRef — reference frame (default task)." },
-        "touchdown_detect": { "type": "boolean", "description": "Watch for early contact (landing) and stop (default true)." },
-        "touchdown_force": { "anyOf": [ { "$ref": "#/$defs/Auto" }, { "$ref": "#/$defs/Force" } ], "description": "Force | auto — contact threshold that signals landing." },
-        "max_velocity": { "anyOf": [ { "$ref": "#/$defs/Auto" }, { "$ref": "#/$defs/Velocity" } ], "description": "Velocity | auto — clamped to embodiment.limits.v_cartesian_max." },
-        "max_acceleration": { "anyOf": [ { "$ref": "#/$defs/Auto" }, { "$ref": "#/$defs/Acceleration" } ], "description": "Acceleration | auto — clamped to the dynamic-stability limit." },
-        "contact_response": { "$ref": "#/$defs/ContactResponse", "description": "Reaction to unplanned contact (default abort)." },
+        "position_tolerance": { "$ref": "#/$defs/Length", "description": "Length > 0 (default 2 mm)." },
+        "approach_velocity": { "anyOf": [ { "$ref": "#/$defs/Auto" }, { "$ref": "#/$defs/Velocity" } ], "description": "Velocity | auto — slow contact-approach speed (soft landing)." },
+        "clearance": { "$ref": "#/$defs/Length", "description": "Length >= 0 (default 0) — for object + effector swept volume (excluding the set-down surface)." },
         "timeout": { "$ref": "#/$defs/Duration", "description": "Duration | auto, > 0." }
       }
     },
