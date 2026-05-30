@@ -125,8 +125,7 @@ For the **companion position paper** (network-effect and ecosystem framing):
 ## Contact
 
 - **Author**: Yoichiro Hara
-- **Email**: <yo@vox.delivery>
-- **Operating entity**: Vox Technologies, Inc. (Delaware C-corp, EIN 38-4137551)
+- **Operating entity**: Vox Technologies, Inc.
 
 ## Contributing
 
