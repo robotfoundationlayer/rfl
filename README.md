@@ -51,7 +51,7 @@ The whitepaper is the long-form argument; the [`spec/`](spec/) directory hosts t
 | [`spec/02-translation-layer.md`](spec/02-translation-layer.md) | In progress (canonical action + retargeting contract; § Open issues is the cross-chapter design driver) |
 | [`spec/03-driver-interface.md`](spec/03-driver-interface.md) | Design complete — frame model, capability manifest, collision model, sensor / gravity / safety descriptors, multi-embodiment addressing |
 | [`spec/04-tactile-manifold.md`](spec/04-tactile-manifold.md) | Design complete — feature-field model, feature taxonomy, contact-sensor descriptor, `TactileTarget`, graceful-degradation proxy, slip / force-event / deformation discrimination, freed-part handling, sensing-scope contracts |
-| [`spec/05-conformance.md`](spec/05-conformance.md) | Skeleton |
+| [`spec/05-conformance.md`](spec/05-conformance.md) | Design complete — envelope-class taxonomy, grasp-continuity modes, closure / stability / composition, reversibility + irreversible-operation safety, hazardous-operation benches, audit trail, conformance regime (determinism floor / fidelity tier / recursive simulator) |
 | [`spec/06-extension-registry.md`](spec/06-extension-registry.md) | Skeleton |
 
 The whitepaper PDFs above are the authoritative reference at v0.1; the in-repo `spec/*.md` files are the developing machine-readable form intended to converge with the whitepaper by v1.0 (2027 Q4).
