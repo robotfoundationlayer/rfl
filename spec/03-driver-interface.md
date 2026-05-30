@@ -294,6 +294,71 @@ The compliance capability owns only the *declaration*. Three coupled concerns ar
 - **CMP3c — rigid-only rejection.** An embodiment declaring no compliance mode rejects every compliance-requiring `force` primitive at validation, with no attempt.
 - **CMP4c — undeclared-mode request.** An explicit `compliance` request naming an undeclared mode returns `capability_absent`.
 
+### Safety capabilities
+
+Two primitives are safety-critical in a way no force budget captures: `force.cut` wields a hazardous tool, and `place.hand_to` exchanges force with a human. Each requires a **structured** auxiliary capability (the auxiliary table reserved these as structured rather than boolean) that the embodiment must declare before the primitive may run. This subsection defines the declaration structure; the instrumented test benches that verify the declared behaviour are owned by `05-conformance.md`.
+
+#### Tool-safety capability
+
+Required by `force.cut` and by future hazardous-tool primitives (weld, etc.). Structure:
+
+| Field | Meaning |
+|---|---|
+| `hazard_class` | the hazard the capability manages (`cut` / shear; extensible to `weld`, `thermal`, … through `06-extension-registry.md`) |
+| `standard` | a reference to the deployment safety standard the capability claims to satisfy (RFL does not define the standard) |
+
+Declaring it asserts the embodiment can bound the hazardous element's motion and park it in a safe pose when idle, bound the hazardous action path, and supply the instrumented shear / separation signals the conformance regime needs. A primitive wielding a hazardous tool **must not run** without the tool-safety capability for its hazard class.
+
+#### Human-collaboration safety capability
+
+Required by `place.hand_to`. Structure:
+
+| Field | Meaning |
+|---|---|
+| `standard` | a reference to the human-collaboration safety standard (ISO 10218 / 13482 context, or the deployment equivalent) |
+| `max_interaction_force` (default) | the embodiment default cap on force exchanged with a human; the resolution target of the primitive's `max_interaction_force = auto` |
+| `weight_transfer_threshold` (default) | the embodiment default fraction of weight a human must take before release (e.g. ≥ 0.5); the resolution target of the primitive's `weight_transfer_threshold = auto` |
+
+Declaring it asserts the embodiment can cap exchanged force at `max_interaction_force`, yield compliantly to a human tug (it does not fight), and gate release on detected weight transfer.
+
+**Dependency on compliance.** Yielding compliantly to a human presupposes a compliance mode, so the human-collaboration safety capability **requires at least one declared `compliance` mode** — a mechanically checkable dependency.
+
+#### Capability gate (safety specialization of the `capability_absent` rule)
+
+- `force.cut` requires `force.cut` (primitive) **and** `compliance` **and** `tool_safety` for the `cut` hazard class; any miss is `capability_absent`, no attempt.
+- `place.hand_to` requires `place.hand_to` (primitive) **and** `human_collaboration_safety`; a miss is `capability_absent` — an embodiment must not hand an object to a human without force-limited safety.
+
+#### URDF / MJCF binding
+
+```xml
+<rfl:aux>
+  <rfl:capability name="tool_safety">
+    <rfl:hazard class="cut" standard="ANSI B11.19"/>
+  </rfl:capability>
+  <rfl:capability name="human_collaboration_safety" standard="ISO 10218">
+    <rfl:limit name="max_interaction_force"      value="80"  unit="N"/>
+    <rfl:limit name="weight_transfer_threshold"  value="0.5"/>
+  </rfl:capability>
+</rfl:aux>
+```
+
+#### Deferred to `05-conformance.md`
+
+This subsection owns only the declaration. The verification is owned by `05`:
+
+- the tool-safety conformance regime (instrumented test material, shear measurement, separation detection, hard-inclusion injection);
+- the human-collaboration conformance bench (instrumented dummy-hand recipient, weight-transfer-gated release, `max_interaction_force` verification);
+- the irreversible-operation safety class (`force.cut` is the first irreversible primitive, and tool-safety sets the precedent).
+
+#### Conformance obligations (safety declaration)
+
+- **SAF1c — hazardous-tool gate.** Without a `tool_safety` declaration for its hazard class, `force.cut` is rejected at validation with no attempt.
+- **SAF2c — human gate.** Without `human_collaboration_safety`, `place.hand_to` is rejected at validation with no attempt.
+- **SAF3c — declaration completeness.** A `human_collaboration_safety` declaration carries `max_interaction_force` and `weight_transfer_threshold` defaults; a `tool_safety` declaration names a `hazard_class`.
+- **SAF4c — compliance dependency.** When `human_collaboration_safety` is declared, at least one `compliance` mode is declared.
+
+The physical safety verifications (force cap, weight-transfer-gated release, bounded cut path, hard-inclusion halt) are owned by `05-conformance.md`.
+
 ## Collision model
 
 Every motion primitive states its safety in terms of a clearance against a *static collision model* — `min_clearance(…, static_model) ≥ clearance`. This section defines what that model is, the query it must answer, and the obligations it carries. The model is not a Skill ISA capability flag: `reach.align` (a `reach`-family baseline primitive) already needs swept-volume clearance, so the full model is **mandatory** for every conformant embodiment, like the `reach` family itself.
