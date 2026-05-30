@@ -1,6 +1,6 @@
 # TactileManifold — Specification
 
-> **Status**: foundation specified (2026-05-31) — the feature-field model, the field-set discipline, the feature taxonomy, the contact-sensor descriptor, the site model, and the `TactileTarget` type. Remaining before freeze: the per-feature semantic units (proxy degradation; slip; force-events; deformation; freed-part safety; sensing-scope contracts), tracked in `02-translation-layer.md` § Open issues (Owned by `04`). The formal mathematical specification is in the white paper Appendix B; this chapter is the implementation-facing version.
+> **Status**: foundation + degradation specified (2026-05-31) — the feature-field model, the field-set discipline, the feature taxonomy, the contact-sensor descriptor, the site model, the `TactileTarget` type, and the graceful-degradation proxy discipline. Remaining before freeze: the per-feature semantic units (slip; force-events; deformation; freed-part safety; sensing-scope contracts), tracked in `02-translation-layer.md` § Open issues (Owned by `04`). The formal mathematical specification is in the white paper Appendix B; this chapter is the implementation-facing version.
 
 ## Scope
 
@@ -164,6 +164,82 @@ The `auto` spellings already carried by the Skill ISA grasp primitives are the c
 
 The conformance *test classes and regime* are owned by `05-conformance.md`; these obligations are the declarative requirements that suite checks.
 
+## Graceful degradation and the force/position proxy
+
+The Skill ISA marks `tactile_sensing` **preferred, never required** for every `grasp` mode (`01` § Category 2; `03` § Tactile sensing is preferred, never required). When the capability is undeclared — or when a `TactileTarget` clause references a feature the embodiment does not report (§ The `TactileTarget` type, satisfiability) — confirmation cannot use the manifold. Principle 5 requires the primitive to **still run**, confirming through a substitute, and never to either fail silently or report `success` without confirmation. This section defines that substitute once, at the manifold level, so it is not re-derived per primitive.
+
+### The degradation invariant
+
+A confirmation degrades along three honesty rules, in priority order:
+
+1. **Never fake.** A degraded confirmation never reports `success` on an unconfirmed contact. The empty-close case (`no_contact_confirmation`, `01` grasp failure modes) MUST be caught by the proxy as surely as by the manifold.
+2. **Never silently fail.** Absence of a feature degrades the confirmation to a lower-fidelity substitute and lowers the declared tier; it does not turn the primitive off — the capability stays declarable and passes its C1 test (`03` G4c).
+3. **Always disclose.** A degraded confirmation marks itself proxy-derived in its `evidence` and declares the lower fidelity tier, so the certification and audit loops (L4 / L8) can trace that confirmation was degraded — parallel to the `momentary_release` audit-propagation requirement (`02` / `05`).
+
+### The force/position proxy
+
+The manifold confirms *"contact achieved at sites meeting feature thresholds."* The proxy substitutes a **force/position signature** built from two embodiment-internal quantities every actuated effector already has, with no contact sensor required:
+
+- **Position convergence** — the commanded contact closed to the target's expected cross-section (the `grasp_width` derived from `target.geometry`), **not** past it. Closing *past* the cross-section to the effector's own minimum is the empty-close signature: the contact met nothing.
+- **Force rise-and-hold** — the actuator effort rose to the commanded `force_budget` and **held** it over a `confirm_window` — the resistance of an object pushing back. Free-space closure shows no such sustained resistance.
+
+```
+proxy_confirm(target, force_budget) :=
+      position_converged( grasp_width ≈ cross_section(target.geometry) ± tol )
+    ∧ force_held( actuator_effort ≥ force_budget over confirm_window )
+```
+
+The conjunction is the proxy for *"object present ∧ force closure."* Either half alone is insufficient: position alone cannot tell an object from a jam; force alone cannot tell a grasped object from a collision. This is the force/position proxy referenced throughout `01`'s grasp preconditions and named in `03` § Tactile sensing is preferred, never required.
+
+### Proxy expansions of the grasp targets
+
+Each grasp mode's `auto` `TactileTarget` (§ The `TactileTarget` type) has a deterministic proxy expansion. The manifold target and its proxy are the two confirmation paths a mode may take; which path runs is fixed at validation by the satisfiability check.
+
+| Mode | Manifold target | Proxy expansion |
+|---|---|---|
+| `grasp.pinch` | `normal_force ≥ ε` at `at_least(2, antipodal)` | `grasp_width ≈ cross_section ∧ force_held` |
+| `grasp.power` | `normal_force ≥ ε` at `at_least(⌈enclosure_completeness · N⌉, enclosure)` | enclosure `grasp_width ≈ cross_section ∧ force_held` (no per-site completeness) |
+| `grasp.tripod` | `normal_force ≥ ε` at `at_least(3, antipodal)` ∧ non-collinear | `grasp_width ≈ cross_section ∧ force_held` (non-collinearity unverifiable — tier drop) |
+| `grasp.lateral` | `normal_force ≥ ε` across clamp dim | `grasp_width ≈ thickness ∧ force_held` |
+| `grasp.platform` | `load_distribution` borne, CoM in polygon | measured borne load `≈` target weight only (CoM-in-polygon unverifiable; `01` "proxy via measured load only") |
+| `grasp.pin` | `contact == true` ∧ reaction `normal_force` | reaction `force_held` against the surface |
+
+The proxy column is *coarser* than the manifold column: it loses per-site distribution (power's completeness), arrangement (tripod's non-collinearity), and CoM placement (platform's polygon). That loss is precisely the fidelity-tier drop disclosed under § Fidelity tier.
+
+### Proxy-degradable vs. proxy-irreducible confirmations
+
+Not every confirmation has a force/position proxy. The manifold partitions confirmations:
+
+- **Proxy-degradable** — force-closure confirmation (all grasp modes above) and `sense.probe`'s contact / location / normal (a force-threshold touch needs only force sensing). These always have a proxy; a non-tactile embodiment runs them at a lower tier.
+- **Proxy-irreducible** — a confirmation that *intrinsically* needs a feature with no position/force surrogate. **Slip** (incipient relative motion needs `shear`; position cannot see motion that has not yet displaced the object) and **deformation_rate** (crush onset needs distributed deformation) are irreducible.
+
+For an irreducible guard the degradation rule is **tiered, reactive-only — never a hard reject**:
+
+- The primitive still runs (consistent with "tactile preferred, never required"); the irreducible guard degrades from *preemptive* to *reactive-only*. Without `slip`, `grasp.adjust`'s slip-recovery and the grasp envelopes' preemptive slip response cannot fire on incipient slip; they fall back to reacting to *gross* slip detected as an object-pose change (a position-observable event).
+- The result declares the lower tier and discloses the unavailable guard in `evidence` (§ Fidelity tier).
+- **Risk-acceptance lives at the certification layer, not here.** RFL does not refuse a primitive for lack of a tactile guard. The genuinely unsafe cases are gated by their *own orthogonal* hard capabilities — `tool_safety` for `force.cut`, `human_collaboration_safety` for `place.hand_to` (`03` § Safety capabilities) — independent of `tactile_sensing`. The tactile guard degrades uniformly to a tier; whether that tier is acceptable for a deployment (a fragile heavy carry without slip sensing) is the L4 decision, not an RFL-layer reject.
+
+This is what makes `in_hand.slide`'s "closed-loop slip sensing **or** a force / position proxy" (`01`) precise: slide's *displacement tracking* is proxy-degradable (position observes the slide), but its *drop-slip safety guard* is irreducible and degrades to reactive-only (gross escape detected as an orthogonal-DOF pose change, not incipient shear).
+
+### Fidelity tier and audit honesty
+
+A confirmation path carries a **fidelity tier**: `manifold` (full feature confirmation) > `proxy` (force/position substitute) > `proxy_reactive` (an irreducible guard in reactive-only fallback). The tier is recorded in the result's `evidence` (`01` § Predicates, verdicts, and three-valued control flow) and is the value an embodiment may claim through `03`'s reserved per-capability `tier` attribute. The mapping from a claimed tier to a conformance class and badge is owned by `05-conformance.md`; this chapter fixes only what each tier *means* in confirmation terms.
+
+A `proxy`-tier `Verdict` is still a confident `true` / `false` when its proxy signature is decisive (an object held at budget over the confirm window is a confident hold); it is `indeterminate` when the proxy cannot decide (a force rise that neither converged in position nor held). The three-valued honesty of `01`'s verdict model is preserved across degradation — the proxy lowers *fidelity*, never the *honesty* of the confidence report.
+
+#### Conformance obligations (degradation)
+
+- **TM5c — empty-close detection under proxy.** With `tactile_sensing` undeclared, a grasp commanded on no object returns `no_contact_confirmation` via the proxy (position closed past the cross-section), never a false `success` (`01` grasp C2, generalized).
+- **TM6c — proxy tier passes C1.** Each asserted grasp mode passes its C1 nominal-grasp-and-hold test via the proxy with `tactile_sensing` undeclared (the realization of `03` G4c — tactile independence).
+- **TM7c — disclosure.** A proxy- or reactive-tier confirmation marks its tier and the unavailable guards in `evidence`; a degraded confirmation reported at `manifold` tier is malformed.
+- **TM8c — no tactile hard-reject.** No `grasp` primitive returns `capability_absent` for absent `tactile_sensing` alone; hard rejection comes only from a primitive's own orthogonal safety capability (`tool_safety` / `human_collaboration_safety`), never from the tactile manifold.
+
+#### Deferred to other chapters
+
+- **The tier → conformance-class / badge mapping** — `05-conformance.md` (this chapter fixes tier *meaning*, not its certification weight).
+- **The canonical-action encoding of proxy monitoring** — how `retarget` emits the position-convergence and force-hold monitors into the canonical action — `02-translation-layer.md`.
+- **`tool_safety` / `human_collaboration_safety`** as the orthogonal hard gates — `03` § Safety capabilities; their conformance test benches — `05`.
+
 ## Deferred to other chapters
 
 The manifold owns the feature *definitions*. Coupled concerns are owned elsewhere and referenced, not redefined:
@@ -177,7 +253,6 @@ The manifold owns the feature *definitions*. Coupled concerns are owned elsewher
 
 The remaining items of the `04` group in `02-translation-layer.md` § Open issues, each a unit still to be written on this foundation:
 
-- Graceful-degradation **proxy** for tactile-absent force-closure confirmation
 - **Slip** feature semantics (intended-migration vs. loss-of-control; closed-loop slip sensing)
 - **Force-event** semantics (breakaway / detent; detent vs. bottoming-out) and the multi-rate **temporal-alignment** model (the chapter's second skeleton open issue)
 - **Deformation** semantics (bend / crease vs. crush)

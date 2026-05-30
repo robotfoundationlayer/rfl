@@ -91,7 +91,7 @@ These issues surfaced during `reach` / `grasp` primitive design and are now addr
 
 ### Owned by `04-tactile-manifold.md` (field set)
 
-- **Tactile-absent confirmation proxy**: a force/position proxy for "force closure achieved" when `tactile_sensing` is not declared (graceful degradation, Principle 5).
+- ~~**Tactile-absent confirmation proxy**~~ **[resolved → `04` § Graceful degradation and the force/position proxy]**: the proxy is the conjunction of position-convergence (`grasp_width ≈ target cross-section`, not past it — the empty-close guard) and force-rise-and-hold; per-grasp-mode proxy expansions are tabulated. Force-closure confirmation is proxy-degradable; slip / deformation are proxy-irreducible and degrade to reactive-only at a lower fidelity tier — never a tactile hard-reject (the orthogonal `tool_safety` / `human_collaboration_safety` capabilities own the hard gates; risk-acceptance of a tier is the L4 decision).
 - **Bend / crease indicator**: thin-object bending as a field distinct from crush/compression (`grasp.lateral`).
 - **Intended-rolling vs gross-slip discrimination**: `in_hand.roll` migrates the contact point by design, so a raw slip feature cannot be an abort trigger. Define how the manifold (plus the kinematic rolling model) distinguishes controlled rolling from loss-of-control gross slip.
 - **Intended-slip vs drop-slip discrimination + closed-loop slip sensing**: `in_hand.slide` permits intended slip along `slide_direction` but must abort on drop-slip of a securing (orthogonal) DOF — discriminated by direction. Closed-loop slip sensing is a capability requirement for `slide`; define the manifold feature and the directional discrimination.
