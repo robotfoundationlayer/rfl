@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 RFL Contributors
+
 //! Robot Foundation Layer — core specification implementation.
 //!
 //! This crate hosts the three layers of the RFL specification in Rust form:

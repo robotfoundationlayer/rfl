@@ -102,3 +102,18 @@ If you discover a security vulnerability in RFL (in the spec, reference implemen
 ## License of contributions
 
 By submitting a contribution you agree that your contribution is licensed under the Apache License 2.0, the same license that covers this repository. See [LICENSE](LICENSE).
+
+### SPDX headers required on new source files
+
+Every new Rust source file in this repository must start with these two lines:
+
+```rust
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 RFL Contributors
+```
+
+(Year stays `2026` regardless of when the file is created — the project commits to the Apache-2.0-style "year of first publication" convention. Author attribution lives in `git blame` and the workspace `authors` field, not in per-file copyright lines.)
+
+For Python files use `# SPDX-License-Identifier: Apache-2.0` instead of `//`. For shell scripts, use a `#` comment after the shebang line.
+
+Files that intentionally do not need an SPDX header: generated bindings (cbindgen output, PyO3 stubs), build artifacts, and Markdown / YAML / TOML files (the license is asserted at the repository level via `LICENSE`).

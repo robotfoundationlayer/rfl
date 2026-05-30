@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 RFL Contributors
+
 //! Driver Interface protocol types.
 //!
 //! ROS 2-compatible types and traits that an embodiment driver implementation

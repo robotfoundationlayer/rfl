@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 RFL Contributors
+
 //! `rfl` — the Robot Foundation Layer command-line interface.
 //!
 //! Subcommands:

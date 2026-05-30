@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 RFL Contributors
+
 //! Skill Instruction Set Architecture (Skill ISA).
 //!
 //! The Skill ISA defines fifty manipulation primitives organized into seven
