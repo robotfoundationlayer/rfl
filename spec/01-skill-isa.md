@@ -1,6 +1,6 @@
-# Skill ISA — Specification (v0.1 skeleton)
+# Skill ISA — Specification (v0.1)
 
-> **Status**: skeleton expanded with provisional 50-primitive enumeration and BNF refinement (2026-05-30). Per-primitive semantics, parameters, edge cases, and conformance tests are the **next design phase**; the current text fixes the surface structure that subsequent passes will fill in.
+> **Status**: per-primitive semantic design complete for all 50 primitives across all seven categories (2026-05-30). Each primitive carries the full seven-field rubric (intent, parameters, preconditions, postconditions, safety envelope, failure modes, conformance-test sketch); the Skill ISA type system and grasp state model are specified. Remaining before freeze: the cross-cutting items in § Open issues (owned by `02`–`05`), the full JSON Schema, and the normative algebra/predicate formalization. Quantitative bounds are throughout expressed relative to embodiment-declared descriptor fields (Principle 1).
 
 ## Scope
 
@@ -242,7 +242,7 @@ Any parameter typed `T | auto` may take the literal `auto`, deferring the value 
 
 ## Per-primitive semantic specification
 
-> **Status**: this section is filled category-by-category as each primitive reaches v0.1 freeze-ready text. A primitive that appears in the enumeration above but not here is still skeleton-only. The enumeration table is the index; this section is the normative semantics.
+> **Status**: complete — all 50 primitives across all seven categories carry v0.1 freeze-ready text (2026-05-30). The enumeration table is the index; this section is the normative semantics.
 >
 > Each primitive is specified through a fixed seven-field rubric: **Intent**, **Parameters**, **Preconditions**, **Postconditions**, **Safety envelope**, **Failure modes**, **Conformance test sketch**. All quantitative bounds are expressed relative to embodiment-declared descriptor fields (`embodiment.*`), never as absolute constants, in service of Principle 1 (embodiment-agnostic).
 
@@ -2700,6 +2700,242 @@ The determinism boundary from `reach.scan` / `in_hand.pivot` applies throughout:
 **Conformance test sketch.**
 - **C1 — nominal snap-in + held confirmation.** Present a bench snap-fit / clip; command `force.snap_engage(mate_feature, engage_direction, force_budget = 25 N)`. PASS iff `result == success` ∧ the snap-in event (force rise-then-drop) was detected ∧ engagement force `≤ force_budget` throughout (interval sampling) ∧ (with `confirm_held`) a retaining-load test confirmed the connection holds ∧ no over-force past the snap.
 - **C2 — mis-aligned over-force guard.** Mis-align so no snap can occur. PASS iff `result == no_snap` (or `over_force`) ∧ the engagement force never exceeded `force_budget` (the mechanism was **not** crushed seeking a snap that cannot happen) ∧ backed off to an unloaded pose.
+
+### Category 7 — `sense`
+
+`sense` primitives are the only category that does **not** change object state — their output is a measurement or a state assertion, not a manipulation. They are the dual of `force`: where `force` drives contact force to a target, `sense` *suppresses* contact force to a non-disturbing minimum. The category's defining invariant is **measurement non-disturbance** — the act of sensing must not move, deform, or otherwise alter the target beyond measurement tolerance. Sensing outputs flow to later primitives through `LetBind` (a `sense.locate` pose into a `grasp`, a `sense.verify` predicate into a `reactive` body), so the output **`Measurement`** type is as load-bearing as the input target types; it is the perception-derived *output* counterpart to the perception-derived *input* targets defined in the type system. As with `reach.scan`, RFL defines what is sensed and how the act is bounded, not the perception that interprets it.
+
+#### 7.1 `sense.probe`
+
+**Intent.** Make a single light tactile contact at a target pose to measure local surface properties (presence, contact location, normal, stiffness) — gently touching to sense, without displacing or deforming the target. The output is a measurement; no object state changes.
+
+**Parameters.**
+
+| Name | Type | Default | Units | Constraint |
+|---|---|---|---|---|
+| `controlled_frame` | `FrameRef` | `embodiment.default_tactile_frame` | — | the probing frame (fingertip / probe tip) |
+| `target_pose` | `Pose6D` | — (required) | m / rad | where to probe, in `frame` |
+| `probe_direction` | `Direction \| auto` | `auto` | — | approach direction to contact; `auto` = expected surface normal |
+| `contact_force` | `Force` | — (required) | N | the light force at which contact is registered (measurement, not actuation) |
+| `max_probe_force` | `Force \| auto` | `auto` | N | hard cap to guarantee non-disturbance; `auto` = small fraction below the target's disturb threshold |
+| `measure` | `set<{presence, location, normal, stiffness}>` | `{presence, location}` | — | what to measure on contact |
+| `compliance` | `{passive, active, auto}` | `auto` | — | compliance for a gentle, non-disturbing touch |
+| `frame` | `FrameRef` | `task` | — | reference frame |
+| `timeout` | `Duration \| auto` | `auto` | s | `> 0` |
+
+**Preconditions.**
+- `target_pose` is reachable; the approach to it (excluding the probed surface) is collision-free.
+- `embodiment` declares `sense` with `probe` support and tactile / force sensing (or proxy) sufficient for the requested `measure` set.
+- `max_probe_force` is below the target's disturbance threshold (probing must not move or deform the target — if no force low enough can register contact, the target cannot be non-disturbingly probed).
+
+**Postconditions (on `success`).**
+- The probe contacted at (or near) `target_pose` and produced a `Measurement` with the requested fields (presence true / false, contact location, surface normal, stiffness estimate).
+- **Non-disturbance:** the target's pose and shape are unchanged within measurement tolerance (the probe sensed without disturbing).
+- No grasp state changed; the embodiment retracted to a clear pose after probing.
+
+**Safety envelope (holds throughout execution — measurement non-disturbance).**
+- **Non-disturbance bound (the sense-category invariant):** the contact force never exceeds `max_probe_force`, which is held below the target's disturb threshold — the probe measures without moving or deforming the target. A force excursion that would disturb the target is an envelope violation (the opposite-direction constraint to `force`'s force budget: here force is *suppressed*, not driven).
+- Approach per `reach.approach` / `reach.to_pose` (velocity, clearance) until contact; gentle contact onset (no impact spike that would disturb).
+- On any breach (force exceeds the non-disturbance cap before a valid reading): retract; report a measurement failure rather than disturbing the target.
+
+**Failure modes (detection → invariant).**
+
+| Mode | Detection | Invariant |
+|---|---|---|
+| `capability_absent` | no `probe` / insufficient sensing for `measure` | reject; no attempt |
+| `unreachable` | IK on `target_pose` | no motion |
+| `no_contact` | no surface met at `target_pose` (within range) | report `presence = false` (a valid measurement, not a failure) |
+| `disturb_risk` | required contact force to register exceeds `max_probe_force` | retract; result ≠ `success` (cannot probe without disturbing) |
+| `unexpected_contact` | contact before `target_pose` (en-route obstacle) | retract; report |
+| `timeout` | wall clock vs `timeout` | retract to clear pose |
+
+**Conformance test sketch.**
+- **C1 — nominal probe + non-disturbance.** Probe a bench surface at a known pose; command `sense.probe(target_pose, contact_force = 0.5 N, measure = {presence, location, normal})`. PASS iff `result == success` ∧ the returned `Measurement` reports presence true with contact location and normal within measurement tolerance of ground truth ∧ the externally measured target pose was **unchanged** (non-disturbance) ∧ contact force never exceeded `max_probe_force`.
+- **C2 — presence-false is a valid result.** Probe at a pose with no surface (empty space). PASS iff `result == success` ∧ the `Measurement` reports `presence = false` (absence is a valid measurement, not an error) ∧ no force was applied into empty space chasing a non-existent surface.
+
+#### 7.2 `sense.inspect`
+
+**Intent.** Observe a target's state by non-contact sensing — placing a sensor frame at an observation pose where the target is within field of view and unoccluded, and capturing the observation. The contactless counterpart of `sense.probe`; the contract guarantees the observation was *capturable*, not its interpretation.
+
+**Parameters.**
+
+| Name | Type | Default | Units | Constraint |
+|---|---|---|---|---|
+| `sensor_frame` | `FrameRef` | `embodiment.default_sensor_frame` | — | the observing sensor frame |
+| `target` | `ObjectTarget \| SurfaceTarget \| FrameRef` | — (required) | — | what to observe |
+| `observe` | `set<{presence, pose, appearance, defect, custom}>` | `{presence, pose}` | — | what to capture (interpretation is out of RFL scope) |
+| `observation_pose` | `Pose6D \| auto` | `auto` | — | sensor pose for the observation; `auto` = a pose with the target in FOV, unoccluded, at working distance |
+| `standoff` | `Length \| auto` | `auto` | mm | sensor-to-target distance; `auto` = sensor working range |
+| `dwell` | `Duration` | `0` | s | observation integration time |
+| `frame` | `FrameRef` | `task` | — | reference frame |
+| `timeout` | `Duration \| auto` | `auto` | s | `> 0` |
+
+**Preconditions.**
+- `target` is resolvable enough to derive an `observation_pose`; `embodiment.sensors[sensor_frame]` covers the requested `observe` modalities.
+- An `observation_pose` exists that is reachable, collision-free, and places the target within FOV and unoccluded at a working distance.
+- `embodiment` declares `sense` with `inspect` support and the requisite sensor.
+
+**Postconditions (on `success`).**
+- The sensor frame reached `observation_pose` with the target in FOV and unoccluded; an observation was captured over `dwell`, producing a `Measurement` with the requested `observe` fields (and their uncertainty).
+- **Non-disturbance (trivial for contactless):** no contact was made; the target is unchanged. (The contract is purely that the observation was *capturable* — FOV, unoccluded, in range — not that any interpretation succeeded; interpretation is perception / VLA, out of scope, per `reach.scan`.)
+- No grasp / object state changed.
+
+**Safety envelope (holds throughout execution).**
+- Approach to `observation_pose` per `reach.to_pose` (velocity, clearance, no unplanned contact — inspect is contactless and must stay so).
+- **Observability guard:** the contract requires the target in FOV and unoccluded at the observation; if occlusion or out-of-range is detected, the observation is reported unobtainable rather than returning a bad reading as if valid.
+- On any breach (unexpected contact during a contactless operation, or loss of observability): retract; report.
+
+**Failure modes (detection → invariant).**
+
+| Mode | Detection | Invariant |
+|---|---|---|
+| `capability_absent` | no `inspect` / sensor lacks the `observe` modality | reject; no attempt |
+| `no_observation_pose` | no reachable pose with target in FOV, unoccluded, in range | result ≠ `success` (cannot observe) |
+| `occluded` | target occluded at the observation pose | report occlusion; result ≠ `success` (not a bad reading) |
+| `out_of_range` | target outside sensor working range | report; result ≠ `success` |
+| `unexpected_contact` | contact during the contactless approach | retract; report |
+| `timeout` | wall clock vs `timeout` | retract to clear pose |
+
+**Conformance test sketch.**
+- **C1 — nominal inspect + observability.** Observe a bench target with a marked state; command `sense.inspect(target, observe = {presence, pose})`. PASS iff `result == success` ∧ the sensor reached an `observation_pose` with the target in FOV and unoccluded (externally verified geometry) ∧ a `Measurement` was produced with the requested fields and uncertainty ∧ no contact occurred. (The *interpretation* of the observation is not scored — only that it was capturable.)
+- **C2 — occlusion reported, not faked.** Place an occluder between the sensor and the target. PASS iff `result == occluded` (or `no_observation_pose`) ∧ the primitive reported the target unobservable rather than returning a confident `Measurement` from an occluded view.
+
+#### 7.3 `sense.weigh`
+
+**Intent.** Estimate the mass (and optionally the center of mass) of a held object from the force/torque reaction the end-effector measures while supporting or moving it — a held-object measurement that produces the `estimated_mass` other categories consume. The only `sense` primitive that requires a held object.
+
+**Parameters.**
+
+| Name | Type | Default | Units | Constraint |
+|---|---|---|---|---|
+| `grasp_handle` | `GraspRef \| active` | `active` | — | the grasp holding the object to weigh |
+| `method` | `{static, dynamic, auto}` | `auto` | — | `static` = support against gravity (`F = mg`); `dynamic` = known acceleration (`F = ma`) |
+| `measure` | `set<{mass, center_of_mass}>` | `{mass}` | — | what to estimate (CoM needs multiple poses) |
+| `up_direction` | `Direction` | `−gravity` | — | gravity reference for the static method (declared, not assumed) |
+| `settle_time` | `Duration \| auto` | `auto` | s | time to let force readings settle before sampling |
+| `frame` | `FrameRef` | `task` | — | reference frame |
+| `timeout` | `Duration \| auto` | `auto` | s | `> 0` |
+
+**Preconditions.**
+- `grasp_handle` resolves to a `held` `GraspState` (there is an object to weigh).
+- `embodiment` declares `sense` with `weigh` support and force/torque sensing (or a proxy) sufficient to resolve the expected mass range.
+- For `dynamic`: a small measurement motion within the grasp's dynamic-stability limit is feasible (the object can be accelerated without slipping).
+
+**Postconditions (on `success`).**
+- A `Measurement` reports the object's `mass` (and `center_of_mass` if requested), with uncertainty, from the measured force/torque reaction.
+- **Non-disturbance:** the grasp and the object are unchanged — the measurement motion (if any) did not slip the grasp, deform the object, or change `GraspState`. The object's `ObjectTarget.estimated_mass` may now be populated from measurement (feeding `grasp` / `transport` / `place`).
+- `GraspState` remains `held`.
+
+**Safety envelope (holds throughout execution).**
+- **Grasp continuity during measurement:** any measurement motion (`dynamic` acceleration, or support) stays within the grasp's dynamic-stability limit — the object never slips while being weighed (a slip both corrupts the reading and risks dropping the object).
+- **Measurement-motion non-disturbance:** the motion used to weigh is bounded so it does not deform a fragile object or exceed the grasp's holding capacity; the object is held throughout.
+- For `static`: the support force is held steady (settle) before sampling, so the reading reflects `mg`, not transient dynamics.
+- On any breach (grasp slip, instability): arrest, keep the object held, report a measurement failure rather than dropping it.
+
+**Failure modes (detection → invariant).**
+
+| Mode | Detection | Invariant |
+|---|---|---|
+| `no_active_grasp` | `grasp_handle` not `held` | reject (nothing to weigh) |
+| `capability_absent` | no `weigh` / insufficient force-torque sensing | reject; no attempt |
+| `out_of_sensing_range` | mass below / above resolvable range | report; result ≠ `success` (cannot resolve) |
+| `grasp_slip_during_measure` | object slipped while weighing | arrest; keep held; result ≠ `success` |
+| `unsettled` | (`static`) reading did not settle within `settle_time` | extend / report; result ≠ `success` |
+| `timeout` | wall clock vs `timeout` | arrest, object kept held |
+
+**Conformance test sketch.**
+- **C1 — nominal weigh + accuracy.** Grasp a bench object of known mass; command `sense.weigh(method = static, measure = {mass})`. PASS iff `result == success` ∧ the returned `Measurement.mass` is within stated uncertainty of the true mass ∧ the grasp did not slip (object held throughout) ∧ no object deformation ∧ `GraspState` unchanged.
+- **C2 — slip-during-measure safety.** Force a marginal grasp so a `dynamic` measurement motion induces slip. PASS iff `result == grasp_slip_during_measure` ∧ the object was **kept held** (arrested, not dropped) ∧ no false mass reading reported as valid.
+
+#### 7.4 `sense.locate`
+
+**Intent.** Estimate the pose of a referenced object — by visual, tactile, or fused sensing — producing a pose with uncertainty that subsequent primitives consume to satisfy their target-resolution preconditions. The most common entry point of a manipulation (the canonical `LetBind` source).
+
+**Parameters.**
+
+| Name | Type | Default | Units | Constraint |
+|---|---|---|---|---|
+| `target_ref` | `ObjectRef \| FeatureRef` | — (required) | — | what to locate (an object identity / feature to estimate the pose of) |
+| `modality` | `{visual, tactile, fused, auto}` | `auto` | — | sensing modality; `auto` = best available for the required precision |
+| `required_precision` | `Length \| auto` | `auto` | mm | the pose precision the result must achieve; `auto` = embodiment default |
+| `search_region` | `Region \| auto` | `auto` | — | where to look; `auto` = the expected vicinity |
+| `frame` | `FrameRef` | `task` | — | reference frame for the returned pose |
+| `timeout` | `Duration \| auto` | `auto` | s | `> 0` |
+
+**Preconditions.**
+- `target_ref` denotes a locatable object / feature; `embodiment` declares `sense` with `locate` support and a modality able to meet `required_precision`.
+- For `tactile` / `fused`: contact used for localization stays non-disturbing (per `sense.probe`'s non-disturbance bound).
+
+**Postconditions (on `success`).**
+- A `Measurement` reports the target's `pose` in `frame` with an `uncertainty` `≤ required_precision`.
+- **Non-disturbance:** the target was not moved by the localization (contactless modalities trivially; tactile localization stays within the probe non-disturbance bound).
+- The returned pose + uncertainty is suitable for `LetBind` into a subsequent primitive, whose target-resolution precondition (`uncertainty ≤ its bound`) is checked against this result.
+
+**Safety envelope (holds throughout execution).**
+- Non-disturbance (per the `sense` invariant): any contact used for tactile localization stays below the target's disturb threshold; contactless localization makes no contact.
+- Approach / observation motion per `reach` (velocity, clearance, no unplanned contact).
+- **Precision honesty:** if the achieved precision cannot meet `required_precision`, the result reports the lower precision (or fails) rather than overstating confidence — a pose is never returned with an uncertainty better than measured.
+- On any breach: retract; report.
+
+**Failure modes (detection → invariant).**
+
+| Mode | Detection | Invariant |
+|---|---|---|
+| `capability_absent` | no `locate` / no modality meeting `required_precision` | reject; no attempt |
+| `not_found` | `target_ref` not located in `search_region` | result ≠ `success` (target not found — a definite negative, honestly reported) |
+| `precision_unmet` | located but achievable uncertainty > `required_precision` | report the located pose with its true (larger) uncertainty; result flagged (do not overstate) |
+| `occluded` / `out_of_range` | (visual) target not observable | report; result ≠ `success` |
+| `disturb_risk` | (tactile) localization would disturb the target | retract; result ≠ `success` |
+| `timeout` | wall clock vs `timeout` | retract; report |
+
+**Conformance test sketch.**
+- **C1 — nominal locate + precision.** Present a bench object at a known pose; command `sense.locate(target_ref, required_precision = 1 mm)`. PASS iff `result == success` ∧ the returned `Measurement.pose` is within `required_precision` of ground truth ∧ the reported `uncertainty ≤ required_precision` ∧ the target was not disturbed ∧ the result is `LetBind`-usable (its uncertainty satisfies a downstream grasp's bound).
+- **C2 — precision honesty.** Present the object under degraded sensing (poor lighting / partial occlusion) so the true uncertainty exceeds `required_precision`. PASS iff the result either fails (`precision_unmet`) or returns the pose with its **true, larger uncertainty** — never a pose stamped with a confident `uncertainty` it did not achieve.
+
+#### 7.5 `sense.verify`
+
+**Intent.** Check whether a stated predicate about an external state holds — "is the connector seated?", "is the bin empty?", "is the part present and correctly oriented?" — returning a boolean with confidence and supporting evidence. The `sense` implementation of the algebra's `Predicate`, driving `reactive` / `branch` control flow.
+
+**Parameters.**
+
+| Name | Type | Default | Units | Constraint |
+|---|---|---|---|---|
+| `predicate` | `StatePredicate` | — (required) | — | the condition to check (a caller-defined criterion over observable state) |
+| `evidence_modalities` | `set<{visual, tactile, force, proprioceptive}>` | `auto` | — | which observations to use; `auto` = those sufficient for the predicate |
+| `confidence_threshold` | `Ratio` | `auto` | — | min confidence to assert true / false rather than `indeterminate` |
+| `frame` | `FrameRef` | `task` | — | reference frame |
+| `timeout` | `Duration \| auto` | `auto` | s | `> 0` |
+
+**Preconditions.**
+- `predicate` is a resolvable criterion over state RFL can observe (the *criterion* is caller-defined; RFL observes, the caller defines what counts as true — perception-scope boundary).
+- `embodiment` declares `sense` with `verify` support and the sensing for `evidence_modalities`.
+- Any contact-based evidence stays non-disturbing (per the `sense` invariant).
+
+**Postconditions (on `success`).**
+- A `Measurement` reports the predicate's truth value (`true` / `false` / `indeterminate`), a `confidence`, and the `evidence` (which observations supported the verdict).
+- The verdict is `true` / `false` only when `confidence ≥ confidence_threshold`; otherwise `indeterminate` (RFL does not assert a predicate it cannot support — honesty over a forced answer).
+- **Non-disturbance:** verification did not alter the state being checked.
+- The verdict is usable as an algebra `Predicate` (in `reactive` / `branch`) and as a `force.scrub` `state_change` completion.
+
+**Safety envelope (holds throughout execution).**
+- Non-disturbance per the `sense` invariant (any probing evidence stays below the disturb threshold; the act of verifying does not change the verified state).
+- Observation motion per `reach` (velocity, clearance).
+- **Verdict honesty:** the predicate is asserted `true` / `false` only above `confidence_threshold`; below it, `indeterminate` is returned with the evidence — never a forced boolean. Safety-critical verifications (e.g. "is the fastener torqued?") carry their `evidence` for audit (the L4 Certification / L8 Insurance loops consume it).
+- On any breach: report `indeterminate` with whatever evidence was gathered, rather than a confident wrong answer.
+
+**Failure modes (detection → invariant).**
+
+| Mode | Detection | Invariant |
+|---|---|---|
+| `capability_absent` | no `verify` / sensing for `evidence_modalities` | reject; no attempt |
+| `predicate_unresolvable` | the predicate is not a criterion over observable state | reject (out of scope — not a sensing failure) |
+| `indeterminate` | confidence < `confidence_threshold` | report `indeterminate` + evidence (a valid, honest outcome — not a crash) |
+| `disturb_risk` | (contact evidence) verifying would disturb the state | use a contactless modality, or report `indeterminate` |
+| `timeout` | wall clock vs `timeout` | report `indeterminate` + partial evidence |
+
+**Conformance test sketch.**
+- **C1 — nominal verify + evidence.** Set up a bench state with a known truth (e.g. a connector definitely seated); command `sense.verify(predicate = seated)`. PASS iff `result == success` ∧ the verdict matches ground truth (`true`) ∧ `confidence ≥ confidence_threshold` ∧ the `evidence` is present and consistent with the verdict ∧ the state was not disturbed.
+- **C2 — indeterminate honesty.** Set up an ambiguous state (evidence insufficient to decide). PASS iff `result` is `indeterminate` (not a forced `true` / `false`) ∧ the evidence and (sub-threshold) confidence are reported — the primitive does not fabricate a confident verdict it cannot support.
 
 ## Open issues for v0.1 freeze
 
