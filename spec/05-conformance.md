@@ -1,6 +1,6 @@
 # Conformance — Specification
 
-> **Status**: in progress (2026-05-31) — the four test classes, the three-tier regime, and the envelope-class taxonomy (terminal-postcondition / interval-invariant / grasp-continuity / force-torque-trajectory) are specified. Remaining before freeze: the verification units (closure / stability / composition; reversibility + irreversible-operation safety; hazardous-operation benches; audit propagation; the determinism floor + fidelity-tier → badge + trademark gate), tracked in `02-translation-layer.md` § Open issues (Owned by `05`).
+> **Status**: in progress (2026-05-31) — the four test classes, the three-tier regime, and the envelope-class taxonomy (terminal-postcondition / interval-invariant / grasp-continuity / force-torque-trajectory) are specified. Remaining before freeze: the verification units (reversibility + irreversible-operation safety; hazardous-operation benches; audit propagation; the determinism floor + fidelity-tier → badge + trademark gate), tracked in `02-translation-layer.md` § Open issues (Owned by `05`).
 
 ## Scope
 
@@ -115,6 +115,42 @@ This is an explicit, bounded **subclass** of the grasp-continuity class, distinc
 - **The force trace and slip classification** the verification reads — `04-tactile-manifold.md`.
 - **The `momentary_release` audit propagation** a flip raises — § Audit and transparency (later unit).
 - **The inter-robot handoff coordination protocol** (two-party determinism) — `02-translation-layer.md`.
+
+## Closure, stability, and composition verification
+
+Where the grasp-continuity modes verify a held state *over time*, this unit verifies a grasp's **static** properties — the geometry that makes a closure what it claims to be, the safe state a closure type demands, and the legality of a primitive *sequence* given a grasp's stability class. These are structural checks, decidable from the grasp's `StabilityMetadata` (`01`) without a time trace.
+
+### Non-degenerate tripod
+
+`grasp.precision_tripod` claims `rotation_constrained` (`01` `StabilityMetadata.flags`) — it resists rotation about the grasp axis that a two-point pinch cannot — but only if its three contacts are genuinely spread. Three near-collinear contacts form a line, not a triangle, and provide no rotation resistance. The suite confirms a tripod only when its three contacts form a **non-collinear triangle above a minimum-area threshold** (relative to the object's cross-section); a near-collinear triple is not reported as a successful tripod, because the claimed rotation constraint would be absent.
+
+### Support-grasp safe state
+
+A `support`-closure grasp (`grasp.platform`, `balance_held`) holds a balanced object by resting it over a support polygon — it **cannot be released by opening**, because opening drops a balanced object. Its safe / abort state is therefore special: **a controlled lowering to the nearest surface, minimizing fall height**, never an open-release. The suite verifies that a support grasp's safe response is this controlled set-down (gated by the supported-state predicate, `01`), distinct from the open-and-withdraw safe state of a force-closure grasp.
+
+### Composition validity by stability class
+
+The lifecycle transition table (`01` § Grasp state model) fixes which state transitions are legal; this unit adds the full **stability-class → permitted-successor** table — a static composition check that rejects an illegal sequence at validation, the mechanically-checkable basis of composition conformance (test class 1 + the `01` composition-validity algebra).
+
+| Stability property | Forbidden successor | Reason |
+|---|---|---|
+| `surface_bound` (pin) | free `transport.*` | the grasp is invalid if the supporting surface is lost (`transport_inadmissible`) |
+| `form_held` DOF *d* | an `in_hand.*` that moves *d* | only `friction_held` DOF are movable (`*_inadmissible`) |
+| `rotation_constrained` (tripod) | `in_hand.rotate` about the constrained axis | the rotation is resisted by form, not free |
+| `support` / `balance_held` | free `transport.*`; release-by-opening | a balanced object is not freely transportable and cannot be open-released |
+
+The table is the conformance complement of the `01` DOF-admissibility rule: `01` states the rule per primitive (`rotation_inadmissible`, `translation_inadmissible`, …); `05` enumerates it as a successor table the suite checks across a composed plan.
+
+### Conformance obligations (stability and composition)
+
+- **STB1 — non-degenerate tripod.** A `grasp.precision_tripod` is confirmed only when its three contacts form a non-collinear triangle above the minimum-area threshold; a near-collinear triple is not reported as a successful tripod.
+- **STB2 — support safe state.** A `support` / `balance_held` grasp's abort / safe response is a controlled lowering to the nearest surface minimizing fall height, never an open-release.
+- **STB3 — stability-class composition.** The suite enforces the stability-class → permitted-successor table — `surface_bound` forbids free transport; a `form_held` / `rotation_constrained` DOF forbids the corresponding `in_hand` operation; `support` closure forbids free transport and open-release — as a static validation atop the `01` lifecycle transition table.
+
+### Deferred and referenced
+
+- **`StabilityMetadata`** (`closure`, `secured_dof`, `flags`), the **lifecycle transition table**, the **DOF-admissibility rule**, and the **supported-state predicate** these checks read — `01-skill-isa.md` § Grasp state model and § World-state model.
+- **The composed-plan algebra** (where the successor table is evaluated) — `01-skill-isa.md` § Composition validity.
 
 ## Three-tier conformance regime
 
