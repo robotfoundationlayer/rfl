@@ -1,6 +1,6 @@
 # TactileManifold — Specification
 
-> **Status**: foundation + degradation + slip + force-events specified (2026-05-31) — the feature-field model, the field-set discipline, the feature taxonomy, the contact-sensor descriptor, the site model, the `TactileTarget` type, the graceful-degradation proxy discipline, the slip discrimination model, and the breakaway / detent force-event detection with its temporal-alignment timebase. Remaining before freeze: the per-feature semantic units (deformation; freed-part safety; sensing-scope contracts), tracked in `02-translation-layer.md` § Open issues (Owned by `04`). The formal mathematical specification is in the white paper Appendix B; this chapter is the implementation-facing version.
+> **Status**: foundation + degradation + slip + force-events + deformation specified (2026-05-31) — the feature-field model, the field-set discipline, the feature taxonomy, the contact-sensor descriptor, the site model, the `TactileTarget` type, the graceful-degradation proxy discipline, the slip discrimination model, the breakaway / detent force-event detection with its temporal-alignment timebase, and the crush / bend deformation discrimination. Remaining before freeze: the per-feature semantic units (freed-part safety; sensing-scope contracts), tracked in `02-translation-layer.md` § Open issues (Owned by `04`). The formal mathematical specification is in the white paper Appendix B; this chapter is the implementation-facing version.
 
 ## Scope
 
@@ -371,6 +371,58 @@ This resolves the chapter's multi-rate temporal-alignment open issue.
 - **The force-trajectory envelope test class** (interval-sampled effort / torque bounding) and event-fixture reproducibility — `05-conformance.md`.
 - **Freed-part handling** at a breakaway that frees a part — § Freed-part handling (next unit).
 
+## Deformation — crush and bend
+
+A contact that confirms a grasp can also *deform* the object it holds. Two shape-change features in the taxonomy guard against it, and they are geometrically distinct: `deformation_rate` (crush — bulk compression in place) and `bending` (flexure about a crease line). Conflating them mishandles thin objects, whose failure mode is bending, not crushing. This section defines the two and their discrimination, backing `grasp.lateral`'s bend protection and the general crush guard.
+
+### The two shape-change features
+
+`deformation_rate` (§ Feature taxonomy) is the rate of **bulk compression** under contact — the object squashing in place as normal force rises. It is the crush indicator behind every grasp mode's crush protection (`01` safety envelopes; the `crush_abort` failure mode).
+
+`BendState` is the manifold-local type promised in § Feature taxonomy:
+
+```
+BendState := {
+  flexing:     bool,              # bending detected (vs. none)
+  crease_axis: Direction | None,  # the line the object bends about, in the tactile frame
+  curvature:   Curvature,         # bend severity (1/m); 0 when not flexing
+}
+```
+
+(`Curvature`, 1/m, is one of the manifold's added SI quantities, § Feature taxonomy.)
+
+### Crush vs. bend discrimination
+
+The two are different deformations and need different aborts:
+
+| Feature | Geometry | Contact signature | Backs |
+|---|---|---|---|
+| `deformation_rate` (crush) | bulk compression, in place | **symmetric** normal-pressure rise across the contact | general fragility / `crush_abort` |
+| `bending` (bend / crease) | flexure about a crease line | **pressure gradient / curvature** across the face — one edge loads as the object curls | `grasp.lateral` `bend_abort` |
+
+The discriminator is the **distribution shape**: a uniform compression across the contact is crush; a pressure gradient that shows the object curling about a `crease_axis` is bending. A distributed or visuotactile sensor resolves the gradient; a single load cell sees only an aggregate force and cannot tell the two apart (the irreducibility below). This is the precise content of `grasp.lateral`'s "if the tactile manifold reports a bending indicator, abort before exceeding it" (`01`): thin objects clamped across their thin dimension bend before they crush, so the bend indicator — not the clamp force alone — is the guard.
+
+### Degradation
+
+Both shape indicators are **proxy-irreducible** (§ Proxy-degradable vs. proxy-irreducible confirmations) — a force/position proxy has no surrogate for a deformation *shape*. The degradation splits the guard in two:
+
+- The **declared-limit** half stays proxy-available: a `target` that declares a fragility (`max_contact_force`) or a bend limit (`01` `ObjectTarget`) is protected by clamping the force budget to that limit — a force threshold the proxy enforces without a contact sensor.
+- The **shape-indicator** half is irreducible: without the feature, the manifold cannot see crush onset or curling before the declared limit is reached. It degrades to reactive-only at the disclosed tier — protection falls back to the declared force / geometry limit alone, with the shape early-warning unavailable.
+
+A non-tactile embodiment therefore still refuses to exceed a declared `max_contact_force`, but loses the manifold's "stop because the object is starting to deform" early warning — the loss disclosed in `evidence` per § Fidelity tier and audit honesty.
+
+#### Conformance obligations (deformation)
+
+- **TM17c — crush vs. bend.** `deformation_rate` (symmetric bulk compression) and `BendState` (curvature about a `crease_axis`) are distinct features; a bend is not reported as crush, nor crush as a bend.
+- **TM18c — bend from distribution.** `BendState` reports `flexing`, `crease_axis`, and `curvature` from a pressure-gradient / distributed signal; a single-site sensor that cannot resolve the gradient reports bending unavailable (it degrades) rather than guessing.
+- **TM19c — deformation degradation.** With the shape-indicator feature absent, the declared-limit guard (force clamped to `max_contact_force` / a declared bend limit) still runs via the force proxy, while the rate / curvature early-warning degrades to reactive-only at the disclosed tier.
+
+#### Deferred to other chapters
+
+- **The declared fragility / bend limit** as `ObjectTarget` properties (`max_contact_force` and a bend limit), and the `crush_abort` / `bend_abort` failure modes with their abort-and-release safety invariant — `01-skill-isa.md`.
+- **The canonical-action encoding** of the deformation monitor — `02-translation-layer.md`.
+- **The conformance test material** (instrumented deformable / thin specimens) that exercises crush and bend — `05-conformance.md`.
+
 ## Deferred to other chapters
 
 The manifold owns the feature *definitions*. Coupled concerns are owned elsewhere and referenced, not redefined:
@@ -384,6 +436,5 @@ The manifold owns the feature *definitions*. Coupled concerns are owned elsewher
 
 The remaining items of the `04` group in `02-translation-layer.md` § Open issues, each a unit still to be written on this foundation:
 
-- **Deformation** semantics (bend / crease vs. crush)
 - **Freed-part** safety handling at constraint-release
 - The two **sensing-scope contracts** (measurement non-disturbance; observation-capturability)
