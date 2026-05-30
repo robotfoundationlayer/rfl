@@ -198,6 +198,7 @@ Duration        ::= Number ("ms" | "s")
 | `Angle` | rad | geodesic where applied to SO(3) |
 | `Force` | N | |
 | `Velocity` | m/s | |
+| `Acceleration` | m/s² | |
 | `AngularVelocity` | rad/s | |
 | `Duration` | s | |
 | `Ratio` | dimensionless | `[0,1]` unless stated |
@@ -1536,6 +1537,330 @@ Downstream primitives consume this: `transport` reads `secured_dof` / `flags` to
 **Conformance test sketch.**
 - **C1 — nominal flip + bounded window.** Establish a grasp on a bench object requiring a 180° flip; command `in_hand.flip(flip_axis, angle = 180°, max_release_time, safe_drop_zone)`. PASS iff `result == success` ∧ re-caught and re-secured with reorientation within tolerance ∧ the measured unsecured window `≤ max_release_time` ∧ re-catch occurred within `catch_envelope` ∧ the result declares `momentary_release = true`.
 - **C2 — recatch failure → safe drop.** Force a re-catch failure (perturb the toss). PASS iff `result == recatch_failed` ∧ the object landed **within `safe_drop_zone`** (controlled failure, no hazard outside the zone) ∧ no attempt was made without a safe drop zone in the first place.
+
+### Category 4 — `transport`
+
+`transport` primitives relocate a **held** object through space, preserving the grasp throughout (`held → held`). They are the held-object counterparts of `reach`: where `reach` moves an effector through free space, `transport` moves an effector *plus its grasped load*. The defining new safety axis is **dynamic grasp stability** — under acceleration the object's inertial load must not exceed the grasp's holding capacity, or the object slips in (or escapes) the grasp. Every `transport` primitive therefore reads the grasp's stability metadata (`secured_dof`, `closure`, `flags`) to clamp acceleration: `power` grasps tolerate aggressive motion, `platform`/`support` grasps require level-keeping and a tip-over margin, `hook`/directional grasps bound acceleration off the stable directions, and `surface_bound` (`pin`) grasps are not freely transportable at all. The static hold test that validated a grasp at rest is necessary but not sufficient here; transport adds the dynamic condition.
+
+#### 4.1 `transport.move_to_pose`
+
+**Intent.** Move a held object to an absolute target pose in a reference frame, terminating at rest, keeping the grasp secured against inertial loads throughout — the held-object counterpart of `reach.to_pose`.
+
+**Parameters.**
+
+| Name | Type | Default | Units | Constraint |
+|---|---|---|---|---|
+| `grasp_handle` | `GraspRef \| active` | `active` | — | the grasp whose held object is transported |
+| `target_pose` | `Pose6D` | — (required) | m / rad | pose of the **held object** (not the effector) in `frame` |
+| `frame` | `FrameRef` | `task` | — | calibrated reference frame |
+| `position_tolerance` | `Length` | `2` | mm | `> 0` |
+| `orientation_tolerance` | `Angle` | `2` | deg | `> 0`; geodesic |
+| `max_velocity` | `Velocity \| auto` | `auto` | m/s | clamped to `embodiment.limits.v_cartesian_max` |
+| `max_acceleration` | `Acceleration \| auto` | `auto` | m/s² | **clamped to the grasp's dynamic-stability limit** (derived from stability metadata) |
+| `clearance` | `Length` | `0` | mm | `≥ 0`; margin for the **swept volume of the object + effector** |
+| `contact_response` | `{abort, stop, comply}` | `abort` | — | reaction to unplanned contact of object or effector |
+| `timeout` | `Duration \| auto` | `auto` | s | `> 0` |
+
+**Preconditions.**
+- `grasp_handle` resolves to a `held` `GraspState`.
+- **Transport admissible under stability flags:** the grasp is freely transportable — `surface_bound` grasps (`pin`) are **rejected** (`transport_inadmissible`); `support` grasps (`platform`) require the level-keeping / tip-over constraints below.
+- `target_pose` (of the object) admits ≥ 1 IK solution for the held object + grasp configuration.
+- The swept volume of object + effector to `target_pose`, inflated by `clearance`, is collision-free against the static model.
+- `embodiment` declares `transport` capability.
+
+**Postconditions (on `success`).**
+- The held object's pose in `frame` is within `(position_tolerance, orientation_tolerance)` of `target_pose`; embodiment + object at rest.
+- **Grasp preserved (held → held):** `mode`, `closure`, stability metadata unchanged; the object did not slip in the grasp beyond `position_tolerance` relative to the grasp frame.
+- No unplanned contact was formed.
+
+**Safety envelope (holds throughout execution).**
+- **Dynamic grasp stability (the new axis):** the inertial load on the grasp (`mass · acceleration` + gravity, resolved against `secured_dof`) never exceeds the grasp's holding capacity — i.e. `inertial_load ≤ grasp_holding_capacity` with margin. `max_acceleration` is clamped so this holds. Exceeding it risks in-grasp slip and is an envelope violation.
+- For `support` / `platform` grasps: the support stays level within tolerance and the object's CoM stays inside the support polygon under acceleration (tip-over guard); acceleration is further clamped to the tip-over margin.
+- For `hook` / directional grasps: acceleration along non-`stable_directions` is bounded so the load does not disengage the grasp.
+- `‖velocity‖ ≤ min(max_velocity, embodiment.limits.v_cartesian_max)`; `min_clearance(object ∪ effector, static_model) ≥ clearance`.
+- `external_force` (object or effector) `≤ contact_abort_threshold`; a breach triggers `contact_response`.
+- On any breach: decelerate to rest within `embodiment.limits.stop_time`, keeping the object secured (never drop to "recover").
+
+**Failure modes (detection → invariant).**
+
+| Mode | Detection | Invariant |
+|---|---|---|
+| `no_active_grasp` | `grasp_handle` not `held` | reject; no attempt |
+| `transport_inadmissible` | `surface_bound` (pin) grasp | reject; no attempt (use regrasp first) |
+| `unreachable` | IK on object `target_pose` | no motion |
+| `no_collision_free_path` | swept-volume (object + effector) blocked | no motion past the last safe config |
+| `in_grasp_slip` | object slipped in grasp beyond tolerance (dynamic-stability breach) | decelerate; re-secure; result ≠ `success` |
+| `tip_over_risk` | (support) CoM approached the polygon edge under acceleration | reduce acceleration / abort to safe state |
+| `unexpected_contact` | object / effector external force > threshold | react per `contact_response` |
+| `pose_not_reached` | object pose vs tolerance | MUST NOT report `success` |
+| `timeout` | wall clock vs `timeout` | decelerate to rest, object secured |
+
+**Conformance test sketch.**
+- **C1 — nominal transport + grasp retention.** Establish a force-closure grasp on a bench object, command `transport.move_to_pose(target_pose = P)`. PASS iff `result == success` ∧ externally measured **object** pose within tolerance of `P` ∧ at rest ∧ the object did not slip in the grasp beyond `position_tolerance` (measured grasp-frame-relative pose unchanged) ∧ no telemetry sample exceeded the dynamic-stability acceleration clamp.
+- **C2 — surface-bound rejection.** Establish a `pin` grasp; command `transport.move_to_pose`. PASS iff `result == transport_inadmissible` (the surface-bound grasp is not freely transportable) ∧ no motion attempted ∧ grasp preserved.
+
+#### 4.2 `transport.follow_trajectory`
+
+**Intent.** Transport a held object so that it tracks a caller-specified parameterized trajectory through the workspace, within a tracking tolerance, keeping the grasp secured against inertial loads throughout. Where `transport.move_to_pose` delegates the path to the planner, `follow_trajectory` lets the caller own the path (replaying a learned policy, a taught motion, or a required shape).
+
+**Parameters.**
+
+| Name | Type | Default | Units | Constraint |
+|---|---|---|---|---|
+| `grasp_handle` | `GraspRef \| active` | `active` | — | the grasp whose held object is transported |
+| `trajectory` | `Trajectory` | — (required) | — | parameterized path of the **held object** in `frame` (waypoints / spline + timing) |
+| `frame` | `FrameRef` | `task` | — | calibrated reference frame |
+| `tracking_tolerance` | `Length` | `3` | mm | `> 0`; max deviation of the object from the path |
+| `orientation_tolerance` | `Angle` | `2` | deg | `> 0`; along the path |
+| `timing_mode` | `{strict, time_scalable}` | `time_scalable` | — | whether the trajectory's timing may be slowed to respect dynamic stability |
+| `max_velocity` | `Velocity \| auto` | `auto` | m/s | clamped to `embodiment.limits.v_cartesian_max` |
+| `max_acceleration` | `Acceleration \| auto` | `auto` | m/s² | clamped to the grasp's dynamic-stability limit |
+| `clearance` | `Length` | `0` | mm | `≥ 0`; for the swept volume of object + effector along the path |
+| `contact_response` | `{abort, stop, comply}` | `abort` | — | reaction to unplanned contact |
+| `timeout` | `Duration \| auto` | `auto` | s | `> 0` |
+
+**Preconditions.**
+- `grasp_handle` resolves to a `held` `GraspState`; transport admissible (not `surface_bound`).
+- Every point of `trajectory` admits ≥ 1 IK solution for the object + grasp; the whole path's swept volume is collision-free at `clearance`.
+- **Dynamic feasibility:** the trajectory's curvature-and-speed profile is within the grasp's dynamic-stability limit — OR `timing_mode = time_scalable`, permitting the timing to be slowed (path shape preserved) until it is. A `strict` trajectory exceeding the limit is rejected.
+- `embodiment` declares `transport` with `follow_trajectory` support.
+
+**Postconditions (on `success`).**
+- The held object tracked `trajectory` within `(tracking_tolerance, orientation_tolerance)` at every point; ends at rest at the trajectory's final pose.
+- **Grasp preserved (held → held):** identity and stability metadata unchanged; no in-grasp slip beyond tolerance.
+- If timing was scaled (`time_scalable`), the achieved timing is reported; path shape was preserved.
+
+**Safety envelope (holds throughout execution).**
+- **Dynamic grasp stability along the path:** at every point the inertial load (centripetal from curvature × speed, plus tangential acceleration, plus gravity, resolved against `secured_dof`) `≤ grasp_holding_capacity`. `time_scalable` slows timing to maintain this; `strict` would have been rejected at precondition.
+- **Tracking bound:** object deviation from the path `≤ tracking_tolerance` throughout; exceeding it is an envelope violation (the object is not where the caller required).
+- Support / directional grasp constraints as in `move_to_pose` (tip-over margin, off-stable-direction bound), evaluated continuously along the path.
+- `‖velocity‖ ≤ caps`; `min_clearance(object ∪ effector, static_model) ≥ clearance`; `external_force ≤ threshold → contact_response`.
+- On any breach: decelerate to rest on or near the path within `embodiment.limits.stop_time`, object secured.
+
+**Failure modes (detection → invariant).**
+
+| Mode | Detection | Invariant |
+|---|---|---|
+| `no_active_grasp` / `transport_inadmissible` | not `held` / `surface_bound` | reject; no attempt |
+| `unreachable` | some trajectory point has no IK | no motion (reject whole path) |
+| `no_collision_free_path` | swept volume blocked along the path | no motion past the last safe config |
+| `dynamically_infeasible` | `strict` timing exceeds the dynamic-stability limit | reject; recommend `time_scalable` |
+| `tracking_exceeded` | object deviation > `tracking_tolerance` mid-path | decelerate; result ≠ `success` |
+| `in_grasp_slip` | dynamic-stability breach (slip) | decelerate; re-secure; result ≠ `success` |
+| `tip_over_risk` | (support) CoM near polygon edge along the path | reduce speed / abort |
+| `unexpected_contact` | object / effector force > threshold | react per `contact_response` |
+| `timeout` | wall clock vs `timeout` | decelerate to rest, object secured |
+
+**Conformance test sketch.**
+- **C1 — nominal tracking + dynamic stability.** Establish a force-closure grasp; command `transport.follow_trajectory` along a bench-defined curved path. PASS iff `result == success` ∧ the externally measured object trajectory stayed within `tracking_tolerance` of the path at every sampled point (interval sampling) ∧ no in-grasp slip beyond tolerance ∧ no sample exceeded the dynamic-stability acceleration clamp ∧ ends at rest at the final pose.
+- **C2 — time-scaling vs strict.** Submit a trajectory whose timing exceeds the dynamic-stability limit. PASS iff (`time_scalable`) the path shape is tracked within tolerance at a reported slower timing, OR (`strict`) `result == dynamically_infeasible` with no motion — never a tracked path with an in-grasp slip.
+
+#### 4.3 `transport.handoff`
+
+**Intent.** Transfer a held object from the current grasp to a partner effector's grasp — bimanual (two effectors of one embodiment) or inter-robot (two embodiments) — using make-before-break so the object is continuously secured by at least one party throughout. The two-party counterpart of `in_hand.regrasp`.
+
+**Parameters.** (Held → manipulated → held, with ownership transferred to a partner.)
+
+| Name | Type | Default | Units | Constraint |
+|---|---|---|---|---|
+| `grasp_handle` | `GraspRef \| active` | `active` | — | the giver's current grasp |
+| `receiver` | `EffectorRef` | — (required) | — | the partner effector (a control frame on the same or another embodiment) |
+| `receiver_mode` | `GraspMode \| auto` | `auto` | — | the grasp the receiver should form; `auto` = planner-derived |
+| `handoff_pose` | `Pose6D \| auto` | `auto` | — | object pose at which the transfer occurs; `auto` = mutually reachable pose |
+| `cograsp_force_budget` | `Force \| auto` | `auto` | N | max **combined** force during the dual-grasp window; `auto` = min of the two parties' budgets, clamped to `target.max_contact_force` |
+| `frame` | `FrameRef` | `task` | — | shared reference frame |
+| `position_tolerance` | `Length` | `2` | mm | object pose drift during transfer |
+| `timeout` | `Duration \| auto` | `auto` | s | `> 0` |
+
+**Preconditions.**
+- `grasp_handle` resolves to a `held` `GraspState` (the giver holds the object).
+- The `receiver` is available (its control frame is `free`) and declares a grasp capability compatible with `receiver_mode` on `target.geometry`.
+- **Mutual reachability:** a `handoff_pose` exists that is reachable by both the giver and the receiver, with a make-before-break window (both can secure the object simultaneously without exceeding `cograsp_force_budget`).
+- Both parties declare `handoff` capability (and, for inter-robot, a coordination channel exists — see Open issue).
+
+**Postconditions (on `success`).**
+- The object is held by the **receiver** in a new `GraspState` (`mode = receiver_mode`); the giver's `controlled_frame` is `free` (`status = free`, grasp cleared).
+- **Ownership transferred:** the result returns the receiver's new `GraspRef`; the giver's `GraspRef` is superseded / invalidated.
+- The object remained secured by at least one party throughout (continuity via make-before-break); its world pose stayed within `position_tolerance` of `handoff_pose` during the transfer.
+
+**Safety envelope (holds throughout execution).**
+- **Two-party make-before-break:** the receiver's grasp is confirmed securing (`≥ min_holding_force`) **before** the giver releases; at no instant is the object unsecured by both.
+- **Co-grasp force bound:** during the dual-grasp window, the **combined** force from both parties `≤ cograsp_force_budget · (1 + transient_margin)` and `≤ target.max_contact_force` — the two effectors must not crush the object or fight each other (no opposing tug-of-war beyond budget).
+- The object's pose stays within `position_tolerance` during the transfer (neither party yanks it).
+- On any breach (receiver fails to secure): **the giver retains the object** — never release until the receiver is confirmed. The object falls back to the giver's known-good grasp.
+
+**Failure modes (detection → invariant).**
+
+| Mode | Detection | Invariant |
+|---|---|---|
+| `no_active_grasp` | giver not `held` | reject; no attempt |
+| `receiver_unavailable` | `receiver` not `free` / lacks capability | reject; giver retains object |
+| `no_mutual_reach` | no `handoff_pose` reachable by both with a make-before-break window | reject; giver retains object |
+| `coordination_unavailable` | (inter-robot) no coordination channel | reject; giver retains object |
+| `receiver_grasp_failed` | receiver fails to confirm securing | **giver retains object**; result ≠ `success` |
+| `cograsp_overforce` | combined force exceeds budget during dual grasp | abort; giver retains; result ≠ `success` |
+| `pose_drift` | object pose drifted > `position_tolerance` during transfer | abort to giver's grasp |
+| `timeout` | wall clock vs `timeout` | giver retains object |
+
+**Conformance test sketch.**
+- **C1 — bimanual handoff + make-before-break.** Establish a grasp on a bench object with effector A; command `transport.handoff(receiver = effector B)`. PASS iff `result == success` ∧ the object is finally held by B (new stability metadata) ∧ A is `free` ∧ the force trace shows **at least one party secured the object at all instants** (make-before-break) ∧ combined co-grasp force never exceeded `cograsp_force_budget` ∧ object pose within tolerance throughout.
+- **C2 — receiver-failure fallback.** Force the receiver's grasp to fail. PASS iff `result == receiver_grasp_failed` ∧ the **giver retains the object** (not dropped, not unsecured) ∧ the giver's `GraspRef` remains valid.
+
+#### 4.4 `transport.carry`
+
+**Intent.** Transport a held object while actively maintaining grasp stability under perturbation — rejecting external disturbances (a moving base, environmental contact, an unstable path) so the object stays secured throughout. The disturbance-robust counterpart of plain transport, and the held-object analogue of `reach.hover`'s station-keeping.
+
+**Parameters.**
+
+| Name | Type | Default | Units | Constraint |
+|---|---|---|---|---|
+| `grasp_handle` | `GraspRef \| active` | `active` | — | the grasp whose held object is carried |
+| `motion` | `MoveSpec` | — (required) | — | the underlying relocation: a `to_pose(P)` or a `trajectory(T)` — `carry` wraps it with disturbance rejection |
+| `disturbance_budget` | `Force \| auto` | `auto` | N | the magnitude of external perturbation the carry must reject without losing the grasp; `auto` = derived from `min_holding_force` margin |
+| `stability_margin` | `Ratio` | `auto` | — | required headroom of holding capacity over inertial + disturbance load; `auto` = embodiment default |
+| `frame` | `FrameRef` | `task` | — | reference frame |
+| `position_tolerance` | `Length` | `3` | mm | `> 0`; on the object relative to `motion` (looser — disturbances perturb the path) |
+| `max_velocity` | `Velocity \| auto` | `auto` | m/s | clamped; conservative under disturbance |
+| `max_acceleration` | `Acceleration \| auto` | `auto` | m/s² | clamped to leave `stability_margin` for disturbance rejection |
+| `contact_response` | `{abort, stop, comply}` | `comply` | — | default `comply` (carry expects environmental contact) |
+| `timeout` | `Duration \| auto` | `auto` | s | `> 0` |
+
+**Preconditions.**
+- `grasp_handle` resolves to a `held` `GraspState`; transport admissible (not `surface_bound`).
+- The grasp's holding capacity exceeds the inertial load **plus** `disturbance_budget` by at least `stability_margin` (the grasp can absorb the expected perturbation without slip).
+- The underlying `motion` is itself feasible (its own preconditions hold).
+- `embodiment` declares `transport` with `carry` (disturbance-rejection) support.
+
+**Postconditions (on `success`).**
+- The underlying `motion` completed (object reached `to_pose` target or tracked `trajectory`), within `position_tolerance`.
+- **Stability maintained throughout (the interval invariant):** at every instant the grasp held the object within tolerance despite perturbations up to `disturbance_budget`; no in-grasp slip beyond tolerance occurred.
+- Grasp preserved (held → held), identity and stability metadata unchanged.
+
+**Safety envelope (holds throughout execution).**
+- **Disturbance-robust dynamic stability (interval invariant):** at every instant, `inertial_load + disturbance_load ≤ grasp_holding_capacity` with `stability_margin` headroom. Acceleration is clamped below the plain-transport limit to reserve capacity for disturbance rejection.
+- Active rejection: a detected disturbance is countered (grip adjust / motion adaptation) to keep the object secured; failure to reject within the margin is an envelope violation.
+- `comply` contact response by default: environmental contact during carry is expected and is accommodated, not treated as an abort (unlike free transport) — within force limits.
+- Support / directional grasp constraints continuously evaluated under disturbance (tip-over margin is tighter under perturbation).
+- On any breach (disturbance exceeds budget, slip imminent): decelerate / halt to the most stable reachable configuration within `embodiment.limits.stop_time`, object secured.
+
+**Failure modes (detection → invariant).**
+
+| Mode | Detection | Invariant |
+|---|---|---|
+| `no_active_grasp` / `transport_inadmissible` | not `held` / `surface_bound` | reject; no attempt |
+| `insufficient_stability_margin` | holding capacity < inertial + `disturbance_budget` + margin | reject; no attempt (grasp too weak for this carry) |
+| `motion_infeasible` | underlying `motion` preconditions fail | reject; propagate the motion's failure |
+| `disturbance_exceeded` | actual perturbation > `disturbance_budget` | halt to most stable config; result ≠ `success` |
+| `in_grasp_slip` | object slipped despite rejection | halt; re-secure; result ≠ `success` |
+| `timeout` | wall clock vs `timeout` | halt to stable config, object secured |
+
+**Conformance test sketch.**
+- **C1 — carry under perturbation + stability.** Establish a grasp; command `transport.carry(motion = to_pose(P), disturbance_budget = D)` while applying calibrated perturbations `≤ D` during the motion. PASS iff `result == success` ∧ object reached `P` within tolerance ∧ at **every** sampled instant (interval sampling) the object stayed secured with no in-grasp slip beyond tolerance despite the applied disturbances ∧ holding-capacity headroom maintained `stability_margin` throughout.
+- **C2 — over-budget disturbance.** Apply a perturbation exceeding `disturbance_budget`. PASS iff `result == disturbance_exceeded` ∧ the embodiment halted to a stable configuration with the object **still secured** (not dropped) — a graceful degradation, not a loss.
+
+#### 4.5 `transport.lift`
+
+**Intent.** Raise a held object vertically from a resting / supported state, managing the load-transfer transition — the moment the object's full weight shifts from its prior support onto the grasp — with anti-slip force monitoring so the grasp does not lose the object as the load engages.
+
+**Parameters.**
+
+| Name | Type | Default | Units | Constraint |
+|---|---|---|---|---|
+| `grasp_handle` | `GraspRef \| active` | `active` | — | the grasp holding the object |
+| `height` | `Length` | — (required) | mm | `> 0`; vertical lift distance |
+| `up_direction` | `Direction` | `−gravity` | — | the "up" direction; defaults to anti-gravity (declared, not assumed) |
+| `frame` | `FrameRef` | `task` | — | reference frame |
+| `position_tolerance` | `Length` | `2` | mm | `> 0` |
+| `max_velocity` | `Velocity \| auto` | `auto` | m/s | clamped; conservative through load transfer |
+| `max_acceleration` | `Acceleration \| auto` | `auto` | m/s² | clamped to dynamic-stability limit (full weight engaged) |
+| `clearance` | `Length` | `0` | mm | `≥ 0`; for object + effector swept volume |
+| `timeout` | `Duration \| auto` | `auto` | s | `> 0` |
+
+**Preconditions.**
+- `grasp_handle` resolves to a `held` `GraspState`; transport admissible (not `surface_bound`).
+- **Load-transfer capacity:** the grasp's holding capacity exceeds the object's **full weight** (`estimated_mass`) by margin — the lift will transfer the entire weight onto the grasp, so a grasp validated at rest under partial load must still hold the full load.
+- The lift path (height along `up_direction`), inflated by `clearance`, is collision-free for object + effector.
+- `embodiment` declares `transport` with `lift` support.
+
+**Postconditions (on `success`).**
+- The held object has risen by `height` along `up_direction`; the object's full weight is borne by the grasp; embodiment + object at rest at the raised pose.
+- **No load-transfer slip:** the object did not slip in the grasp as the weight engaged (anti-slip monitoring held).
+- Grasp preserved (held → held); the object is now free of its prior support.
+
+**Safety envelope (holds throughout execution).**
+- **Anti-slip load-transfer monitoring:** through the lift-off transition, the holding force is maintained `≥ min_holding_force(full weight)`; the moment of weight engagement (when support reaction drops to zero) is the highest-risk instant and the envelope guards holding force there. In-grasp slip beyond tolerance is an envelope violation.
+- Dynamic grasp stability with full weight engaged; `max_acceleration` clamped accordingly.
+- `‖velocity‖ ≤ caps`; `min_clearance(object ∪ effector, static_model) ≥ clearance`.
+- On any breach (slip during lift-off): **lower back to the supported state** — do not continue lifting with a slipping grasp; return the object to its support.
+
+**Failure modes (detection → invariant).**
+
+| Mode | Detection | Invariant |
+|---|---|---|
+| `no_active_grasp` / `transport_inadmissible` | not `held` / `surface_bound` | reject; no attempt |
+| `insufficient_lift_capacity` | holding capacity < full weight + margin | reject; no attempt (do not lift what the grasp cannot hold) |
+| `unreachable` | IK along the lift path | no motion |
+| `no_collision_free_path` | lift swept volume blocked | no motion past the last safe config |
+| `load_transfer_slip` | object slipped as weight engaged | lower back to support; result ≠ `success` |
+| `pose_not_reached` | height vs tolerance | MUST NOT report `success` |
+| `timeout` | wall clock vs `timeout` | lower to a supported / stable state, object secured |
+
+**Conformance test sketch.**
+- **C1 — nominal lift + anti-slip.** Place a bench object on a support, grasp it, command `transport.lift(height = 100 mm)`. PASS iff `result == success` ∧ externally measured object rose 100 mm within tolerance ∧ the force trace shows holding force stayed `≥ min_holding_force(full weight)` **through the lift-off instant** (anti-slip) ∧ no in-grasp slip beyond tolerance ∧ at rest at the raised pose.
+- **C2 — over-weight rejection.** Present an object whose full weight exceeds the grasp's holding capacity; command `transport.lift`. PASS iff `result == insufficient_lift_capacity` ∧ no lift attempted (the object is not partially lifted then dropped) ∧ grasp / object state preserved.
+
+#### 4.6 `transport.lower`
+
+**Intent.** Lower a held object vertically onto a target surface with controlled deceleration and touchdown detection — softening the set-down contact and shedding the object's weight onto the surface — while keeping the grasp (release is a separate step).
+
+**Parameters.**
+
+| Name | Type | Default | Units | Constraint |
+|---|---|---|---|---|
+| `grasp_handle` | `GraspRef \| active` | `active` | — | the grasp holding the object |
+| `stop_mode` | `{height, touchdown}` | `touchdown` | — | stop after a fixed descent, or when surface contact is detected |
+| `height` | `Length \| auto` | `auto` | mm | (`height` mode) descent distance; `auto` = until touchdown |
+| `down_direction` | `Direction` | `gravity` | — | descent direction; defaults to gravity (declared, not assumed) |
+| `touchdown_force` | `Force \| auto` | `auto` | N | contact force threshold marking touchdown; `auto` = small fraction of weight |
+| `frame` | `FrameRef` | `task` | — | reference frame |
+| `position_tolerance` | `Length` | `2` | mm | `> 0` |
+| `approach_velocity` | `Velocity \| auto` | `auto` | m/s | slow contact-approach speed (soft landing) |
+| `clearance` | `Length` | `0` | mm | `≥ 0`; for object + effector swept volume (excluding the set-down surface) |
+| `timeout` | `Duration \| auto` | `auto` | s | `> 0` |
+
+**Preconditions.**
+- `grasp_handle` resolves to a `held` `GraspState`; transport admissible (not `surface_bound`).
+- A set-down surface exists along `down_direction` within reach; the descent path (excluding that surface) is collision-free at `clearance`.
+- `embodiment` declares `transport` with `lower` support (and contact / force sensing, or proxy, for touchdown).
+
+**Postconditions (on `success`).**
+- The held object has descended (by `height`, or until touchdown) and rests on the set-down surface; the object's weight is (partially or fully) shed onto the surface.
+- **Soft set-down:** the contact force at touchdown did not exceed a safe set-down threshold (no slam); the object / surface were not damaged by impact.
+- **Still grasped:** the grasp is preserved (held → held) — `transport.lower` sets the object down but does **not** release it; release is `grasp.release` / `place.*`.
+- The object is now in a supported state (recorded, enabling a subsequent safe release).
+
+**Safety envelope (holds throughout execution).**
+- **Controlled deceleration:** the descent slows to `approach_velocity` before contact so touchdown is soft; impact force at touchdown `≤ safe_setdown_force` (no slam).
+- **Touchdown detection:** contact is detected at `touchdown_force` and the descent stops; the object is not pushed into the surface beyond the set-down threshold (over-press protection).
+- Grasp continuity maintained throughout (the object stays secured during descent and set-down).
+- `min_clearance(object ∪ effector, static_model \ setdown_surface) ≥ clearance`; `‖velocity‖ ≤ caps`.
+- On any breach: arrest the descent, keep the object grasped (do not drop), settle to a safe state within `embodiment.limits.stop_time`.
+
+**Failure modes (detection → invariant).**
+
+| Mode | Detection | Invariant |
+|---|---|---|
+| `no_active_grasp` / `transport_inadmissible` | not `held` / `surface_bound` | reject; no attempt |
+| `no_surface` | (`touchdown`) no surface reached within range | descend to limit; result ≠ `success`; object still grasped |
+| `unreachable` | IK along the descent path | no motion |
+| `no_collision_free_path` | descent swept volume blocked (excluding set-down surface) | no motion past the last safe config |
+| `hard_contact` | touchdown force exceeded the safe set-down threshold (slam) | arrest; result ≠ `success` (set-down was not soft) |
+| `pose_not_reached` | (`height` mode) descent vs tolerance | MUST NOT report `success` |
+| `timeout` | wall clock vs `timeout` | arrest, object kept grasped |
+
+**Conformance test sketch.**
+- **C1 — touchdown set-down + soft landing.** Grasp a bench object; command `transport.lower(stop_mode = touchdown)` toward a surface. PASS iff `result == success` ∧ the object rests on the surface (weight shed, detected) ∧ the touchdown force `≤ safe_setdown_force` (soft, no slam) ∧ the object is **still grasped** (not released) ∧ supported state recorded.
+- **C2 — soft-landing under perturbed surface height.** Place the surface 10 mm higher than expected (early contact). PASS iff touchdown is detected at the true surface (descent stops on contact, `stop_mode = touchdown`) with force `≤ safe_setdown_force` — never a hard slam from descending to a pre-computed height past the real surface.
 
 ## Open issues for v0.1 freeze
 
