@@ -1200,8 +1200,8 @@
       }
     },
     "TransportLowerParams": {
-      "type": "object",
-      "description": "Parameters of transport.lower (01 § 4.6), precisely typed (approach B) — the ten parameters of the § 4.6 table, no more. No required parameter (height defaults to auto = until touchdown). stop_mode chooses fixed-descent vs contact-detected stop; down_direction is a Direction (default gravity).",
+      "type": ["object", "null"],
+      "description": "Parameters of transport.lower (01 § 4.6), precisely typed (approach B) — the ten parameters of the § 4.6 table, no more. No required parameter (height defaults to auto = until touchdown), so a param-less call (null / empty) is valid. stop_mode chooses fixed-descent vs contact-detected stop; down_direction is a Direction (default gravity).",
       "additionalProperties": false,
       "properties": {
         "grasp_handle": { "$ref": "#/$defs/GraspHandle", "description": "GraspRef | active (default active) — the grasp holding the object." },
