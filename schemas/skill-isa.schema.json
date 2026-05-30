@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "RFL Skill ISA composition file",
-  "description": "Validates a Skill ISA composition file (the JSON / YAML form an author writes; reference instance examples/01-cable-insertion/skill.yaml). Structural validation per 01-skill-isa.md: the compositional algebra (sequence / parallel / reactive / repeat / branch / let-bind), that every primitive call key is one of the 50 ISA primitive ids, and that an extension call is namespaced ext.<ns>.<name>. Per-primitive parameter names, types, units, and enums are constrained only for primitives precisely typed so far (approach B, tightened one primitive at a time — currently all of category 1 reach except reach.retract (reach.to_pose § 1.1, reach.approach § 1.2, reach.align § 1.3, reach.hover § 1.5, reach.scan § 1.6), all of category 2 grasp (grasp.pinch § 2.1, grasp.power § 2.2, grasp.hook § 2.3, grasp.precision_tripod § 2.4, grasp.lateral § 2.5, grasp.platform § 2.6, grasp.pin § 2.7, grasp.envelope § 2.8, grasp.adjust § 2.9, grasp.release § 2.10), all of category 3 in_hand (in_hand.rotate § 3.1, in_hand.translate § 3.2, in_hand.regrasp § 3.3, in_hand.roll § 3.4, in_hand.pivot § 3.5, in_hand.slide § 3.6, in_hand.flip § 3.7), all of category 4 transport (transport.move_to_pose § 4.1, transport.follow_trajectory § 4.2, transport.handoff § 4.3, transport.carry § 4.4, transport.lift § 4.5, transport.lower § 4.6), all of category 5 place (place.put_down § 5.1, place.stack § 5.2, place.insert_loose § 5.3, place.orient § 5.4, place.hand_to § 5.5, place.discard § 5.6), nine of category 6 force (force.push § 6.2, force.pull § 6.3, force.screw § 6.4, force.unscrew § 6.5, force.press_button § 6.6, force.cut § 6.7, force.wipe § 6.8, force.scrub § 6.9, force.snap_engage § 6.10 — their StopCondition-family parameters kept as deferred StopSpec), and all of category 7 sense (sense.probe § 7.1, sense.inspect § 7.2, sense.weigh § 7.3, sense.locate § 7.4, sense.verify § 7.5); the only untyped primitives are force.insert_fit § 6.1 and reach.retract § 1.4 — both deferred to the pre-freeze 01 § 6 formatting pass that aligns their spellings with the reference; each leaves its params an open object. Backs conformance test class 1 (parser conformance, 05-conformance.md). The algebra is the abstract BNF of 01 § Compositional algebra; this schema fixes its concrete YAML serialization, where a let-bind is a sequence statement {let, from} whose binding scopes over the rest of the enclosing sequence (the BNF's explicit in(...) is accepted as an optional key).",
+  "description": "Validates a Skill ISA composition file (the JSON / YAML form an author writes; reference instance examples/01-cable-insertion/skill.yaml). Structural validation per 01-skill-isa.md: the compositional algebra (sequence / parallel / reactive / repeat / branch / let-bind), that every primitive call key is one of the 50 ISA primitive ids, and that an extension call is namespaced ext.<ns>.<name>. Per-primitive parameter names, types, units, and enums are precisely constrained for ALL 50 primitives (approach B complete — every category fully typed, verified by a cross-check that each primitive's schema property set equals its 01 parameter-table column). reach.retract (§ 1.4) and force.insert_fit (§ 6.1) were reconciled with the reference in a pre-freeze formatting pass (retract_axis → direction; axial_force_budget → force_budget; seating_condition: SeatingSpec → stop_condition: StopCondition); their stop / direction parameters use the precise StopCondition family and the broadened Direction (a signed axis such as -tool_axis, or a unit vector). The StopCondition-family parameters of the other force primitives (pull.stop_condition, screw/unscrew.completion, press_button.actuation, cut.completion, scrub.completion, snap_engage.snap_signature) remain a deferred StopSpec pending the full per-primitive § 6 prose normalization onto the family. Backs conformance test class 1 (parser conformance, 05-conformance.md). The algebra is the abstract BNF of 01 § Compositional algebra; this schema fixes its concrete YAML serialization, where a let-bind is a sequence statement {let, from} whose binding scopes over the rest of the enclosing sequence (the BNF's explicit in(...) is accepted as an optional key).",
   "type": "object",
   "required": ["skill", "body"],
   "additionalProperties": false,
@@ -157,8 +157,12 @@
       "description": "Compliance mode requested for a contact-forming primitive (01 § force / sense.probe)."
     },
     "Direction": {
-      "description": "A unit vector in a named frame (01 § Geometric types), or a let-reference. Inline object (the vector / its components) or a reference; the planner literal auto is accepted only where a parameter's own schema lists it.",
-      "anyOf": [ { "type": "object" }, { "$ref": "#/$defs/Ref" } ]
+      "description": "A unit vector in a named frame (01 § Geometric types): a signed named axis (e.g. -tool_axis, -z, +x), an inline unit-vector object, or a let-reference. The planner literal auto is accepted only where a parameter's own schema lists it.",
+      "anyOf": [
+        { "type": "string", "pattern": "^[+-][A-Za-z_][A-Za-z0-9_]*$" },
+        { "type": "object" },
+        { "$ref": "#/$defs/Ref" }
+      ]
     },
     "EffectorRef": {
       "description": "A reference to a control frame on the same embodiment (a bare frame name) or another (embodiment_id:frame_name) (01 § EffectorRef resolution; transport.handoff receiver). A frame name, an embodiment_id:frame_name string, or a let-reference.",
@@ -182,8 +186,54 @@
       ]
     },
     "StopSpec": {
-      "description": "A stop / completion / actuation condition of the StopCondition family (01 § Stop / completion conditions): PullStop, ScrewStop, ActuationSpec, CutStop, ScrubStop. Precise per-family typing is deferred to the pre-freeze 01 § 6 formatting pass (which aligns the family across primitives); here it is a bare named condition (a string, e.g. breakaway / detent / path_complete / separation / disengagement / torque_drop), a parametrized condition (an object, e.g. distance(d) / tension(F) / depth(d) / turns(n) / state_change(pred)), or a let-reference.",
+      "description": "A stop / completion / actuation condition of the StopCondition family (01 § Stop / completion conditions): PullStop, ScrewStop, ActuationSpec, CutStop, ScrubStop. Precise per-family typing is deferred to the pre-freeze 01 § 6 formatting pass (which aligns the per-primitive prose spellings — breakaway / tension / disengagement / torque_drop / path_complete / separation / force_threshold — onto the unified StopCondition family); until then it is a bare named condition (a string), a parametrized condition (an object), or a let-reference. force.insert_fit, whose § 6.1 table has already been reconciled, uses the precise StopCondition def instead.",
       "anyOf": [ { "type": "string" }, { "type": "object" }, { "$ref": "#/$defs/Ref" } ]
+    },
+    "StopCondition": {
+      "description": "The unified stop / completion condition family (01 § Stop / completion conditions): reached(Progress) | effort_rise(Effort) | effort_drop | detent | count(n) | elapsed(Duration) | landmark(Ref) | predicate(StatePredicate) | all_of(set) | any_of(set). Serialized as a single-key object keyed by the condition kind (or the bare string effort_drop / detent for the two nullary events). all_of / any_of recurse over StopCondition. Progress (reached) is a Length / Angle / depth / turns / advance; Effort (effort_rise) is a Force or Torque.",
+      "oneOf": [
+        { "enum": ["effort_drop", "detent"] },
+        {
+          "type": "object",
+          "minProperties": 1,
+          "maxProperties": 1,
+          "additionalProperties": false,
+          "properties": {
+            "reached": {
+              "description": "Progress hit a value.",
+              "anyOf": [
+                { "$ref": "#/$defs/Length" },
+                { "$ref": "#/$defs/Angle" },
+                { "$ref": "#/$defs/Ref" },
+                {
+                  "type": "object",
+                  "minProperties": 1,
+                  "maxProperties": 1,
+                  "additionalProperties": false,
+                  "properties": {
+                    "depth": { "$ref": "#/$defs/Length" },
+                    "distance": { "$ref": "#/$defs/Length" },
+                    "advance": { "$ref": "#/$defs/Length" },
+                    "turns": { "anyOf": [ { "type": "integer", "minimum": 1 }, { "$ref": "#/$defs/Ref" } ] }
+                  }
+                }
+              ]
+            },
+            "effort_rise": {
+              "description": "Resisting effort reached a level (Force or Torque).",
+              "anyOf": [ { "$ref": "#/$defs/Force" }, { "$ref": "#/$defs/Torque" } ]
+            },
+            "effort_drop": { "description": "A sudden resistance-drop event (breakaway / separation / disengagement / torque_drop)." },
+            "detent": { "description": "A rise-then-drop effort signature (a click)." },
+            "count": { "anyOf": [ { "type": "integer", "minimum": 1 }, { "$ref": "#/$defs/Ref" } ], "description": "A repetition count (turns / passes)." },
+            "elapsed": { "$ref": "#/$defs/Duration", "description": "Elapsed time." },
+            "landmark": { "anyOf": [ { "type": "string" }, { "$ref": "#/$defs/Ref" } ], "description": "A declared reference reached (tactile_landmark / external_reference / path_complete)." },
+            "predicate": { "anyOf": [ { "$ref": "#/$defs/Predicate" }, { "$ref": "#/$defs/Ref" } ], "description": "A sense.verify predicate became true." },
+            "all_of": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/StopCondition" }, "description": "Conjunction (e.g. force_and_depth, torque_and_advance)." },
+            "any_of": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/StopCondition" }, "description": "Disjunction." }
+          }
+        }
+      ]
     },
     "Compound": {
       "description": "A perception-derived compound value (01 § Target / reference types — ObjectTarget, FeatureRef, SurfaceTarget, Pose6D, TactileTarget, ContactConfig). RFL fixes the type but not the estimation method; here it is supplied inline as an object or by a let-reference (typically a sense.* result). Internal field typing is a deeper increment.",
@@ -1393,6 +1443,42 @@
         "timeout": { "$ref": "#/$defs/Duration", "description": "Duration | auto, > 0." }
       }
     },
+    "ReachRetractParams": {
+      "type": "object",
+      "description": "Parameters of reach.retract (01 § 1.4, post-reconciliation), precisely typed (approach B) — the ten parameters of the § 1.4 table, no more. distance is required; the rest carry the spec defaults. direction is a Direction (a signed axis such as -tool_axis, or a unit vector; default the reverse of the tool axis) — the reference's task-level spelling, reconciled from the former retract_axis: SignedAxis.",
+      "required": ["distance"],
+      "additionalProperties": false,
+      "properties": {
+        "distance": { "$ref": "#/$defs/Length", "description": "Length > 0 — retreat travel along direction." },
+        "controlled_frame": { "$ref": "#/$defs/FrameRef", "description": "FrameRef — declared control frame (default embodiment.default_control_frame)." },
+        "direction": { "$ref": "#/$defs/Direction", "description": "Direction — retreat direction (default -tool_axis)." },
+        "frame": { "$ref": "#/$defs/FrameRef", "description": "FrameRef — frame the axis is expressed in (default controlled_frame)." },
+        "break_contact": { "type": "boolean", "description": "Require any starting contact to be cleared (default true)." },
+        "position_tolerance": { "$ref": "#/$defs/Length", "description": "Length > 0 (default 2 mm)." },
+        "max_velocity": { "anyOf": [ { "$ref": "#/$defs/Auto" }, { "$ref": "#/$defs/Velocity" } ], "description": "Velocity | auto — clamped to embodiment.limits.v_cartesian_max." },
+        "clearance": { "$ref": "#/$defs/Length", "description": "Length >= 0 (default 0) — margin to the full static model (no target exclusion)." },
+        "contact_response": { "$ref": "#/$defs/ContactResponse", "description": "Reaction to a force increase during retreat (default abort)." },
+        "timeout": { "$ref": "#/$defs/Duration", "description": "Duration | auto, > 0." }
+      }
+    },
+    "ForceInsertFitParams": {
+      "type": "object",
+      "description": "Parameters of force.insert_fit (01 § 6.1, post-reconciliation), precisely typed (approach B) — the ten parameters of the § 6.1 table, no more. target_fit + force_budget + stop_condition are required; the rest carry the spec defaults. stop_condition is a precise StopCondition (the unified family); force_budget and stop_condition are the reference's task-level spelling, reconciled from the former axial_force_budget and seating_condition: SeatingSpec. insertion_axis is now Direction | auto.",
+      "required": ["target_fit", "force_budget", "stop_condition"],
+      "additionalProperties": false,
+      "properties": {
+        "grasp_handle": { "$ref": "#/$defs/GraspHandle", "description": "GraspRef | active (default active) — the grasp holding the part being inserted." },
+        "target_fit": { "$ref": "#/$defs/Compound", "description": "FeatureRef — the hole / socket / receptacle (tolerance fit)." },
+        "insertion_axis": { "anyOf": [ { "$ref": "#/$defs/Auto" }, { "$ref": "#/$defs/Direction" } ], "description": "Direction | auto — nominal insertion direction (default auto = planner-derived from target_fit)." },
+        "force_budget": { "$ref": "#/$defs/Force", "description": "Force — max force along insertion_axis (over-insertion / pin-damage limit)." },
+        "lateral_force_budget": { "anyOf": [ { "$ref": "#/$defs/Auto" }, { "$ref": "#/$defs/Force" } ], "description": "Force | auto — max lateral force during search (cocking / side-load limit)." },
+        "stop_condition": { "$ref": "#/$defs/StopCondition", "description": "StopCondition — what defines seated: effort_rise(F) | reached(depth d) | all_of{effort_rise(F), reached(depth d)} (the conjunction is the seating/jam discriminator)." },
+        "search_strategy": { "enum": ["spiral", "tilt", "hop", "auto"], "description": "Compliant-search pattern to find alignment (default auto)." },
+        "compliance": { "$ref": "#/$defs/Compliance", "description": "Compliance mode required for the fit (default auto)." },
+        "frame": { "$ref": "#/$defs/FrameRef", "description": "FrameRef — reference frame (default task)." },
+        "timeout": { "$ref": "#/$defs/Duration", "description": "Duration | auto, > 0." }
+      }
+    },
     "Composition": {
       "description": "A node of the compositional algebra (01 § Compositional algebra). Exactly one of: a primitive call, an extension call, or one of the combinators sequence / parallel / reactive / repeat / branch / let-bind. The forms are disjoint by key namespace, so a well-formed node matches exactly one.",
       "type": "object",
@@ -1606,6 +1692,14 @@
         {
           "if": { "required": ["force.snap_engage"] },
           "then": { "properties": { "force.snap_engage": { "$ref": "#/$defs/ForceSnapEngageParams" } } }
+        },
+        {
+          "if": { "required": ["reach.retract"] },
+          "then": { "properties": { "reach.retract": { "$ref": "#/$defs/ReachRetractParams" } } }
+        },
+        {
+          "if": { "required": ["force.insert_fit"] },
+          "then": { "properties": { "force.insert_fit": { "$ref": "#/$defs/ForceInsertFitParams" } } }
         }
       ]
     },
