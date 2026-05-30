@@ -313,7 +313,7 @@ The seven named types are restrictions of the family (the per-primitive paramete
 | Named type | Restriction |
 |---|---|
 | `SlideStop` (`in_hand.slide`) | `reached(distance) \| landmark(tactile) \| landmark(external)` |
-| `SeatingSpec` (`force.insert_fit`) | `effort_rise(force) \| reached(depth) \| all_of{effort_rise(force), reached(depth)}` |
+| `force.insert_fit` `stop_condition` (was `SeatingSpec`) | `effort_rise(force) \| reached(depth) \| all_of{effort_rise(force), reached(depth)}` |
 | `PullStop` (`force.pull`) | `reached(distance) \| effort_drop \| effort_rise(tension)` |
 | `ScrewStop` (`force.screw` / `unscrew`) | `effort_rise(torque) \| count(turns) \| all_of{effort_rise(torque), reached(advance)}`; `unscrew` adds `effort_drop` (disengagement / torque_drop) |
 | `ActuationSpec` (`force.press_button` / `snap_engage`) | `detent \| effort_rise(force_threshold)` |
@@ -583,9 +583,9 @@ A `LetBind` that carries a `sense` result into a downstream primitive is checked
 
 | Name | Type | Default | Units | Constraint |
 |---|---|---|---|---|
-| `distance` | `Length` | — (required) | mm | `> 0`; retreat travel along `retract_axis` |
+| `distance` | `Length` | — (required) | mm | `> 0`; retreat travel along `direction` |
 | `controlled_frame` | `FrameRef` | `embodiment.default_control_frame` | — | declared control frame |
-| `retract_axis` | `SignedAxis` | `−embodiment.default_tool_axis` | — | retreat direction |
+| `direction` | `Direction` | `−tool_axis` | — | retreat direction: a signed axis (e.g. `−tool_axis`, `−z`) or a unit vector; default the reverse of the controlled frame's tool axis |
 | `frame` | `FrameRef` | `controlled_frame` | — | frame the axis is expressed in (default: move along own tool axis) |
 | `break_contact` | `bool` | `true` | — | require any starting contact to be cleared |
 | `position_tolerance` | `Length` | `2` | mm | `> 0` |
@@ -596,12 +596,12 @@ A `LetBind` that carries a `sense` result into a downstream primitive is checked
 
 **Preconditions.**
 - `controlled_frame` is resolvable and `calibration_valid`.
-- The retreat target pose (`start + distance · retract_axis`) admits ≥ 1 IK solution.
+- The retreat target pose (`start + distance · direction`) admits ≥ 1 IK solution.
 - The retreat corridor, inflated by `clearance`, is collision-free against the static model in the retreat direction.
 - Starting contact is permitted (no precondition forbidding it), unlike `reach.to_pose`/`reach.approach`.
 
 **Postconditions (on `success`).**
-- `controlled_frame` displaced by `distance` along `retract_axis` from the start pose, within `position_tolerance`.
+- `controlled_frame` displaced by `distance` along `direction` from the start pose, within `position_tolerance`.
 - Embodiment at rest.
 - If `break_contact`: no task contact remains; `external_force(controlled_frame) ≈ 0`.
 - World-model object poses are invariant (retract carries nothing; carrying is `transport`).
@@ -2352,30 +2352,30 @@ The determinism boundary from `reach.scan` / `in_hand.pivot` applies throughout:
 |---|---|---|---|---|
 | `grasp_handle` | `GraspRef \| active` | `active` | — | the grasp holding the part being inserted |
 | `target_fit` | `FeatureRef` | — (required) | — | the hole / socket / receptacle (tolerance fit) |
-| `insertion_axis` | `Direction` | — (required) | — | nominal insertion direction, in `frame` |
-| `axial_force_budget` | `Force` | — (required) | N | max force along `insertion_axis` (over-insertion / pin damage limit) |
+| `insertion_axis` | `Direction \| auto` | `auto` | — | nominal insertion direction, in `frame`; `auto` = planner-derived from `target_fit` |
+| `force_budget` | `Force` | — (required) | N | max force along `insertion_axis` (over-insertion / pin damage limit) |
 | `lateral_force_budget` | `Force \| auto` | `auto` | N | max lateral force during search (cocking / side-load limit) |
-| `seating_condition` | `SeatingSpec` | — (required) | — | what defines "seated": `force_rise(F)`, `depth(d)`, or `force_and_depth(F,d)` |
+| `stop_condition` | `StopCondition` | — (required) | — | what defines "seated", a `StopCondition` (§ Stop / completion conditions): `effort_rise(F)`, `reached(depth d)`, or `all_of{effort_rise(F), reached(depth d)}` — the conjunction is the seating/jam discriminator |
 | `search_strategy` | `{spiral, tilt, hop, auto}` | `auto` | — | compliant-search pattern to find alignment; resolved by the Translation Layer |
 | `compliance` | `{passive, active, auto}` | `auto` | — | compliance mode required for the fit |
 | `frame` | `FrameRef` | `task` | — | reference frame |
 | `timeout` | `Duration \| auto` | `auto` | s | `> 0` |
 
 **Preconditions.**
-- `grasp_handle` resolves to a `held` `GraspState`; the held part's grasp can withstand the insertion reaction force (`axial_force_budget` `≤` grasp holding capacity along the insertion axis — else the part slips in the grasp before seating).
+- `grasp_handle` resolves to a `held` `GraspState`; the held part's grasp can withstand the insertion reaction force (`force_budget` `≤` grasp holding capacity along the insertion axis — else the part slips in the grasp before seating).
 - `target_fit` is resolvable; the part and fit are a tolerance fit (clearance below the loose-fit threshold — else use `place.insert_loose`).
 - `embodiment` declares `force` with `insert_fit` support **and** the required `compliance` capability (passive / active / VFC).
 - The pre-insertion pose aligns the part with `target_fit` within the search-capturable range.
 
 **Postconditions (on `success`).**
-- The part is seated in `target_fit` per `seating_condition` (force rise and / or depth reached); the mate is complete.
-- Throughout, axial force stayed `≤ axial_force_budget` and lateral force `≤ lateral_force_budget` (no over-insertion, no damaging side-load).
+- The part is seated in `target_fit` per `stop_condition` (force rise and / or depth reached); the mate is complete.
+- Throughout, axial force stayed `≤ force_budget` and lateral force `≤ lateral_force_budget` (no over-insertion, no damaging side-load).
 - The held part did not slip in the grasp beyond tolerance; `GraspState` remains `held` (insertion does not release — release / regrasp is a separate step).
 
 **Safety envelope (holds throughout execution — force trajectory bound).**
-- **Force-trajectory bound (the new axis):** at every instant, axial force `≤ axial_force_budget` and lateral force `≤ lateral_force_budget`. These are *trajectory* bounds (held through the search-and-push profile), not a single endpoint check — a force spike mid-insertion (jam) is an envelope violation, not a seating signal.
+- **Force-trajectory bound (the new axis):** at every instant, axial force `≤ force_budget` and lateral force `≤ lateral_force_budget`. These are *trajectory* bounds (held through the search-and-push profile), not a single endpoint check — a force spike mid-insertion (jam) is an envelope violation, not a seating signal.
 - **Compliant search:** misalignment is accommodated by compliance (the part gives laterally rather than cocking / jamming); a rising lateral force beyond budget indicates a cocked / jammed insertion and aborts (do not force a jammed fit).
-- **Seating discrimination:** the `seating_condition` (force rise at depth) distinguishes true seating from a jam — a force rise *without* the expected depth is a jam, not a seat.
+- **Seating discrimination:** the `stop_condition` (force rise at depth) distinguishes true seating from a jam — a force rise *without* the expected depth is a jam, not a seat.
 - Grasp continuity under reaction load: the insertion reaction must not exceed the grasp's holding capacity (else the part slips); monitored throughout.
 - On any breach (jam, over-force, grasp slip): retract along `−insertion_axis` to a safe, unloaded pose; do not leave the part jammed under load.
 
@@ -2386,14 +2386,14 @@ The determinism boundary from `reach.scan` / `in_hand.pivot` applies throughout:
 | `no_active_grasp` | `grasp_handle` not `held` | reject; no attempt |
 | `capability_absent` | no `insert_fit` / required compliance | reject; no attempt |
 | `wrong_primitive` | clearance is a loose fit (not tolerance) | reject (recommend `place.insert_loose`) |
-| `axial_overforce` | axial force > `axial_force_budget` without seating | retract; result ≠ `success` (do not force in) |
+| `axial_overforce` | axial force > `force_budget` without seating | retract; result ≠ `success` (do not force in) |
 | `jammed` | lateral force > budget / force rise without depth (cocked) | retract; re-search or report; result ≠ `success` |
 | `grasp_slip_under_load` | part slipped in grasp under reaction force | retract; re-secure; result ≠ `success` |
-| `not_seated` | `seating_condition` not met within range | retract; result ≠ `success` |
+| `not_seated` | `stop_condition` not met within range | retract; result ≠ `success` |
 | `timeout` | wall clock vs `timeout` | retract to safe unloaded pose |
 
 **Conformance test sketch.**
-- **C1 — nominal fit + seating.** Present a bench peg-in-hole (tolerance fit); command `force.insert_fit(target_fit, insertion_axis, axial_force_budget = 10 N, seating_condition = force_and_depth(...))`. PASS iff `result == success` ∧ the part is seated (force rise at the expected depth) ∧ the **force trajectory** stayed within `axial_force_budget` and `lateral_force_budget` at **every** sampled instant (interval sampling) ∧ no in-grasp slip ∧ retractable to an unloaded state.
+- **C1 — nominal fit + seating.** Present a bench peg-in-hole (tolerance fit); command `force.insert_fit(target_fit, insertion_axis, force_budget = 10 N, stop_condition = force_and_depth(...))`. PASS iff `result == success` ∧ the part is seated (force rise at the expected depth) ∧ the **force trajectory** stayed within `force_budget` and `lateral_force_budget` at **every** sampled instant (interval sampling) ∧ no in-grasp slip ∧ retractable to an unloaded state.
 - **C2 — jam detection (no over-force).** Mis-align so the part cocks in the hole. PASS iff `result == jammed` ∧ the force trajectory never exceeded the budgets (the part was **not** forced in past the jam) ∧ the part retracted to a safe unloaded pose — never a forced-through or stuck-under-load outcome.
 
 #### 6.2 `force.push`
@@ -2507,7 +2507,7 @@ The determinism boundary from `reach.scan` / `in_hand.pivot` applies throughout:
 | `grasp_handle` | `GraspRef \| active` | `active` | — | the grasp on the fastener, or on the tool driving it (tool-mediated) |
 | `thread_axis` | `Direction` | — (required) | — | the screw / thread axis, in `frame` |
 | `torque_budget` | `Torque` | — (required) | N·m | max torque about `thread_axis` (thread-strip / fastener-break limit) |
-| `axial_force_budget` | `Force \| auto` | `auto` | N | max axial seating force |
+| `force_budget` | `Force \| auto` | `auto` | N | max axial seating force |
 | `thread_pitch` | `Length \| auto` | `auto` | mm/rev | couples rotation to advance; `auto` = from `target_fit` thread spec |
 | `completion` | `ScrewStop` | — (required) | — | `torque_rise(T)` (tight), `turns(n)`, or `torque_and_advance(T,d)` |
 | `tool_mediated` | `bool` | `auto` | — | whether a held tool (driver) transmits the torque; `auto` = inferred from grasp |
@@ -2522,11 +2522,11 @@ The determinism boundary from `reach.scan` / `in_hand.pivot` applies throughout:
 
 **Postconditions (on `success`).**
 - The fastener advanced along `thread_axis` coupled to rotation at `thread_pitch`, reaching `completion` (tight torque rise, turn count, or torque-at-advance).
-- Torque stayed `≤ torque_budget` and axial force `≤ axial_force_budget` throughout (no thread strip, no fastener break).
+- Torque stayed `≤ torque_budget` and axial force `≤ force_budget` throughout (no thread strip, no fastener break).
 - No cross-threading occurred; the grasp / tool transmitted torque without slip; `GraspState` unchanged.
 
 **Safety envelope (holds throughout execution — torque + force trajectory bound).**
-- **Torque-trajectory bound (the new axis):** torque about `thread_axis` `≤ torque_budget` at every instant; axial force `≤ axial_force_budget`. Both are trajectory bounds — a torque spike without the expected advance is cross-threading, not seating.
+- **Torque-trajectory bound (the new axis):** torque about `thread_axis` `≤ torque_budget` at every instant; axial force `≤ force_budget`. Both are trajectory bounds — a torque spike without the expected advance is cross-threading, not seating.
 - **Cross-threading discrimination:** torque rising **without** axial advance (per pitch) indicates cross-threading or a jam — abort and back off; torque rising **at** the seated advance is correct tightening. (The screw analogue of `force.insert_fit`'s seating / jam rule.)
 - **Coupled-motion constraint:** rotation and advance stay coupled at `thread_pitch`; a decoupling (advancing without turning, or turning without advancing) signals stripped threads or disengagement.
 - Grasp / tool continuity under torque reaction; tool not dropped or slipped.
