@@ -217,6 +217,8 @@ Duration        ::= Number ("ms" | "s")
 | `Direction` | unit vector in a named frame | `‖·‖ = 1` |
 | `Pose6D` | rigid pose (position + orientation) in a `FrameRef` | representation (SE(3) / quat+t / axis-angle) deferred to `02`; MUST admit a single-scalar geodesic orientation error |
 
+> **Frame-field resolution.** The `embodiment.default_*_frame` defaults and `embodiment.default_tool_axis` that primitive parameter tables reference are defined in `03-driver-interface.md` § Embodiment frame model. In particular `embodiment.default_tool_axis` is per control frame — it resolves to the `tool_axis` of the currently resolved `controlled_frame`, not an embodiment-global constant.
+
 ### Target types (perception-derived; carry uncertainty)
 
 | Type | Fields | Used by |

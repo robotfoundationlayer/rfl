@@ -49,9 +49,11 @@ These issues surfaced during `reach` / `grasp` primitive design and are now addr
 
 ### Owned by `03-driver-interface.md` (embodiment descriptor + collision model)
 
-- **Control-frame declaration**: `control_frames` set and `default_control_frame` field; retargeting maps `controlled_frame → embodiment native frame`. Non-anthropomorphic embodiments may expose several control frames.
-- **`default_tool_axis`** (per control frame): used by `reach.approach` / `reach.align` and the `force` family.
-- **`default_sensor_frame` + per-sensor `fov` / `bore_axis` / `max_sweep_rate`**: generalize the tactile-only descriptor to visual/range sensors (`reach.scan`).
+> **Frame-declaration layer resolved (2026-05-30).** The embodiment frame model — `known_frames` / `control_frames`, the well-known `world` / `base` / `task` reference frames, per-control-frame `tool_axis`, the role tags `{grasp, sensor, support, tactile}`, the five `default_*_frame` fields, the `<rfl:capabilities>` binding, and conformance obligations F1–F4 — is now specified in `03` § Embodiment frame model. The remaining items below are the per-category capability flags, limits, collision-model, and sensor/tool/safety descriptors that build on it.
+
+- ~~**Control-frame declaration**~~ **[resolved → `03` § Embodiment frame model]**: `control_frames` set and `default_control_frame` field; retargeting maps `controlled_frame → embodiment native frame`. Non-anthropomorphic embodiments may expose several control frames.
+- ~~**`default_tool_axis`** (per control frame)~~ **[resolved → `03`]**: used by `reach.approach` / `reach.align` and the `force` family. Resolves to the active `controlled_frame`'s `tool_axis`.
+- **`default_sensor_frame` + per-sensor `fov` / `bore_axis` / `max_sweep_rate`**: generalize the tactile-only descriptor to visual/range sensors (`reach.scan`). **[`default_sensor_frame` frame declaration resolved → `03`; the per-sensor `fov` / `bore_axis` / `max_sweep_rate` metadata remains open — sensor-descriptor unit.]**
 - **`tracking_bandwidth`** in `embodiment.limits`: gates `reach.hover(track_target)` and its `track_lost` mode.
 - **Collision-model target exclusion**: `reach.approach` / `reach.scan` apply `clearance` against the static model **excluding** the approached/scanned target; the model must designate a per-primitive exempt subset.
 - **Swept-volume clearance query**: `reach.align` rotates in place; the model must answer swept-volume queries, not only point/corridor.
