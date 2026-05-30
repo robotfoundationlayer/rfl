@@ -1,0 +1,42 @@
+# Generic pneumatic 6-finger (McKibben / bellows-style) hand.
+# The graceful-degradation demonstrator: it declares the same grasp.pinch capability and
+# runs the identical skill.yaml, but it does NOT declare tactile_sensing. Contact
+# confirmation therefore degrades to the force/position proxy (04 § Graceful degradation),
+# reported at the proxy fidelity tier (05 § Fidelity tier). Its pneumatic compliance is
+# passive and inherent; the compliant insertion search makes the realized force trajectory
+# Class 2-loose (02 § The determinism boundary). One skill, a third structurally distinct
+# hand — Principle 1.
+
+embodiment:
+  id: generic-pneumatic-6f
+  class: pneumatic-6finger-bellows
+
+  frames:
+    control_frames: [tcp_a, tcp_b, tcp_c, tcp_d, tcp_e, tcp_f, palm]
+    role_defaults:
+      grasp:   palm                # the opposed-finger grasp closes around the palm frame
+      sensor:  head_cam
+      # no tactile role frame — this hand has no contact sensing
+      support: palm
+    tool_axis: { palm: +z }
+
+  capabilities:
+    skills: [grasp.pinch, grasp.envelope, transport, force.insert_fit, sense.locate]
+    aux:
+      # tactile_sensing NOT declared → grasp.pinch confirms via the force/position proxy,
+      # and the insertion seating is detected from chamber-pressure (force) alone.
+      compliance: passive          # pneumatic compliance is inherent, not actively controlled
+
+  limits:
+    grip_force_max:      12 N
+    payload_grasp_pinch: 1.5 N
+    v_grasp:             0.03 m/s   # pneumatic: slower, softer closing
+    v_cartesian_max:     0.3 m/s
+    a_cartesian_max:     0.8 m/s^2
+    stop_time:           0.15 s
+
+  # No `tactile:` block — the contact-sensor descriptor is absent, which is exactly what
+  # routes every grasp.* and force.* confirmation on this hand to its proxy.
+
+  sensors:
+    head_cam: { bore_axis: +z, fov: { h_angle: 65 deg, v_angle: 50 deg }, working_range: [0.1 m, 1.5 m], modalities: [presence, pose] }

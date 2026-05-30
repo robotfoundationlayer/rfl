@@ -6,7 +6,7 @@ Worked examples that exercise the full Skill ISA → Translation Layer → Drive
 
 | # | Example | Embodiments exercised | Status |
 |---|---|---|---|
-| 01 | `cable-insertion/` | Tendon-driven 4-finger (e.g., Allegro), direct-drive 4-finger (e.g., LEAP), pneumatic 6-finger | skeleton |
+| 01 | `cable-insertion/` | Tendon-driven 4-finger (e.g., Allegro), direct-drive 4-finger (e.g., LEAP), pneumatic 6-finger | populated (skill + 3 descriptors + walkthrough) |
 | 02 | `pick-and-place/` | Same three + collaborative arm | planned |
 | 03 | `bimanual-handoff/` | Two arms with different end-effector classes | planned |
 

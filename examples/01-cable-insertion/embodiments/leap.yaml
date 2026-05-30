@@ -1,0 +1,39 @@
+# CMU LEAP Hand — direct-drive 4-finger.
+# Same Skill ISA composition as allegro.yaml; a structurally distinct actuation class
+# (direct-drive vs. tendon-driven). Declares the same grasp.pinch capability, so the
+# skill retargets without change — retarget produces different joint commands and a
+# different grasp_width, but the same canonical-action semantics (Principle 1).
+
+embodiment:
+  id: cmu-leap-v1
+  class: direct-drive-4finger
+
+  frames:
+    control_frames: [tcp_index, tcp_middle, tcp_ring, tcp_thumb, palm]
+    role_defaults:
+      grasp:   tcp_thumb
+      sensor:  wrist_cam
+      tactile: tcp_index           # LEAP's most-instrumented fingertip
+      support: palm
+    tool_axis: { tcp_thumb: +z }
+
+  capabilities:
+    skills: [grasp.pinch, grasp.lateral, transport, force.insert_fit, sense.locate]
+    aux:
+      tactile_sensing: true        # fingertip force sensing → manifold-tier (coarser than Allegro)
+      compliance: active
+
+  limits:
+    grip_force_max:      15 N
+    payload_grasp_pinch: 2 N
+    v_grasp:             0.08 m/s   # direct-drive: faster closing
+    v_cartesian_max:     0.5 m/s
+    a_cartesian_max:     2.0 m/s^2
+    stop_time:           0.08 s
+
+  tactile:
+    tcp_index:  { sites: 1, features: [contact, normal_force], resolution: { spatial: 3 mm, temporal: 80 Hz, value: 0.1 N } }
+    tcp_thumb:  { sites: 1, features: [contact, normal_force], resolution: { spatial: 3 mm, temporal: 80 Hz, value: 0.1 N } }
+
+  sensors:
+    wrist_cam: { bore_axis: +z, fov: { h_angle: 70 deg, v_angle: 55 deg }, working_range: [0.05 m, 1.2 m], modalities: [presence, pose] }

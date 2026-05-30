@@ -1,0 +1,69 @@
+# Example 01 — Cable insertion
+# Embodiment-agnostic Skill ISA composition. Reference instance of the Skill ISA file
+# format that schemas/skill-isa.schema.json (forthcoming) will validate; the algebra
+# (sequence / let-bind) and primitive parameters follow 01-skill-isa.md. All quantities
+# are task-level — per-embodiment bounds are resolved by retarget against the embodiment
+# descriptor (02-translation-layer.md). No frame, joint, or sensor of any specific hand
+# is named here: that is the Principle-1 point this example demonstrates.
+
+skill: cable-insertion
+description: >
+  Grasp a connector-terminated flexible cable and insert the connector into a
+  receptacle under force control, discriminating a seated insertion from a jam.
+
+# Task object references; their poses are resolved at runtime by sense.locate.
+objects:
+  connector:  { ref: connector }     # the rigid connector at the cable end
+  receptacle: { ref: receptacle }    # the mating receptacle, fixed in the workcell
+
+body:
+  sequence:
+
+    # 1 — Locate the connector; bind the measured pose into an ObjectTarget (observe→act, L1).
+    - let: connector_t
+      from:
+        sense.locate:
+          target_ref: connector
+          modality: auto              # best available for the required precision
+
+    # 2 — Grasp the connector (antipodal pinch). tactile_target = auto resolves to
+    #     normal_force ≥ ε at ≥ 2 antipodal sites, degrading to the force/position proxy
+    #     on an embodiment without tactile_sensing (04 § Graceful degradation).
+    - grasp.pinch:
+        target: connector_t
+        force_budget: 8 N             # clamped to grip_force_max and connector.max_contact_force
+        tactile_target: auto
+        slip_response: retighten
+
+    # 3 — Carry the held connector to a pre-insertion standoff above the receptacle.
+    - transport.move_to_pose:
+        target_pose: { frame: receptacle, offset: { along: -z, distance: 30 mm } }
+
+    # 4 — Locate the receptacle and align the connector's insertion axis to its bore
+    #     (bring the part within insert_fit's start-capturable range).
+    - let: receptacle_t
+      from:
+        sense.locate:
+          target_ref: receptacle
+          modality: visual
+    - reach.align:
+        target_frame: receptacle
+        axes: [z]                     # insertion axis only; the residual orientation is the
+                                      # minimum geodesic rotation (02 § Pose representation)
+
+    # 5 — Force-controlled insertion. The all_of stop condition is the seating/jam rule
+    #     (01 § Stop / completion conditions): effort rise AT the expected depth = seated;
+    #     effort rise WITHOUT depth = jam. Compliant search runs against contact dynamics,
+    #     so the realized trajectory is Class 2-loose (02 § The determinism boundary).
+    - force.insert_fit:
+        target_fit: receptacle_t
+        force_budget: 15 N
+        compliance: active
+        stop_condition:
+          all_of:
+            - effort_rise: 12 N
+            - reached: { depth: 8 mm }
+
+    # 6 — Release the seated connector and retract clear of the workcell.
+    - grasp.release: { grasp_handle: active }
+    - reach.retract:  { direction: -tool_axis, distance: 50 mm }
