@@ -1,6 +1,6 @@
 # Translation Layer — Specification
 
-> **Status**: in progress (2026-05-31) — the canonical action representation, the `Envelope`, the quaternion pose representation with single-scalar geodesic orientation error, the under-constrained-orientation residual rule, and the rest-at-goal terminal semantics are specified. Remaining before freeze: trajectory generation + time-scaling, tracked in § Open issues (Owned by `02`). This is the last spec-chapter group; closing it resolves the whole cross-chapter Open-issues TODO.
+> **Status**: design-complete (2026-05-31) — the canonical action representation + `Envelope`, the quaternion pose representation with single-scalar geodesic orientation error, the under-constrained-orientation residual rule, rest-at-goal terminal semantics, the determinism boundary (Class 2-strict generation / Class 2-loose contact-dynamics execution), multi-embodiment coordination, capability negotiation, the grasp-force / stability derivations, and trajectory generation + time-scaling are specified. The `02` group of § Open issues is closed (12/12) — and with it the entire cross-chapter Open-issues TODO (`01` / `03` / `04` / `05` / `02` all resolved). Remaining before freeze: the JSON Schema and the normative `Σ` appendix.
 
 ## Scope
 
@@ -163,6 +163,41 @@ A `force` primitive applies force to a target, and the **reaction** loads the gr
 - **The friction coefficient and object mass** the derivations consume (declared contact / target properties; the perception that estimates them is out of scope) — `01-skill-isa.md` § type system.
 - **The interval force / torque-trajectory verification** that checks the realized profile against the derived bound — `05-conformance.md` § ENV4.
 
+## Trajectory generation and timing
+
+Two parts of `retarget` *generate* a path or a timing rather than compile a single pose — the scan sweep set `Σ` and the time-scaling of a trajectory. Both are **deterministic generators**: pure functions of their declared inputs, so generation stays Class 2-strict (RD1c) even though one of them (time-scaling) feeds a contact-bearing transport whose *realized* execution may be Class 2-loose.
+
+### Normative sweep-pattern generators
+
+`reach.scan` covers a region by a generated **sweep set `Σ`** — the ordered sensor poses whose union observes the region. `Σ` is a deterministic function of `(region, pattern, standoff, coverage_overlap, fov)`:
+
+- the **observation footprint** at the surface is `2 · standoff · tan(half_fov)` (the `fov` from `03`'s sensor descriptor, the `standoff` from the primitive);
+- the **pass spacing** is the footprint reduced by `coverage_overlap`;
+- the **pattern** lays the passes out: `raster` = parallel passes at the spacing; `spiral` = an in / out spiral for a centered region; `arc` = a swept arc about a pivot; `waypoints` = the caller's ordered poses (the degenerate generator, `Σ` = the waypoints).
+
+The four generators are **normative** — a normative appendix fixes the exact construction — so `Σ` is byte-reproducible across implementations (`reach.scan` C2, `05` Class 2). RFL fixes the geometric coverage construction; the perception that interprets what the sweep observes is out of scope (the `reach.scan` / `sense.inspect` capturability boundary, `04`).
+
+### Time-scaling
+
+`transport.follow_trajectory(timing_mode = time_scalable)` takes a caller-supplied path (a `Trajectory`, `01`) and **re-times** it — slowing the timing while **preserving the path shape** — until its curvature-and-speed profile fits within two bounds:
+
+- the **dynamic grasp-stability limit** (the `a_max` of § Grasp-force and stability derivations) — the held object must not slip under the trajectory's accelerations;
+- the **embodiment's kinematic limits** (`v` / `a` / jerk, `03`).
+
+A trajectory that is safe slowly but would exceed dynamic stability at full speed is **slowed, not rejected** — the geometric route is unchanged, only the velocity profile along it is scaled down. The algorithm is deterministic: identical `(path, dynamic-stability limit, kinematic limits)` yield identical timing, preserving `retarget` determinism (RD1c). Preserving path *shape* is the contract — time-scaling never alters the geometric path, only its parameterization in time.
+
+### Conformance obligations (trajectory generation)
+
+- **TG1c — normative sweep set.** The sweep set `Σ` for `pattern ∈ {raster, spiral, arc, waypoints}` is a deterministic function of `(region, pattern, standoff, coverage_overlap, fov)` per the normative appendix; identical inputs yield a byte-identical `Σ` (`reach.scan` C2).
+- **TG2c — time-scaling determinism and shape preservation.** `time_scalable` re-times a trajectory — preserving the geometric path shape — until its curvature-and-speed profile fits within the dynamic-stability limit and the embodiment's kinematic limits; the re-timing is a deterministic function of `(path, limits)` and never alters the path.
+
+### Deferred and referenced
+
+- **The `Trajectory` and `ScanRegion` types**, and `reach.scan` / `transport.follow_trajectory` — `01-skill-isa.md`.
+- **The `fov` and kinematic limits** the generators consume — `03-driver-interface.md` § Sensor descriptor / § Capability manifest.
+- **The dynamic grasp-stability `a_max`** time-scaling fits within — § Grasp-force and stability derivations.
+- **The normative `Σ` appendix** (the exact per-pattern construction) — a normative appendix / `schemas/` artifact, before v0.1 freeze.
+
 ## Resolved in the 2026-05-30 design pass
 
 These issues surfaced during `reach` / `grasp` primitive design and are now addressed in the Skill ISA type system and the grasp state model (`01-skill-isa.md`). Detail lives in the spec body; retained here as a design-history trail.
@@ -177,6 +212,8 @@ These issues surfaced during `reach` / `grasp` primitive design and are now addr
 - **"Grasp core" abstraction structuring** → `01` Category 2 intro (core + contact-pattern delta documented; the full DRY rewrite of each primitive remains a pre-freeze formatting pass, not a semantic gap).
 
 ## Open issues
+
+> **All groups resolved (2026-05-31).** Every item below is marked `[resolved → … § …]`: the `03`, `01`, `04`, and `05` chapter groups and this chapter's own `02` group are all closed. The section is retained as the cross-chapter design-history trail. Remaining pre-freeze work is implementation artifacts — the JSON Schema, the normative `Σ` appendix, and the per-skill ε-tolerance table — not open design questions.
 
 ### Owned by `03-driver-interface.md` (embodiment descriptor + collision model)
 
@@ -266,7 +303,7 @@ These issues surfaced during `reach` / `grasp` primitive design and are now addr
 - ~~**Pose representation choice** (SE(3) / quat+t / axis-angle)~~ **[resolved → § Pose representation and orientation error]**: `Pose6D` is position (R³) + unit quaternion (ROS 2 `geometry_msgs/Pose` parity; SE(3) the group beneath). The single-scalar geodesic orientation error `θ_orient = 2·arccos|⟨q_t, q_c⟩|` makes `pose_not_reached` decidable (CA1c).
 - ~~**Under-constrained-orientation residual rule** (*decided*)~~ **[resolved → § Pose representation and orientation error]**: among orientations satisfying the declared constraints, `retarget` picks the minimum-geodesic-rotation one from the current orientation, uniformly — deterministic, binding for `retarget` determinism (CA2c).
 - ~~**Rest-at-goal vs. trajectory blending**~~ **[resolved → § Terminal semantics — rest-at-goal]**: v0.1 guarantees rest-at-goal; `timing` reserves `stop_at_goal: bool` (default `true`) so future non-stop blending is additive without breaking the guarantee (CA3c, Principle 5).
-- **Normative sweep-pattern generators**: `Σ` for `pattern ∈ {raster, spiral, arc, waypoints}` as a deterministic function of `(region, pattern, standoff, overlap, FOV)`, in a normative appendix.
+- ~~**Normative sweep-pattern generators**~~ **[resolved → § Trajectory generation and timing, Normative sweep-pattern generators]**: `Σ` for `pattern ∈ {raster, spiral, arc, waypoints}` is a deterministic, byte-reproducible function of `(region, pattern, standoff, coverage_overlap, fov)` — footprint `2·standoff·tan(half_fov)`, spacing reduced by overlap (TG1c); the exact per-pattern construction goes to a normative appendix before freeze.
 - ~~**`min_holding_force` derivation**~~ **[resolved → § Grasp-force and stability derivations, `min_holding_force`]**: derived deterministically from object weight, grasp mode, friction, and load direction against the grasp's directional holding capacity; the static floor the grasp-continuity invariant (`05` GC1) checks and `grasp.adjust` maintains (GF1c).
 - ~~**Dynamic grasp-stability limit derivation**~~ **[resolved → § Grasp-force and stability derivations, Dynamic stability]**: the largest acceleration at which inertial + gravity load stays within holding capacity, from `StabilityMetadata` + mass + geometry; clamps `max_acceleration` in every `transport` primitive's `Envelope.motion_bounds` (GF2c) — the dynamic counterpart of `min_holding_force`.
 - ~~**Grasp-under-reaction-load**~~ **[resolved → § Grasp-force and stability derivations, Reaction-load limit]**: a `force` primitive's reaction may not exceed holding capacity along the reaction axis, the rotational capacity about the tool axis (torque reaction, screw/unscrew), or be lost at a periodic reversal (scrub); derived and aborted-before-slip (GF3c).
@@ -274,4 +311,4 @@ These issues surfaced during `reach` / `grasp` primitive design and are now addr
 - ~~**Uncertainty-robustness in capability negotiation**~~ **[resolved → § Capability negotiation and routing]**: negotiation matches a task's geometry uncertainty against an embodiment's declared `grasp.envelope` robustness, routing uncertain-geometry tasks to envelope-capable embodiments — the retarget-side complement to `03`'s binary `capability_absent` gate (RD4c).
 - ~~**Passive-drive determinism boundary**~~ **[resolved → § The determinism boundary]**: `retarget` generation is byte-deterministic unconditionally, but the *realized execution* of a contact-dynamics primitive (`in_hand.pivot` passive drive; all `force` compliant search) is not — it is held to Class 2-loose (semantic equivalence within a per-skill ε) on realized execution, Class 2-strict on generation (RD2c). Parallel to `reach.scan`'s purely-kinematic strict archetype.
 - ~~**Multi-embodiment coordination + determinism**~~ **[resolved → § Multi-embodiment coordination]**: bimanual handoff closes within one `retarget` (fully deterministic, in-spec); inter-robot handoff's two-party determinism semantics (GC6 + `EffectorRef`) are specified and its coordination *protocol* (the dual-grasp-window wire mechanism) is a named v0.1 deferral (RD3c). Semantics-now, mechanism-later.
-- **Time-scaling semantics** under embodiment kinematic limits *and dynamic grasp stability*: concretized by `transport.follow_trajectory(timing_mode = time_scalable)` — a deterministic algorithm that slows a trajectory's timing (preserving path shape) until its curvature-and-speed profile fits within the dynamic-stability limit and the embodiment's kinematic limits. Must preserve `retarget` determinism.
+- ~~**Time-scaling semantics**~~ **[resolved → § Trajectory generation and timing, Time-scaling]**: `transport.follow_trajectory(timing_mode = time_scalable)` re-times a trajectory (preserving path shape, slowing not rejecting) until its curvature-and-speed profile fits within the dynamic-stability limit and the embodiment's kinematic limits; a deterministic function of `(path, limits)` that preserves `retarget` determinism (TG2c).
