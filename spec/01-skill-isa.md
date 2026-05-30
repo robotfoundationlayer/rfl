@@ -1862,6 +1862,310 @@ Downstream primitives consume this: `transport` reads `secured_dof` / `flags` to
 - **C1 — touchdown set-down + soft landing.** Grasp a bench object; command `transport.lower(stop_mode = touchdown)` toward a surface. PASS iff `result == success` ∧ the object rests on the surface (weight shed, detected) ∧ the touchdown force `≤ safe_setdown_force` (soft, no slam) ∧ the object is **still grasped** (not released) ∧ supported state recorded.
 - **C2 — soft-landing under perturbed surface height.** Place the surface 10 mm higher than expected (early contact). PASS iff touchdown is detected at the true surface (descent stops on contact, `stop_mode = touchdown`) with force `≤ safe_setdown_force` — never a hard slam from descending to a pre-computed height past the real surface.
 
+### Category 5 — `place`
+
+`place` primitives set a held object down and (usually) release it, completing the `held → placed → free` segment of the grasp lifecycle. They are largely the canonical *composition* of `transport.lower` (soft set-down with touchdown detection) and `grasp.release` (bounded open + withdraw), and add one guarantee neither sub-step provides alone: **post-placement stability** — before releasing, the object is confirmed to be in a stably-supported state (its centre of mass projects inside its surface-contact polygon, via the supported-state predicate introduced in `grasp.release`), so the object is never abandoned in a pose from which it will tip, roll, or fall. `place` introduces no new force-dynamics axis; it reuses `transport`/`grasp` capabilities and the supported-state predicate.
+
+#### 5.1 `place.put_down`
+
+**Intent.** Place a held object onto a target surface and release it — lowering with touchdown detection, confirming the object is stably supported, then releasing the grasp. The composition of set-down and release, with a post-placement stability guarantee that neither sub-step provides alone.
+
+**Parameters.**
+
+| Name | Type | Default | Units | Constraint |
+|---|---|---|---|---|
+| `grasp_handle` | `GraspRef \| active` | `active` | — | the grasp holding the object |
+| `target_surface` | `SurfaceTarget \| auto` | `auto` | — | where to place; `auto` = the surface directly below along gravity |
+| `place_pose` | `Pose6D \| auto` | `auto` | — | object pose at placement; `auto` = current orientation, lowered onto the surface |
+| `frame` | `FrameRef` | `task` | — | reference frame |
+| `position_tolerance` | `Length` | `2` | mm | `> 0` |
+| `touchdown_force` | `Force \| auto` | `auto` | N | set-down contact threshold (per `transport.lower`) |
+| `require_stable` | `bool` | `true` | — | confirm a stably-supported state before releasing |
+| `withdraw_axis` | `SignedAxis` | `−embodiment.default_tool_axis` | — | effector withdraw direction after release (per `grasp.release`) |
+| `timeout` | `Duration \| auto` | `auto` | s | `> 0` |
+
+**Preconditions.**
+- `grasp_handle` resolves to a `held` `GraspState`; transport admissible (not `surface_bound`).
+- A `target_surface` exists and is reachable; the lowering path is collision-free (excluding the surface).
+- The object can rest stably on `target_surface` at `place_pose` — its CoM will project inside its surface-contact polygon (the supported-state predicate is satisfiable). If not satisfiable and `require_stable`, the placement is rejected.
+- `embodiment` declares `transport` (lower) and `grasp` (release) capability.
+
+**Postconditions (on `success`).**
+- The object rests on `target_surface` at `place_pose` within `position_tolerance`, in a **stably supported state** (CoM inside its contact polygon); the grasp is released and the effector withdrawn clear.
+- `GraspState` transitions `held → placed → free`; `end_effector_free = true`.
+- The object did not tip, roll, or shift beyond `position_tolerance` after release (post-placement stability held).
+
+**Safety envelope (holds throughout execution).**
+- **Set-down phase** (per `transport.lower`): controlled deceleration, soft touchdown `≤ safe_setdown_force`, grasp continuity maintained until release.
+- **Stability gate (the new guarantee):** before opening the grasp, the supported-state predicate is confirmed — the object is resting such that it will not fall when released. If `require_stable` and the state is not stable, the grasp is **not** released (the object is not abandoned in an unstable pose).
+- **Release phase** (per `grasp.release`): bounded opening (object not flung), withdraw clear without knocking the placed object (directional force monotonicity), no-contact confirmation.
+- On any breach: if before release, keep the object grasped and settle to a safe state; never release into an unstable or unconfirmed placement.
+
+**Failure modes (detection → invariant).**
+
+| Mode | Detection | Invariant |
+|---|---|---|
+| `no_active_grasp` / `transport_inadmissible` | not `held` / `surface_bound` | reject; no attempt |
+| `no_surface` | `target_surface` absent / unreachable | reject; object kept grasped |
+| `unstable_placement` | (`require_stable`) supported-state predicate not satisfied at `place_pose` | do **not** release; keep grasped; result ≠ `success` |
+| `hard_contact` | touchdown exceeded safe set-down force | arrest; object kept grasped; result ≠ `success` |
+| `withdraw_blocked` | effector withdraw corridor obstructed | release done but report; object placed |
+| `object_shifted` | object tipped / moved > `position_tolerance` after release | report (post-placement instability) |
+| `timeout` | wall clock vs `timeout` | keep grasped if before release; safe state |
+
+**Conformance test sketch.**
+- **C1 — nominal put-down + stability.** Grasp a bench object; command `place.put_down(target_surface)` onto a level surface. PASS iff `result == success` ∧ object rests at `place_pose` within tolerance ∧ soft touchdown (`≤ safe_setdown_force`) ∧ the supported-state predicate was confirmed **before** release ∧ `end_effector_free` ∧ the object did not shift beyond tolerance after release.
+- **C2 — unstable-placement refusal.** Command `place.put_down` onto a steeply tilted surface where the object's CoM would fall outside its contact polygon. PASS iff `result == unstable_placement` ∧ the grasp was **not** released (object kept secured, not dropped onto an unstable pose) ∧ object still held.
+
+#### 5.2 `place.stack`
+
+**Intent.** Place a held object on top of an existing object or stack, aligned over the supporting object's top face, releasing only after confirming the **whole stack** remains stable. The stacking specialization of `place.put_down`, where the support surface is another object and stability is recursive.
+
+**Parameters.**
+
+| Name | Type | Default | Units | Constraint |
+|---|---|---|---|---|
+| `grasp_handle` | `GraspRef \| active` | `active` | — | the grasp holding the object to stack |
+| `support_object` | `ObjectTarget` | — (required) | — | the object / stack to place on top of |
+| `alignment` | `{centered, edge_aligned, pose}` | `centered` | — | how to align over `support_object`'s top face |
+| `place_pose` | `Pose6D \| auto` | `auto` | — | (for `alignment = pose`) explicit placement pose |
+| `frame` | `FrameRef` | `task` | — | reference frame |
+| `position_tolerance` | `Length` | `2` | mm | `> 0`; alignment tolerance over the support |
+| `touchdown_force` | `Force \| auto` | `auto` | N | set-down threshold (gentle — not to disturb the stack) |
+| `require_stack_stable` | `bool` | `true` | — | confirm whole-stack stability before releasing |
+| `timeout` | `Duration \| auto` | `auto` | s | `> 0` |
+
+**Preconditions.**
+- `grasp_handle` resolves to a `held` `GraspState`; transport admissible.
+- `support_object` is resolvable with a usable top face; the stacking pose is reachable; the descent path (excluding `support_object`) is collision-free.
+- **Recursive stability satisfiable:** placing the object at the aligned pose keeps (i) the object's CoM inside `support_object`'s top-face polygon AND (ii) the combined CoM of the augmented stack inside the base's support polygon. If not satisfiable and `require_stack_stable`, rejected.
+- `embodiment` declares `place` with `stack` support.
+
+**Postconditions (on `success`).**
+- The object rests on `support_object`, aligned per `alignment` within `position_tolerance`; the grasp is released and effector withdrawn.
+- **Whole-stack stability confirmed:** every level's CoM is within the level-below's polygon, and the stack's combined CoM is within the base polygon (no impending topple).
+- `GraspState`: `held → placed → free`; the new object is recorded as the stack's new top.
+
+**Safety envelope (holds throughout execution).**
+- **Gentle set-down on a stack:** touchdown force kept low enough not to disturb / topple the existing stack; the descent does not laterally load the stack.
+- **Recursive stability gate:** before release, confirm the augmented stack's stability at **every** level (not just the top object's local rest) — the supported-state predicate applied recursively. If unstable and `require_stack_stable`, do not release.
+- **Alignment verification:** the achieved alignment over `support_object` is within `position_tolerance` before release; a misaligned object (overhang risking topple) is not released.
+- Release per `grasp.release`, withdrawing without nudging the stack.
+- On any breach: keep the object grasped; never release onto a misaligned or unstable stack; never topple the existing stack.
+
+**Failure modes (detection → invariant).**
+
+| Mode | Detection | Invariant |
+|---|---|---|
+| `no_active_grasp` / `transport_inadmissible` | not `held` / `surface_bound` | reject; no attempt |
+| `no_support_object` | `support_object` unresolved / no usable top face | reject; object kept grasped |
+| `misaligned` | alignment over support outside `position_tolerance` | do not release; keep grasped; result ≠ `success` |
+| `stack_unstable` | (`require_stack_stable`) recursive stability fails at some level | do not release; keep grasped; result ≠ `success` |
+| `stack_disturbed` | existing stack shifted during set-down | arrest; keep grasped; report |
+| `hard_contact` | touchdown exceeded gentle set-down force | arrest; keep grasped; result ≠ `success` |
+| `timeout` | wall clock vs `timeout` | keep grasped if before release |
+
+**Conformance test sketch.**
+- **C1 — nominal stack + recursive stability.** Stack a bench object onto a fixtured base object; command `place.stack(support_object, alignment = centered)`. PASS iff `result == success` ∧ object centered over the support within tolerance ∧ recursive stability confirmed (every level's CoM inside the level-below polygon, combined CoM inside base) **before** release ∧ the existing stack was not disturbed ∧ `end_effector_free`.
+- **C2 — unstable-stack refusal.** Command `place.stack` with an offset that would put the combined CoM outside the base polygon (topple). PASS iff `result == stack_unstable` (or `misaligned`) ∧ the object was **not** released ∧ the existing stack was not toppled.
+
+#### 5.3 `place.insert_loose`
+
+**Intent.** Insert a held object into a container with clearance — the object is smaller than the opening, so insertion is geometric (drop-in), not force-fitted — confirming the object is contained (inside, not jammed or protruding) before releasing. The clearance counterpart of `force.insert_fit`, which handles tolerance fits.
+
+**Parameters.**
+
+| Name | Type | Default | Units | Constraint |
+|---|---|---|---|---|
+| `grasp_handle` | `GraspRef \| active` | `active` | — | the grasp holding the object |
+| `container` | `ObjectTarget` | — (required) | — | the container / receptacle to insert into (opening + interior) |
+| `insertion_pose` | `Pose6D \| auto` | `auto` | — | object pose for insertion; `auto` = aligned with the container opening |
+| `insertion_depth` | `Length \| auto` | `auto` | mm | how far to insert; `auto` = until contained / resting |
+| `frame` | `FrameRef` | `task` | — | reference frame |
+| `position_tolerance` | `Length` | `3` | mm | `> 0`; looser (clearance fit) |
+| `jam_force` | `Force \| auto` | `auto` | N | contact force indicating a jam (wall collision), not a fit |
+| `require_contained` | `bool` | `true` | — | confirm the object is contained before releasing |
+| `timeout` | `Duration \| auto` | `auto` | s | `> 0` |
+
+**Preconditions.**
+- `grasp_handle` resolves to a `held` `GraspState`; transport admissible.
+- `container` is resolvable with an opening whose clearance exceeds the object's insertion cross-section (it is a loose fit, not a tolerance fit — else use `force.insert_fit`).
+- The insertion approach is reachable and collision-free up to the opening.
+- `embodiment` declares `place` with `insert_loose` support.
+
+**Postconditions (on `success`).**
+- The object is inside `container` to `insertion_depth` (or resting), **contained** — fully within the container envelope, not protruding or jammed.
+- If released: the grasp is released and withdrawn; the container supports the object. If the contained pose is not stable and `require_contained` / `require_stable`, the object is kept grasped.
+- `GraspState`: `held → placed → free` (if released).
+
+**Safety envelope (holds throughout execution).**
+- **Low-force insertion:** because the fit is loose, insertion should encounter no significant resistance; a contact force exceeding `jam_force` indicates a wall collision (misalignment), **not** a seating force — the envelope treats it as a jam and halts (does not force the object in).
+- **Containment gate:** before release, confirm the object is contained (inside the opening envelope, not protruding). If not contained and `require_contained`, do not release.
+- Release per `grasp.release`, withdrawing clear of the container rim.
+- On any breach (jam): retract slightly and re-align, or report; never force a jammed object deeper (that is `force.insert_fit` territory, with its own force budget).
+
+**Failure modes (detection → invariant).**
+
+| Mode | Detection | Invariant |
+|---|---|---|
+| `no_active_grasp` / `transport_inadmissible` | not `held` / `surface_bound` | reject; no attempt |
+| `no_container` | `container` unresolved / opening too small (tolerance fit) | reject (recommend `force.insert_fit`); object kept grasped |
+| `jammed` | contact force > `jam_force` during insertion (wall collision) | halt; do not force; retract / report; result ≠ `success` |
+| `not_contained` | (`require_contained`) object protrudes / not inside before release | do not release; keep grasped; result ≠ `success` |
+| `unreachable` | IK on insertion approach | no insertion |
+| `timeout` | wall clock vs `timeout` | keep grasped if before release |
+
+**Conformance test sketch.**
+- **C1 — nominal loose insertion + containment.** Insert a bench object into a clearance container; command `place.insert_loose(container)`. PASS iff `result == success` ∧ object contained within the container envelope (not protruding) ∧ insertion encountered no force exceeding `jam_force` (loose, low-force) ∧ containment confirmed before release ∧ `end_effector_free`.
+- **C2 — jam detection.** Mis-position the container so the object contacts the rim / wall. PASS iff `result == jammed` ∧ the object was **not** forced in (contact force bounded at `jam_force`) ∧ object kept grasped (retracted / reported, not jammed deeper).
+
+#### 5.4 `place.orient`
+
+**Intent.** Place a held object onto a surface in a required orientation (label-up, port-out, terminal-up, etc.), verifying the placed orientation, then releasing. The orientation-constrained specialization of `place.put_down`.
+
+**Parameters.**
+
+| Name | Type | Default | Units | Constraint |
+|---|---|---|---|---|
+| `grasp_handle` | `GraspRef \| active` | `active` | — | the grasp holding the object |
+| `target_surface` | `SurfaceTarget \| auto` | `auto` | — | where to place |
+| `required_orientation` | `OrientationSpec` | — (required) | — | the orientation the placed object must have (an object axis → world direction mapping, e.g. `label_normal → up`) |
+| `orientation_tolerance` | `Angle` | `3` | deg | `> 0`; on the placed orientation |
+| `frame` | `FrameRef` | `task` | — | reference frame |
+| `position_tolerance` | `Length` | `2` | mm | `> 0` |
+| `require_stable` | `bool` | `true` | — | confirm stable support before release (per `put_down`) |
+| `timeout` | `Duration \| auto` | `auto` | s | `> 0` |
+
+**Preconditions.**
+- `grasp_handle` resolves to a `held` `GraspState`; transport admissible.
+- **The required orientation is achievable from the current grasp:** the held object can be brought to `required_orientation` at the placement pose by the embodiment's reachable wrist / arm range. If it cannot (the grasp presents the object such that the required orientation is unreachable), `place.orient` is **rejected** with a recommendation to reorient first (`in_hand.rotate` / `regrasp`) — `place.orient` does not silently reorient; reorientation is a separate, explicit composition step (single-responsibility).
+- `target_surface` reachable; the object rests stably at the required orientation (supported-state predicate).
+- `embodiment` declares `place` with `orient` support.
+
+**Postconditions (on `success`).**
+- The object rests on `target_surface` at `required_orientation` within `orientation_tolerance` and `position_tolerance`, in a stably supported state; grasp released, effector withdrawn.
+- `GraspState`: `held → placed → free`.
+- The placed orientation was **verified** (not assumed) before release.
+
+**Safety envelope (holds throughout execution).**
+- Set-down + stability + release per `place.put_down` (soft touchdown, supported-state gate, bounded release).
+- **Orientation verification gate:** before release, the achieved object orientation is confirmed within `orientation_tolerance` of `required_orientation`. If the orientation is wrong, **do not release** (releasing a mis-oriented object defeats the primitive's purpose).
+- The required orientation must also be a stable resting orientation (an object cannot be released label-up if it would immediately topple from that orientation) — both the orientation gate and the stability gate must pass.
+- On any breach: keep the object grasped; never release mis-oriented or unstable.
+
+**Failure modes (detection → invariant).**
+
+| Mode | Detection | Invariant |
+|---|---|---|
+| `no_active_grasp` / `transport_inadmissible` | not `held` / `surface_bound` | reject; no attempt |
+| `orientation_unreachable` | required orientation not achievable from the current grasp | reject; recommend reorient-first (`in_hand` / `regrasp`); object kept grasped |
+| `orientation_unstable` | required orientation is not a stable resting pose | reject; object kept grasped |
+| `orientation_not_verified` | achieved orientation outside tolerance before release | do not release; keep grasped; result ≠ `success` |
+| `unstable_placement` | supported-state predicate fails | do not release; keep grasped |
+| `timeout` | wall clock vs `timeout` | keep grasped if before release |
+
+**Conformance test sketch.**
+- **C1 — nominal oriented placement.** Grasp a bench object with a marked face; command `place.orient(target_surface, required_orientation = marked_face_up)`. PASS iff `result == success` ∧ the placed object's marked face is up within `orientation_tolerance` (externally measured) ∧ stably supported ∧ orientation verified **before** release ∧ `end_effector_free`.
+- **C2 — unreachable-orientation rejection.** Grasp the object such that the required orientation cannot be reached from the current grasp; command `place.orient`. PASS iff `result == orientation_unreachable` ∧ the object was **not** released in the wrong orientation ∧ a reorient-first recommendation is reported.
+
+#### 5.5 `place.hand_to`
+
+**Intent.** Hand a held object to a human, releasing it only upon detecting that the human has taken its weight — a controlled, human-safe release governed by weight-transfer detection rather than make-before-break (the human's grasp cannot be robot-confirmed in advance). The human-recipient counterpart of `transport.handoff`.
+
+**Parameters.**
+
+| Name | Type | Default | Units | Constraint |
+|---|---|---|---|---|
+| `grasp_handle` | `GraspRef \| active` | `active` | — | the grasp holding the object |
+| `handover_pose` | `Pose6D \| auto` | `auto` | — | pose to present the object to the human; `auto` = a reachable, ergonomic offer pose |
+| `weight_transfer_threshold` | `Ratio` | `auto` | — | fraction of the object's weight the human must take before release; `auto` = embodiment default (e.g. ≥ 0.5) |
+| `max_interaction_force` | `Force \| auto` | `auto` | N | hard cap on force exchanged with the human (human-safety limit, per ISO 10218 / 13482 context) |
+| `present_timeout` | `Duration` | — (required) | s | how long to hold the offer before giving up |
+| `on_no_take` | `{retain, retract}` | `retain` | — | if the human never takes it: keep holding, or withdraw to a safe pose |
+| `frame` | `FrameRef` | `task` | — | reference frame |
+| `timeout` | `Duration \| auto` | `auto` | s | `> 0` |
+
+**Preconditions.**
+- `grasp_handle` resolves to a `held` `GraspState`; transport admissible.
+- A human recipient is present and a `handover_pose` is reachable that presents the object ergonomically (the human side is perception-derived and uncertain — approach is gentle, contact-based).
+- `embodiment` declares `place` with `hand_to` support **and** human-collaboration safety capability (force-limited interaction, per the deployment's safety standard).
+
+**Postconditions (on `success`).**
+- The human has taken the object's weight (≥ `weight_transfer_threshold`); the robot has released and withdrawn clear; `GraspState`: `held → free`.
+- No force exceeding `max_interaction_force` was exchanged with the human at any point.
+- The object was not dropped (release happened only after weight transfer was confirmed).
+
+**Safety envelope (holds throughout execution — human-safety critical).**
+- **Weight-transfer-gated release:** the grasp opens **only after** the human is detected to support ≥ `weight_transfer_threshold` of the weight (the robot's borne load drops correspondingly). Until then, the object stays grasped — the robot never releases into the air hoping the human catches it.
+- **Human-force cap:** force exchanged with the human never exceeds `max_interaction_force` — the robot does not pull, push, or resist the human's hand beyond this limit; if the human tugs, the robot yields (compliant), it does not fight.
+- **No-take safety:** if `present_timeout` elapses with no weight transfer, execute `on_no_take` (retain the object held, or retract to a safe pose) — never drop the object, never leave it half-released.
+- Gentle, contact-based approach to the (uncertain) human hand; abort the approach on unexpected contact above the human-force cap.
+- On any breach: yield to the human, keep the object secured, settle to a safe state.
+
+**Failure modes (detection → invariant).**
+
+| Mode | Detection | Invariant |
+|---|---|---|
+| `no_active_grasp` / `transport_inadmissible` | not `held` / `surface_bound` | reject; no attempt |
+| `capability_absent` | no human-collaboration safety capability | reject (must not hand to a human without force-limited safety) |
+| `no_recipient` | no reachable human / ergonomic offer pose | reject; object kept grasped |
+| `not_taken` | `present_timeout` elapsed, weight not transferred | execute `on_no_take`; object never dropped |
+| `overforce_abort` | interaction force exceeded `max_interaction_force` | yield; keep secured; report (human-safety event) |
+| `premature_release_blocked` | weight not yet transferred when release was due | release **withheld**; object kept grasped (this guard is the point) |
+| `timeout` | wall clock vs `timeout` | `on_no_take`; object secured |
+
+**Conformance test sketch.**
+- **C1 — weight-transfer release (instrumented dummy hand).** Present a bench object to an instrumented recipient (a force / weight-sensing dummy hand); command `place.hand_to`. PASS iff `result == success` ∧ the grasp opened **only after** the dummy took ≥ `weight_transfer_threshold` of the weight (force trace shows robot load dropping before release) ∧ no exchanged force exceeded `max_interaction_force` ∧ object not dropped.
+- **C2 — no-take safety.** Present the object but never take it (no weight transfer) until `present_timeout`. PASS iff `result == not_taken` ∧ the object was **never released** (executed `on_no_take = retain` or `retract`) ∧ no object on the floor.
+
+#### 5.6 `place.discard`
+
+**Intent.** Release a held object into a target region without a precise final pose — dropping it into a bin, hopper, or coarse area — guaranteeing the object lands within a designated discard zone and that the drop is safe, while deliberately relaxing the precise-placement and final-pose guarantees of the other `place` primitives.
+
+**Parameters.**
+
+| Name | Type | Default | Units | Constraint |
+|---|---|---|---|---|
+| `grasp_handle` | `GraspRef \| active` | `active` | — | the grasp holding the object |
+| `discard_zone` | `Region` | — (required) | — | the region the object must land within (bin interior, hopper, coarse area) |
+| `release_pose` | `Pose6D \| auto` | `auto` | — | pose from which to release; `auto` = a pose over `discard_zone` minimizing drop height |
+| `max_drop_height` | `Length \| auto` | `auto` | mm | cap on release height above the landing surface (limit impact) |
+| `safe_impact` | `bool` | `true` | — | require the predicted impact to be non-damaging (drop height + object / zone tolerate the impact) |
+| `frame` | `FrameRef` | `task` | — | reference frame |
+| `timeout` | `Duration \| auto` | `auto` | s | `> 0` |
+
+**Preconditions.**
+- `grasp_handle` resolves to a `held` `GraspState`; transport admissible.
+- A `release_pose` exists over `discard_zone` from which the released object will land **within** the zone (ballistic / drop prediction), reachable and collision-free.
+- If `safe_impact`: the predicted drop (from `release_pose`, ≤ `max_drop_height`) is non-damaging to the object and the zone (e.g. not a fragile object dropped from height onto a hard floor).
+- `embodiment` declares `place` with `discard` support.
+
+**Postconditions (on `success`).**
+- The object was released and landed **within `discard_zone`**; the grasp is released; `GraspState`: `held → free`.
+- The final pose of the object is **not** guaranteed (it may roll / settle arbitrarily within the zone) — this is the intended relaxation.
+- If `safe_impact`: the impact was within safe bounds (no damage).
+
+**Safety envelope (holds throughout execution).**
+- **Zone containment (the retained guarantee):** the release is performed only from a pose whose drop prediction lands the object inside `discard_zone`. Precise final pose is relaxed; **landing within the zone is not** — the object does not become a projectile outside the zone (same philosophy as `in_hand.flip`'s `safe_drop_zone`).
+- **Safe impact:** drop height `≤ max_drop_height`; if `safe_impact`, the predicted impact is non-damaging — a fragile object is not discarded from a height that would shatter it.
+- Release per `grasp.release` opening dynamics (object not flung beyond the zone by the release itself).
+- On any breach (cannot guarantee zone containment or safe impact): do **not** release; keep the object grasped and report (a discard that cannot be contained is refused).
+
+**Failure modes (detection → invariant).**
+
+| Mode | Detection | Invariant |
+|---|---|---|
+| `no_active_grasp` / `transport_inadmissible` | not `held` / `surface_bound` | reject; no attempt |
+| `no_discard_zone` | `discard_zone` absent / unreachable | reject; object kept grasped |
+| `containment_unassured` | no `release_pose` whose drop lands within the zone | do not release; keep grasped; result ≠ `success` |
+| `unsafe_impact` | (`safe_impact`) predicted drop would damage object / zone | do not release; keep grasped; result ≠ `success` |
+| `landed_outside_zone` | object landed outside `discard_zone` | report (containment failure) |
+| `timeout` | wall clock vs `timeout` | keep grasped if not released |
+
+**Conformance test sketch.**
+- **C1 — nominal discard + containment.** Grasp a bench object; command `place.discard(discard_zone = bin)`. PASS iff `result == success` ∧ the object landed **within** `discard_zone` (externally measured) ∧ drop height `≤ max_drop_height` ∧ `end_effector_free` ∧ (final object pose is **not** checked — relaxation is intended).
+- **C2 — fragile / unsafe-impact refusal.** Command `place.discard(safe_impact = true)` for a fragile object with only a high release pose available (hard floor, damaging impact). PASS iff `result == unsafe_impact` ∧ the object was **not** released (kept grasped) — discard does not become a way to smash fragile objects.
+
 ## Open issues for v0.1 freeze
 
 - [ ] Final primitive list per category — pending external red-team review (see `CONTRIBUTING.md` spec-change discipline) across structurally distinct partners (tendon-driven / direct-drive / pneumatic at minimum)
