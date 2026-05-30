@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "RFL Skill ISA composition file",
-  "description": "Validates a Skill ISA composition file (the JSON / YAML form an author writes; reference instance examples/01-cable-insertion/skill.yaml). Structural validation per 01-skill-isa.md: the compositional algebra (sequence / parallel / reactive / repeat / branch / let-bind), that every primitive call key is one of the 50 ISA primitive ids, and that an extension call is namespaced ext.<ns>.<name>. Per-primitive parameter names, types, units, and enums are constrained only for primitives precisely typed so far (approach B, tightened one primitive at a time — currently all of category 1 reach except reach.retract (reach.to_pose § 1.1, reach.approach § 1.2, reach.align § 1.3, reach.hover § 1.5, reach.scan § 1.6), all of category 2 grasp (grasp.pinch § 2.1, grasp.power § 2.2, grasp.hook § 2.3, grasp.precision_tripod § 2.4, grasp.lateral § 2.5, grasp.platform § 2.6, grasp.pin § 2.7, grasp.envelope § 2.8, grasp.adjust § 2.9, grasp.release § 2.10), all of category 3 in_hand (in_hand.rotate § 3.1, in_hand.translate § 3.2, in_hand.regrasp § 3.3, in_hand.roll § 3.4, in_hand.pivot § 3.5, in_hand.slide § 3.6, in_hand.flip § 3.7), all of category 4 transport (transport.move_to_pose § 4.1, transport.follow_trajectory § 4.2, transport.handoff § 4.3, transport.carry § 4.4, transport.lift § 4.5, transport.lower § 4.6), all of category 5 place (place.put_down § 5.1, place.stack § 5.2, place.insert_loose § 5.3, place.orient § 5.4, place.hand_to § 5.5, place.discard § 5.6), and all of category 7 sense (sense.probe § 7.1, sense.inspect § 7.2, sense.weigh § 7.3, sense.locate § 7.4, sense.verify § 7.5); the only untyped primitives are category 6 force (10) and reach.retract — all gated on the pre-freeze 01 § 6 formatting pass that aligns the StopCondition family and reach.retract spelling with the reference; every such primitive's params is an open object. Backs conformance test class 1 (parser conformance, 05-conformance.md). The algebra is the abstract BNF of 01 § Compositional algebra; this schema fixes its concrete YAML serialization, where a let-bind is a sequence statement {let, from} whose binding scopes over the rest of the enclosing sequence (the BNF's explicit in(...) is accepted as an optional key).",
+  "description": "Validates a Skill ISA composition file (the JSON / YAML form an author writes; reference instance examples/01-cable-insertion/skill.yaml). Structural validation per 01-skill-isa.md: the compositional algebra (sequence / parallel / reactive / repeat / branch / let-bind), that every primitive call key is one of the 50 ISA primitive ids, and that an extension call is namespaced ext.<ns>.<name>. Per-primitive parameter names, types, units, and enums are constrained only for primitives precisely typed so far (approach B, tightened one primitive at a time — currently all of category 1 reach except reach.retract (reach.to_pose § 1.1, reach.approach § 1.2, reach.align § 1.3, reach.hover § 1.5, reach.scan § 1.6), all of category 2 grasp (grasp.pinch § 2.1, grasp.power § 2.2, grasp.hook § 2.3, grasp.precision_tripod § 2.4, grasp.lateral § 2.5, grasp.platform § 2.6, grasp.pin § 2.7, grasp.envelope § 2.8, grasp.adjust § 2.9, grasp.release § 2.10), all of category 3 in_hand (in_hand.rotate § 3.1, in_hand.translate § 3.2, in_hand.regrasp § 3.3, in_hand.roll § 3.4, in_hand.pivot § 3.5, in_hand.slide § 3.6, in_hand.flip § 3.7), all of category 4 transport (transport.move_to_pose § 4.1, transport.follow_trajectory § 4.2, transport.handoff § 4.3, transport.carry § 4.4, transport.lift § 4.5, transport.lower § 4.6), all of category 5 place (place.put_down § 5.1, place.stack § 5.2, place.insert_loose § 5.3, place.orient § 5.4, place.hand_to § 5.5, place.discard § 5.6), nine of category 6 force (force.push § 6.2, force.pull § 6.3, force.screw § 6.4, force.unscrew § 6.5, force.press_button § 6.6, force.cut § 6.7, force.wipe § 6.8, force.scrub § 6.9, force.snap_engage § 6.10 — their StopCondition-family parameters kept as deferred StopSpec), and all of category 7 sense (sense.probe § 7.1, sense.inspect § 7.2, sense.weigh § 7.3, sense.locate § 7.4, sense.verify § 7.5); the only untyped primitives are force.insert_fit § 6.1 and reach.retract § 1.4 — both deferred to the pre-freeze 01 § 6 formatting pass that aligns their spellings with the reference; each leaves its params an open object. Backs conformance test class 1 (parser conformance, 05-conformance.md). The algebra is the abstract BNF of 01 § Compositional algebra; this schema fixes its concrete YAML serialization, where a let-bind is a sequence statement {let, from} whose binding scopes over the rest of the enclosing sequence (the BNF's explicit in(...) is accepted as an optional key).",
   "type": "object",
   "required": ["skill", "body"],
   "additionalProperties": false,
@@ -166,6 +166,24 @@
         { "type": "string", "pattern": "^[A-Za-z_][A-Za-z0-9_]*(:[A-Za-z_][A-Za-z0-9_]*)?$" },
         { "$ref": "#/$defs/Ref" }
       ]
+    },
+    "Torque": {
+      "description": "A torque value (01 § Dimensioned scalars; canonical wire unit N·m = force × length): a unit-suffixed quantity string (N·m / Nm / N*m) or a let-reference.",
+      "anyOf": [
+        { "type": "string", "pattern": "^-?[0-9]+(\\.[0-9]+)?\\s+(N·m|Nm|N\\*m)$" },
+        { "$ref": "#/$defs/Ref" }
+      ]
+    },
+    "Frequency": {
+      "description": "A frequency value (01 § Dimensioned scalars; canonical wire unit Hz = 1 / s): a unit-suffixed quantity string (Hz) or a let-reference.",
+      "anyOf": [
+        { "type": "string", "pattern": "^-?[0-9]+(\\.[0-9]+)?\\s+Hz$" },
+        { "$ref": "#/$defs/Ref" }
+      ]
+    },
+    "StopSpec": {
+      "description": "A stop / completion / actuation condition of the StopCondition family (01 § Stop / completion conditions): PullStop, ScrewStop, ActuationSpec, CutStop, ScrubStop. Precise per-family typing is deferred to the pre-freeze 01 § 6 formatting pass (which aligns the family across primitives); here it is a bare named condition (a string, e.g. breakaway / detent / path_complete / separation / disengagement / torque_drop), a parametrized condition (an object, e.g. distance(d) / tension(F) / depth(d) / turns(n) / state_change(pred)), or a let-reference.",
+      "anyOf": [ { "type": "string" }, { "type": "object" }, { "$ref": "#/$defs/Ref" } ]
     },
     "Compound": {
       "description": "A perception-derived compound value (01 § Target / reference types — ObjectTarget, FeatureRef, SurfaceTarget, Pose6D, TactileTarget, ContactConfig). RFL fixes the type but not the estimation method; here it is supplied inline as an object or by a let-reference (typically a sense.* result). Internal field typing is a deeper increment.",
@@ -1216,6 +1234,165 @@
         "timeout": { "$ref": "#/$defs/Duration", "description": "Duration | auto, > 0." }
       }
     },
+    "ForcePushParams": {
+      "type": "object",
+      "description": "Parameters of force.push (01 § 6.2), precisely typed (approach B) — the nine parameters of the § 6.2 table, no more. target + target_force are required; the rest carry the spec defaults. hold_duration is Duration | until (defers to an enclosing reactive).",
+      "required": ["target", "target_force"],
+      "additionalProperties": false,
+      "properties": {
+        "controlled_frame": { "$ref": "#/$defs/FrameRef", "description": "FrameRef — the frame / tool applying the force (default the embodiment.default_tool_axis frame)." },
+        "target": { "$ref": "#/$defs/Compound", "description": "SurfaceTarget — surface to push against (point + inward direction)." },
+        "push_direction": { "anyOf": [ { "$ref": "#/$defs/Auto" }, { "$ref": "#/$defs/Direction" } ], "description": "Direction | auto — direction to apply force (default auto = -target.normal)." },
+        "target_force": { "$ref": "#/$defs/Force", "description": "Force — the contact force to establish and hold." },
+        "max_displacement": { "anyOf": [ { "$ref": "#/$defs/Auto" }, { "$ref": "#/$defs/Length" } ], "description": "Length | auto — max allowed target displacement (default auto = small; push, do not move)." },
+        "hold_duration": { "$ref": "#/$defs/HoldDuration", "description": "Duration | until (default until = defer to an enclosing reactive)." },
+        "compliance": { "$ref": "#/$defs/Compliance", "description": "Required compliance mode (default auto)." },
+        "frame": { "$ref": "#/$defs/FrameRef", "description": "FrameRef — reference frame (default task)." },
+        "timeout": { "$ref": "#/$defs/Duration", "description": "Duration | auto, > 0." }
+      }
+    },
+    "ForcePullParams": {
+      "type": "object",
+      "description": "Parameters of force.pull (01 § 6.3), precisely typed (approach B) — the eight parameters of the § 6.3 table, no more. pull_direction + force_budget + stop_condition are required; the rest carry the spec defaults. stop_condition is a PullStop (StopCondition family), kept as a deferred StopSpec pending the 01 § 6 formatting pass.",
+      "required": ["pull_direction", "force_budget", "stop_condition"],
+      "additionalProperties": false,
+      "properties": {
+        "grasp_handle": { "$ref": "#/$defs/GraspHandle", "description": "GraspRef | active (default active) — the grasp on the target being pulled (pulling requires a grip / hook)." },
+        "pull_direction": { "$ref": "#/$defs/Direction", "description": "Direction — direction of tensile force, in frame." },
+        "force_budget": { "$ref": "#/$defs/Force", "description": "Force — max tensile force to apply." },
+        "stop_condition": { "$ref": "#/$defs/StopSpec", "description": "PullStop — distance(d) | breakaway | tension(F) (StopCondition family, deferred)." },
+        "breakaway_response": { "enum": ["arrest", "continue"], "description": "On a sudden resistance drop: stop immediately or keep moving (default arrest)." },
+        "compliance": { "$ref": "#/$defs/Compliance", "description": "Required compliance mode (default auto)." },
+        "frame": { "$ref": "#/$defs/FrameRef", "description": "FrameRef — reference frame (default task)." },
+        "timeout": { "$ref": "#/$defs/Duration", "description": "Duration | auto, > 0." }
+      }
+    },
+    "ForceScrewParams": {
+      "type": "object",
+      "description": "Parameters of force.screw (01 § 6.4), precisely typed (approach B) — the ten parameters of the § 6.4 table, no more. thread_axis + torque_budget + completion are required; the rest carry the spec defaults. completion is a ScrewStop (StopCondition family, deferred StopSpec). tool_mediated is bool | auto.",
+      "required": ["thread_axis", "torque_budget", "completion"],
+      "additionalProperties": false,
+      "properties": {
+        "grasp_handle": { "$ref": "#/$defs/GraspHandle", "description": "GraspRef | active (default active) — the grasp on the fastener, or on the tool driving it." },
+        "thread_axis": { "$ref": "#/$defs/Direction", "description": "Direction — the screw / thread axis, in frame." },
+        "torque_budget": { "$ref": "#/$defs/Torque", "description": "Torque — max torque about thread_axis (thread-strip / fastener-break limit)." },
+        "axial_force_budget": { "anyOf": [ { "$ref": "#/$defs/Auto" }, { "$ref": "#/$defs/Force" } ], "description": "Force | auto — max axial seating force." },
+        "thread_pitch": { "anyOf": [ { "$ref": "#/$defs/Auto" }, { "$ref": "#/$defs/Length" } ], "description": "Length | auto — couples rotation to advance (default auto = from the thread spec)." },
+        "completion": { "$ref": "#/$defs/StopSpec", "description": "ScrewStop — torque_rise(T) | turns(n) | torque_and_advance(T,d) (deferred)." },
+        "tool_mediated": { "anyOf": [ { "type": "boolean" }, { "$ref": "#/$defs/Auto" } ], "description": "bool | auto — whether a held tool transmits the torque (default auto = inferred from grasp)." },
+        "compliance": { "$ref": "#/$defs/Compliance", "description": "Required compliance mode (default auto)." },
+        "frame": { "$ref": "#/$defs/FrameRef", "description": "FrameRef — reference frame (default task)." },
+        "timeout": { "$ref": "#/$defs/Duration", "description": "Duration | auto, > 0." }
+      }
+    },
+    "ForceUnscrewParams": {
+      "type": "object",
+      "description": "Parameters of force.unscrew (01 § 6.5), precisely typed (approach B) — the ten parameters of the § 6.5 table, no more. thread_axis + torque_budget are required; the rest carry the spec defaults (completion defaults to disengagement, so it is not required). completion is a ScrewStop (deferred StopSpec). tool_mediated is bool | auto.",
+      "required": ["thread_axis", "torque_budget"],
+      "additionalProperties": false,
+      "properties": {
+        "grasp_handle": { "$ref": "#/$defs/GraspHandle", "description": "GraspRef | active (default active) — the grasp on the fastener, or on the tool driving it." },
+        "thread_axis": { "$ref": "#/$defs/Direction", "description": "Direction — the thread axis, in frame." },
+        "torque_budget": { "$ref": "#/$defs/Torque", "description": "Torque — max loosening torque (tool-strip / fastener-break / break-loose limit)." },
+        "thread_pitch": { "anyOf": [ { "$ref": "#/$defs/Auto" }, { "$ref": "#/$defs/Length" } ], "description": "Length | auto — couples reverse rotation to retreat." },
+        "completion": { "$ref": "#/$defs/StopSpec", "description": "ScrewStop — disengagement (default) | turns(n) | torque_drop (deferred)." },
+        "on_disengagement": { "enum": ["retain", "drop_safe"], "description": "When the fastener frees: keep it gripped, or release into a safe zone (default retain)." },
+        "tool_mediated": { "anyOf": [ { "type": "boolean" }, { "$ref": "#/$defs/Auto" } ], "description": "bool | auto — whether a held tool transmits the torque (default auto)." },
+        "compliance": { "$ref": "#/$defs/Compliance", "description": "Required compliance mode (default auto)." },
+        "frame": { "$ref": "#/$defs/FrameRef", "description": "FrameRef — reference frame (default task)." },
+        "timeout": { "$ref": "#/$defs/Duration", "description": "Duration | auto, > 0." }
+      }
+    },
+    "ForcePressButtonParams": {
+      "type": "object",
+      "description": "Parameters of force.press_button (01 § 6.6), precisely typed (approach B) — the ten parameters of the § 6.6 table, no more. target + actuation + force_budget are required; the rest carry the spec defaults. actuation is an ActuationSpec (deferred StopSpec).",
+      "required": ["target", "actuation", "force_budget"],
+      "additionalProperties": false,
+      "properties": {
+        "controlled_frame": { "$ref": "#/$defs/FrameRef", "description": "FrameRef — the frame pressing (fingertip, held stylus, etc.) (default effector / held tool)." },
+        "target": { "$ref": "#/$defs/Compound", "description": "SurfaceTarget — the button surface (point + press direction)." },
+        "press_direction": { "anyOf": [ { "$ref": "#/$defs/Auto" }, { "$ref": "#/$defs/Direction" } ], "description": "Direction | auto — default auto = -target.normal (into the button)." },
+        "actuation": { "$ref": "#/$defs/StopSpec", "description": "ActuationSpec — detent (force rise-then-drop / click) | force_threshold(F) (deferred)." },
+        "force_budget": { "$ref": "#/$defs/Force", "description": "Force — max press force (over-travel / mechanism-damage limit)." },
+        "max_travel": { "anyOf": [ { "$ref": "#/$defs/Auto" }, { "$ref": "#/$defs/Length" } ], "description": "Length | auto — max displacement (over-travel guard) (default auto = small)." },
+        "release_after": { "type": "boolean", "description": "Release the press after actuation (momentary), or hold (default true)." },
+        "compliance": { "$ref": "#/$defs/Compliance", "description": "Required compliance mode (default auto)." },
+        "frame": { "$ref": "#/$defs/FrameRef", "description": "FrameRef — reference frame (default task)." },
+        "timeout": { "$ref": "#/$defs/Duration", "description": "Duration | auto, > 0." }
+      }
+    },
+    "ForceCutParams": {
+      "type": "object",
+      "description": "Parameters of force.cut (01 § 6.7), precisely typed (approach B) — the ten parameters of the § 6.7 table, no more. cut_path + shear_force_budget + completion are required; the rest carry the spec defaults. cut_path is a Trajectory (deferred Compound); completion is a CutStop (deferred StopSpec). tool_mediated is a plain bool (always true for cut).",
+      "required": ["cut_path", "shear_force_budget", "completion"],
+      "additionalProperties": false,
+      "properties": {
+        "grasp_handle": { "$ref": "#/$defs/GraspHandle", "description": "GraspRef | active (default active) — the grasp on the cutting tool (cut is tool-mediated)." },
+        "cut_path": { "$ref": "#/$defs/Compound", "description": "Trajectory — the path along which to cut, in frame (bounds exactly where the cut goes)." },
+        "shear_force_budget": { "$ref": "#/$defs/Force", "description": "Force — max shear force (tool-damage / over-cut / kickback limit)." },
+        "completion": { "$ref": "#/$defs/StopSpec", "description": "CutStop — path_complete | separation (resistance drop) | depth(d) (deferred)." },
+        "feed_rate": { "anyOf": [ { "$ref": "#/$defs/Auto" }, { "$ref": "#/$defs/Velocity" } ], "description": "Velocity | auto — tool advance speed along the path." },
+        "on_separation": { "enum": ["retain", "drop_safe"], "description": "Handling of the freed (cut-off) part (default retain)." },
+        "tool_mediated": { "type": "boolean", "description": "Always true for cut (a cutting tool is used) (default true)." },
+        "compliance": { "$ref": "#/$defs/Compliance", "description": "Required compliance mode (default auto)." },
+        "frame": { "$ref": "#/$defs/FrameRef", "description": "FrameRef — reference frame (default task)." },
+        "timeout": { "$ref": "#/$defs/Duration", "description": "Duration | auto, > 0." }
+      }
+    },
+    "ForceWipeParams": {
+      "type": "object",
+      "description": "Parameters of force.wipe (01 § 6.8), precisely typed (approach B) — the ten parameters of the § 6.8 table, no more. surface + wipe_path + normal_force are required; the rest carry the spec defaults. wipe_path is a Trajectory (deferred Compound).",
+      "required": ["surface", "wipe_path", "normal_force"],
+      "additionalProperties": false,
+      "properties": {
+        "controlled_frame": { "$ref": "#/$defs/FrameRef", "description": "FrameRef — the frame in contact (fingertip, held cloth / tool) (default effector / held tool)." },
+        "surface": { "$ref": "#/$defs/Compound", "description": "SurfaceTarget — the surface to wipe over." },
+        "wipe_path": { "$ref": "#/$defs/Compound", "description": "Trajectory — the tangential path along the surface, in frame." },
+        "normal_force": { "$ref": "#/$defs/Force", "description": "Force — the contact force to maintain normal to the surface." },
+        "normal_force_tolerance": { "anyOf": [ { "$ref": "#/$defs/Auto" }, { "$ref": "#/$defs/Force" } ], "description": "Force | auto — allowed deviation of the maintained normal force." },
+        "feed_rate": { "anyOf": [ { "$ref": "#/$defs/Auto" }, { "$ref": "#/$defs/Velocity" } ], "description": "Velocity | auto — tangential speed along the path." },
+        "contour_following": { "type": "boolean", "description": "Accommodate surface height variation to hold normal force (default true)." },
+        "compliance": { "$ref": "#/$defs/Compliance", "description": "Required compliance mode (normal-direction compliance is essential) (default auto)." },
+        "frame": { "$ref": "#/$defs/FrameRef", "description": "FrameRef — reference frame (default task)." },
+        "timeout": { "$ref": "#/$defs/Duration", "description": "Duration | auto, > 0." }
+      }
+    },
+    "ForceScrubParams": {
+      "type": "object",
+      "description": "Parameters of force.scrub (01 § 6.9), precisely typed (approach B) — the eleven parameters of the § 6.9 table, no more. surface + normal_force + amplitude + completion are required; the rest carry the spec defaults. region is a ScanRegion | auto; completion is a ScrubStop (deferred StopSpec).",
+      "required": ["surface", "normal_force", "amplitude", "completion"],
+      "additionalProperties": false,
+      "properties": {
+        "controlled_frame": { "$ref": "#/$defs/FrameRef", "description": "FrameRef — the frame in contact (held pad / abrasive / fingertip) (default effector / held tool)." },
+        "surface": { "$ref": "#/$defs/Compound", "description": "SurfaceTarget — the surface to scrub." },
+        "region": { "$ref": "#/$defs/CompoundOrAuto", "description": "ScanRegion | auto — the area to cover (default auto = the local contact region)." },
+        "normal_force": { "$ref": "#/$defs/Force", "description": "Force — regulated contact force normal to the surface." },
+        "amplitude": { "$ref": "#/$defs/Length", "description": "Length — tangential oscillation amplitude." },
+        "frequency": { "anyOf": [ { "$ref": "#/$defs/Auto" }, { "$ref": "#/$defs/Frequency" } ], "description": "Frequency | auto — oscillation frequency; clamped to embodiment.limits.oscillation_max." },
+        "completion": { "$ref": "#/$defs/StopSpec", "description": "ScrubStop — duration(t) | passes(n) | state_change(pred) (deferred)." },
+        "normal_force_tolerance": { "anyOf": [ { "$ref": "#/$defs/Auto" }, { "$ref": "#/$defs/Force" } ], "description": "Force | auto — allowed normal-force deviation." },
+        "compliance": { "$ref": "#/$defs/Compliance", "description": "Required compliance mode (default auto)." },
+        "frame": { "$ref": "#/$defs/FrameRef", "description": "FrameRef — reference frame (default task)." },
+        "timeout": { "$ref": "#/$defs/Duration", "description": "Duration | auto, > 0." }
+      }
+    },
+    "ForceSnapEngageParams": {
+      "type": "object",
+      "description": "Parameters of force.snap_engage (01 § 6.10), precisely typed (approach B) — the nine parameters of the § 6.10 table, no more. mate_feature + engage_direction + force_budget are required; the rest carry the spec defaults (snap_signature defaults to detent). snap_signature is an ActuationSpec (deferred StopSpec).",
+      "required": ["mate_feature", "engage_direction", "force_budget"],
+      "additionalProperties": false,
+      "properties": {
+        "grasp_handle": { "$ref": "#/$defs/GraspHandle", "description": "GraspRef | active (default active) — the grasp on the part being snapped into place." },
+        "mate_feature": { "$ref": "#/$defs/Compound", "description": "FeatureRef — the bistable mechanism / receptacle to engage." },
+        "engage_direction": { "$ref": "#/$defs/Direction", "description": "Direction — direction to drive engagement, in frame." },
+        "force_budget": { "$ref": "#/$defs/Force", "description": "Force — max engagement force (mechanism-break / over-force limit, above the expected snap peak)." },
+        "snap_signature": { "$ref": "#/$defs/StopSpec", "description": "ActuationSpec — detent (default, rise-then-drop) | force_threshold(F) (deferred)." },
+        "confirm_held": { "type": "boolean", "description": "Verify the bistable connection holds after engagement (release-test) (default true)." },
+        "compliance": { "$ref": "#/$defs/Compliance", "description": "Required compliance mode (default auto)." },
+        "frame": { "$ref": "#/$defs/FrameRef", "description": "FrameRef — reference frame (default task)." },
+        "timeout": { "$ref": "#/$defs/Duration", "description": "Duration | auto, > 0." }
+      }
+    },
     "Composition": {
       "description": "A node of the compositional algebra (01 § Compositional algebra). Exactly one of: a primitive call, an extension call, or one of the combinators sequence / parallel / reactive / repeat / branch / let-bind. The forms are disjoint by key namespace, so a well-formed node matches exactly one.",
       "type": "object",
@@ -1393,6 +1570,42 @@
         {
           "if": { "required": ["transport.lower"] },
           "then": { "properties": { "transport.lower": { "$ref": "#/$defs/TransportLowerParams" } } }
+        },
+        {
+          "if": { "required": ["force.push"] },
+          "then": { "properties": { "force.push": { "$ref": "#/$defs/ForcePushParams" } } }
+        },
+        {
+          "if": { "required": ["force.pull"] },
+          "then": { "properties": { "force.pull": { "$ref": "#/$defs/ForcePullParams" } } }
+        },
+        {
+          "if": { "required": ["force.screw"] },
+          "then": { "properties": { "force.screw": { "$ref": "#/$defs/ForceScrewParams" } } }
+        },
+        {
+          "if": { "required": ["force.unscrew"] },
+          "then": { "properties": { "force.unscrew": { "$ref": "#/$defs/ForceUnscrewParams" } } }
+        },
+        {
+          "if": { "required": ["force.press_button"] },
+          "then": { "properties": { "force.press_button": { "$ref": "#/$defs/ForcePressButtonParams" } } }
+        },
+        {
+          "if": { "required": ["force.cut"] },
+          "then": { "properties": { "force.cut": { "$ref": "#/$defs/ForceCutParams" } } }
+        },
+        {
+          "if": { "required": ["force.wipe"] },
+          "then": { "properties": { "force.wipe": { "$ref": "#/$defs/ForceWipeParams" } } }
+        },
+        {
+          "if": { "required": ["force.scrub"] },
+          "then": { "properties": { "force.scrub": { "$ref": "#/$defs/ForceScrubParams" } } }
+        },
+        {
+          "if": { "required": ["force.snap_engage"] },
+          "then": { "properties": { "force.snap_engage": { "$ref": "#/$defs/ForceSnapEngageParams" } } }
         }
       ]
     },
