@@ -55,8 +55,13 @@
     },
     "Ref": {
       "type": "string",
-      "pattern": "^&?[A-Za-z_][A-Za-z0-9_]*$",
-      "description": "A reference to a let-bound value (BNF Reference / Identifier): a bare identifier, optionally &-prefixed, naming a value bound earlier by a let-bind. In the serialized form any typed parameter may instead be such a reference (e.g. target: connector_t)."
+      "pattern": "^&?(?!(auto|active|until|all|until_satisfied)$)[A-Za-z_][A-Za-z0-9_]*$",
+      "description": "A reference to a let-bound value (BNF Reference / Identifier): a bare identifier, optionally &-prefixed, naming a value bound earlier by a let-bind. In the serialized form any typed parameter may instead be such a reference (e.g. target: connector_t). The BNF's reserved terminals (auto, active, until, all, until_satisfied) are excluded so they are accepted only where a parameter's own schema lists them (Auto / GraspHandle / HoldDuration / Axes / Count); this keeps e.g. hold_duration: auto from sneaking in as a reference."
+    },
+    "Axis": {
+      "type": "string",
+      "pattern": "^[xyz]$",
+      "description": "An unsigned principal axis of a frame (01 § Geometric types): x, y, or z. Distinct from SignedAxis (a +/- axis)."
     },
     "Auto": {
       "const": "auto",
@@ -363,21 +368,21 @@
     },
     "ReachToPoseParams": {
       "type": "object",
-      "description": "Parameters of reach.to_pose (01 § 1.1), precisely typed (approach B). target_pose is required; the rest carry the spec defaults. Note the acceleration parameter is named max_accel here (transport.move_to_pose names it max_acceleration). Pose6D internals are deferred (inline object or reference).",
+      "description": "Parameters of reach.to_pose (01 § 1.1), precisely typed (approach B) — the nine parameters of the § 1.1 table, no more. target_pose is required; the rest carry the spec defaults. There is no acceleration parameter (unlike transport.move_to_pose). Pose6D internals are deferred (inline object or reference).",
       "required": ["target_pose"],
       "additionalProperties": false,
       "properties": {
         "target_pose": {
           "anyOf": [ { "type": "object" }, { "$ref": "#/$defs/Ref" } ],
-          "description": "Pose6D — goal pose of the controlled frame in frame. Inline object or let-reference."
-        },
-        "controlled_frame": {
-          "$ref": "#/$defs/FrameRef",
-          "description": "FrameRef — the frame being positioned (default embodiment.default_control_frame)."
+          "description": "Pose6D — goal pose of the controlled frame in frame; must admit >= 1 IK solution. Inline object or let-reference."
         },
         "frame": {
           "$ref": "#/$defs/FrameRef",
-          "description": "FrameRef — reference frame for target_pose (default task)."
+          "description": "FrameRef — calibrated reference frame (default task)."
+        },
+        "controlled_frame": {
+          "$ref": "#/$defs/FrameRef",
+          "description": "FrameRef — a declared control frame (default embodiment.default_control_frame)."
         },
         "position_tolerance": {
           "$ref": "#/$defs/Length",
@@ -385,19 +390,15 @@
         },
         "orientation_tolerance": {
           "$ref": "#/$defs/Angle",
-          "description": "Angle > 0, geodesic (default 5 deg)."
+          "description": "Angle > 0, geodesic on SO(3) (default 2 deg)."
         },
         "max_velocity": {
           "anyOf": [ { "$ref": "#/$defs/Auto" }, { "$ref": "#/$defs/Velocity" } ],
           "description": "Velocity | auto — clamped to embodiment.limits.v_cartesian_max."
         },
-        "max_accel": {
-          "anyOf": [ { "$ref": "#/$defs/Auto" }, { "$ref": "#/$defs/Acceleration" } ],
-          "description": "Acceleration | auto — clamped to embodiment.limits.a_cartesian_max."
-        },
         "clearance": {
           "$ref": "#/$defs/Length",
-          "description": "Length >= 0 (default 0) — min distance to static obstacles over the path."
+          "description": "Length >= 0 (default 0) — minimum margin to the static collision model."
         },
         "contact_response": {
           "$ref": "#/$defs/ContactResponse",
@@ -411,41 +412,45 @@
     },
     "ReachApproachParams": {
       "type": "object",
-      "description": "Parameters of reach.approach (01 § 1.2), precisely typed (approach B). target + standoff are required; the rest carry the spec defaults. contact_response defaults to stop (approaching a surface). SurfaceTarget internals are deferred (inline object or reference).",
+      "description": "Parameters of reach.approach (01 § 1.2), precisely typed (approach B) — the ten parameters of the § 1.2 table, no more. target + standoff are required; the rest carry the spec defaults. approach_axis is an Axis (unsigned). SurfaceTarget internals are deferred (inline object or reference).",
       "required": ["target", "standoff"],
       "additionalProperties": false,
       "properties": {
         "target": {
           "anyOf": [ { "type": "object" }, { "$ref": "#/$defs/Ref" } ],
-          "description": "SurfaceTarget — point + outward normal to approach. Inline object or let-reference."
+          "description": "SurfaceTarget — resolvable point + outward unit normal in a calibrated frame. Inline object or let-reference."
         },
         "standoff": {
           "$ref": "#/$defs/Length",
-          "description": "Length > 0 — final distance from the surface along the normal."
+          "description": "Length > 0 — terminal distance from the surface along the normal."
         },
         "controlled_frame": {
           "$ref": "#/$defs/FrameRef",
-          "description": "FrameRef — the frame being positioned (default embodiment.default_control_frame)."
+          "description": "FrameRef — declared control frame (default embodiment.default_control_frame)."
         },
         "approach_axis": {
-          "$ref": "#/$defs/SignedAxis",
-          "description": "SignedAxis — controlled-frame axis aligned to the inward normal (default -embodiment.default_tool_axis)."
+          "$ref": "#/$defs/Axis",
+          "description": "Axis — controlled-frame axis aligned anti-parallel to the normal (default embodiment.default_tool_axis)."
         },
-        "frame": {
-          "$ref": "#/$defs/FrameRef",
-          "description": "FrameRef — reference frame (default task)."
+        "position_tolerance": {
+          "$ref": "#/$defs/Length",
+          "description": "Length > 0 (default 2 mm)."
         },
-        "speed": {
+        "orientation_tolerance": {
+          "$ref": "#/$defs/Angle",
+          "description": "Angle > 0, geodesic on SO(3) (default 2 deg)."
+        },
+        "max_velocity": {
           "anyOf": [ { "$ref": "#/$defs/Auto" }, { "$ref": "#/$defs/Velocity" } ],
           "description": "Velocity | auto — clamped to embodiment.limits.v_cartesian_max."
         },
         "clearance": {
           "$ref": "#/$defs/Length",
-          "description": "Length >= 0 (default 0) — obstacle margin during approach."
+          "description": "Length >= 0 (default 0) — margin to the static model, excluding target."
         },
         "contact_response": {
           "$ref": "#/$defs/ContactResponse",
-          "description": "Reaction to unplanned contact (default stop)."
+          "description": "Reaction to contact before standoff (default abort)."
         },
         "timeout": {
           "$ref": "#/$defs/Duration",
@@ -455,85 +460,113 @@
     },
     "ReachHoverParams": {
       "type": "object",
-      "description": "Parameters of reach.hover (01 § 1.5), precisely typed (approach B). target + standoff are required; the rest carry the spec defaults. target is a SurfaceTarget | Pose6D (deferred to an inline object or a reference). hold_duration is Duration | until, not Duration | auto.",
+      "description": "Parameters of reach.hover (01 § 1.5), precisely typed (approach B) — the twelve parameters of the § 1.5 table, no more. target + standoff are required; the rest carry the spec defaults. There is no timeout parameter (the hold is bounded by duration / the enclosing reactive). duration is Duration | until, not Duration | auto. target is a SurfaceTarget | FrameRef.",
       "required": ["target", "standoff"],
       "additionalProperties": false,
       "properties": {
         "target": {
           "anyOf": [ { "type": "object" }, { "$ref": "#/$defs/Ref" } ],
-          "description": "SurfaceTarget | Pose6D — what to hover relative to. Inline object or let-reference."
+          "description": "SurfaceTarget | FrameRef — reference to hover over; may be time-varying. Inline object or let-reference (a bare FrameRef name is also a reference)."
         },
         "standoff": {
           "$ref": "#/$defs/Length",
-          "description": "Length > 0 — distance from target maintained."
+          "description": "Length > 0 — maintained distance from target along the normal."
         },
         "controlled_frame": {
           "$ref": "#/$defs/FrameRef",
-          "description": "FrameRef — the frame being stationed (default embodiment.default_control_frame)."
+          "description": "FrameRef — declared control frame (default embodiment.default_control_frame)."
         },
-        "frame": {
-          "$ref": "#/$defs/FrameRef",
-          "description": "FrameRef — reference frame (default task)."
+        "approach_axis": {
+          "$ref": "#/$defs/Axis",
+          "description": "Axis — axis held anti-parallel to the normal (default embodiment.default_tool_axis)."
         },
-        "hold_duration": {
-          "$ref": "#/$defs/HoldDuration",
-          "description": "Duration | until (default until = defer to an enclosing reactive)."
-        },
-        "position_tolerance": {
+        "station_tolerance": {
           "$ref": "#/$defs/Length",
-          "description": "Length > 0 — station-keeping bound (default 5 mm)."
+          "description": "Length — allowed positional excursion from the hover setpoint (default 2 mm)."
+        },
+        "orientation_tolerance": {
+          "$ref": "#/$defs/Angle",
+          "description": "Angle > 0, geodesic (default 2 deg)."
+        },
+        "duration": {
+          "$ref": "#/$defs/HoldDuration",
+          "description": "Duration | until (default until = defer termination to an enclosing reactive)."
+        },
+        "track_target": {
+          "type": "boolean",
+          "description": "Follow a moving target vs. hold a fixed setpoint (default false)."
+        },
+        "settling_time": {
+          "$ref": "#/$defs/Duration",
+          "description": "Duration | auto — max time to return within station_tolerance after a disturbance."
         },
         "max_velocity": {
           "anyOf": [ { "$ref": "#/$defs/Auto" }, { "$ref": "#/$defs/Velocity" } ],
-          "description": "Velocity | auto — clamped to embodiment.limits.v_cartesian_max."
+          "description": "Velocity | auto — correction / tracking speed cap."
         },
         "clearance": {
           "$ref": "#/$defs/Length",
-          "description": "Length >= 0 (default 0) — obstacle margin while stationed."
+          "description": "Length >= 0 (default 0) — margin to the static model, excluding target."
         },
         "contact_response": {
           "$ref": "#/$defs/ContactResponse",
           "description": "Reaction to unplanned contact (default abort)."
-        },
-        "timeout": {
-          "$ref": "#/$defs/Duration",
-          "description": "Duration | auto, > 0."
         }
       }
     },
     "ReachScanParams": {
       "type": "object",
-      "description": "Parameters of reach.scan (01 § 1.6), precisely typed (approach B). scan_region is required; the rest carry the spec defaults. ScanRegion internals are deferred (inline object or reference).",
-      "required": ["scan_region"],
+      "description": "Parameters of reach.scan (01 § 1.6), precisely typed (approach B) — the thirteen parameters of the § 1.6 table, no more. region + standoff are required; the rest carry the spec defaults. The sweep pattern parameter is named pattern (enum raster / spiral / arc / waypoints, default raster) and the region parameter is named region. coverage_overlap is Ratio | auto. ScanRegion internals are deferred (inline object or reference).",
+      "required": ["region", "standoff"],
       "additionalProperties": false,
       "properties": {
-        "scan_region": {
+        "region": {
           "anyOf": [ { "type": "object" }, { "$ref": "#/$defs/Ref" } ],
-          "description": "ScanRegion — the region / volume / surface to cover. Inline object or let-reference."
+          "description": "ScanRegion — volume / surface / path to cover, in a calibrated frame. Inline object or let-reference."
         },
         "sensor_frame": {
           "$ref": "#/$defs/FrameRef",
-          "description": "FrameRef — the frame swept over the region (default embodiment.default_sensor_frame)."
+          "description": "FrameRef — frame whose coverage matters (default embodiment.default_sensor_frame)."
         },
         "standoff": {
-          "anyOf": [ { "$ref": "#/$defs/Auto" }, { "$ref": "#/$defs/Length" } ],
-          "description": "Length | auto — sensor working distance from the surface (default auto, from the sensor descriptor)."
+          "$ref": "#/$defs/Length",
+          "description": "Length > 0 — sensor-to-region distance maintained during the sweep."
+        },
+        "pattern": {
+          "enum": ["raster", "spiral", "arc", "waypoints"],
+          "description": "Deterministic sweep pattern over the region (default raster)."
         },
         "coverage_overlap": {
-          "$ref": "#/$defs/Ratio",
-          "description": "Ratio in [0,1) (default 0.2) — fractional overlap between adjacent swaths."
+          "anyOf": [ { "$ref": "#/$defs/Auto" }, { "$ref": "#/$defs/Ratio" } ],
+          "description": "Ratio | auto — overlap between passes (default auto, derived from the sensor FOV)."
         },
-        "scan_pattern": {
-          "enum": ["raster", "spiral", "arc", "waypoints", "auto"],
-          "description": "Sweep pattern (default auto, resolved by the sweep-set generator from scan_region.kind)."
+        "sensor_axis": {
+          "$ref": "#/$defs/Axis",
+          "description": "Axis — sensor axis pointed at the region (default the sensor descriptor bore_axis)."
         },
-        "speed": {
+        "dwell": {
+          "$ref": "#/$defs/Duration",
+          "description": "Duration (default 0) — hold time at each sweep pose for sensor integration."
+        },
+        "position_tolerance": {
+          "$ref": "#/$defs/Length",
+          "description": "Length — per-sweep-pose positional tolerance (default 2 mm)."
+        },
+        "orientation_tolerance": {
+          "$ref": "#/$defs/Angle",
+          "description": "Angle > 0, geodesic (default 2 deg)."
+        },
+        "max_velocity": {
           "anyOf": [ { "$ref": "#/$defs/Auto" }, { "$ref": "#/$defs/Velocity" } ],
-          "description": "Velocity | auto — clamped to embodiment.limits.v_cartesian_max."
+          "description": "Velocity | auto — sweep speed; also bounded by the sensor max_sweep_rate."
         },
-        "frame": {
-          "$ref": "#/$defs/FrameRef",
-          "description": "FrameRef — reference frame (default task)."
+        "clearance": {
+          "$ref": "#/$defs/Length",
+          "description": "Length >= 0 (default 0) — margin to the static model over the sweep, excluding region."
+        },
+        "contact_response": {
+          "$ref": "#/$defs/ContactResponse",
+          "description": "Reaction to unplanned contact (default abort)."
         },
         "timeout": {
           "$ref": "#/$defs/Duration",
