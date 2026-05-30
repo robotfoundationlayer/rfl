@@ -1,6 +1,6 @@
 # Conformance — Specification
 
-> **Status**: in progress (2026-05-31) — the four test classes, the three-tier regime, and the envelope-class taxonomy (terminal-postcondition / interval-invariant / grasp-continuity / force-torque-trajectory) are specified. Remaining before freeze: the verification units (hazardous-operation benches; audit propagation; the determinism floor + fidelity-tier → badge + trademark gate), tracked in `02-translation-layer.md` § Open issues (Owned by `05`).
+> **Status**: in progress (2026-05-31) — the four test classes, the three-tier regime, and the envelope-class taxonomy (terminal-postcondition / interval-invariant / grasp-continuity / force-torque-trajectory) are specified. Remaining before freeze: the verification units (audit propagation; the determinism floor + fidelity-tier → badge + trademark gate), tracked in `02-translation-layer.md` § Open issues (Owned by `05`).
 
 ## Scope
 
@@ -191,6 +191,40 @@ This sets the precedent for every future irreversible extension (`weld`, `adhesi
 - **The engagement-confirmation parameter (`confirm_held`)** and the `snap_engage` / `snap_disengage` / `cut` primitive definitions — `01-skill-isa.md`.
 - **The `tool_safety` regime** an irreversible hazardous-tool operation also requires — § Hazardous-operation benches (next unit) and `03` § Safety capabilities.
 - **Future irreversible extensions** (`weld`, `adhesive`) and the reverse `snap_disengage` — `06-extension-registry.md`.
+
+## Hazardous-operation conformance benches
+
+Two operations interact with the world in ways that can cause harm — a hazardous *tool* (`force.cut` wields a cutter) and a *human* (`place.hand_to` hands an object to a person). Their capability *declarations* are owned by `03` § Safety capabilities (`tool_safety`, `human_collaboration_safety`); this unit defines the instrumented **test benches** that verify the declared safety actually holds. Both are physical, instrumented benches (test class 4).
+
+### Tool-safety bench
+
+A primitive that wields a hazardous tool does not run without the declared `tool_safety` capability — the gate is enforced at validation (`03`); the bench here verifies that the declared safety holds in execution, with **instrumented test material**:
+
+- **Shear measurement** — the cut is a controlled shear within the declared bound, not an uncontrolled tear or crush.
+- **Separation detection** — the part actually separated (the cut completed), distinguishing a true cut from a stalled or partial one.
+- **Hard-inclusion injection** — an unexpected hard inclusion is introduced in the cut path; the operation must **arrest safely** (no uncontrolled follow-through, no tool shatter), exercising the irreversible-operation safety class's bounded-path and partial-state reporting (§ Reversibility and irreversible-operation safety) under an adverse condition.
+
+### Human-collaboration / handover bench
+
+`place.hand_to` releases an object to a human and is safety-critical (ISO 10218 / 13482 context, tied to the L4 certification loop). The bench uses an **instrumented dummy-hand recipient** to verify:
+
+- **Release only after weight transfer** — the object is not released until the recipient is measurably bearing it (no premature drop into an unready hand);
+- **Exchanged force ≤ `max_interaction_force`** — the force exchanged with the human stays under the declared limit (never crush the hand);
+- **Compliant yielding to a human tug** — the embodiment yields compliantly when the human pulls, rather than resisting rigidly (the force semantics tie to `01` / `06`).
+
+The capability declaration (`human_collaboration_safety`: `standard` + `max_interaction_force` / `weight_transfer_threshold`) is `03`'s; the dummy-hand bench that verifies it is here.
+
+### Conformance obligations (hazardous operations)
+
+- **HAZ1 — hazardous-tool gate.** A primitive wielding a hazardous tool (`force.cut`) does not run without the declared `tool_safety` capability (`03`); the gate is enforced at validation, and the tool-safety bench verifies the declared safety in execution.
+- **HAZ2 — tool-safety bench.** The bench uses instrumented test material to verify controlled shear (shear measurement), actual separation (separation detection), and safe handling of an unexpected hard inclusion (hard-inclusion injection → arrest, no uncontrolled follow-through).
+- **HAZ3 — human-handover bench.** `place.hand_to` is verified with an instrumented dummy-hand recipient: release only after weight transfer, exchanged force ≤ `max_interaction_force`, and compliant yielding to a human tug (ISO 10218 / 13482, L4 certification).
+
+### Deferred and referenced
+
+- **The capability declarations** (`tool_safety`: `hazard_class` + `standard`; `human_collaboration_safety`: `standard` + `max_interaction_force` / `weight_transfer_threshold`) and their validation gates — `03-driver-interface.md` § Safety capabilities.
+- **The ISO 10218 / 13482 flow-through** to the Tier-3 notified-body regime — § Three-tier conformance regime (and the strategy documents).
+- **The compliant-yield force semantics** a human tug invokes — `01-skill-isa.md` / `06-extension-registry.md`.
 
 ## Three-tier conformance regime
 
