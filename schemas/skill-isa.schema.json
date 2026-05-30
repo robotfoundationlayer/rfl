@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "RFL Skill ISA composition file",
-  "description": "Validates a Skill ISA composition file (the JSON / YAML form an author writes; reference instance examples/01-cable-insertion/skill.yaml). Structural validation per 01-skill-isa.md: the compositional algebra (sequence / parallel / reactive / repeat / branch / let-bind), that every primitive call key is one of the 50 ISA primitive ids, and that an extension call is namespaced ext.<ns>.<name>. Per-primitive parameter names, types, units, and enums are constrained only for primitives precisely typed so far (approach B, tightened one primitive at a time — currently grasp.pinch § 2.1, grasp.release § 2.10, transport.move_to_pose § 4.1, all of reach except reach.retract — reach.to_pose § 1.1, reach.approach § 1.2, reach.align § 1.3, reach.hover § 1.5, reach.scan § 1.6 — and all of sense — sense.probe § 7.1, sense.inspect § 7.2, sense.weigh § 7.3, sense.locate § 7.4, sense.verify § 7.5); every other primitive's params is an open object. Backs conformance test class 1 (parser conformance, 05-conformance.md). The algebra is the abstract BNF of 01 § Compositional algebra; this schema fixes its concrete YAML serialization, where a let-bind is a sequence statement {let, from} whose binding scopes over the rest of the enclosing sequence (the BNF's explicit in(...) is accepted as an optional key).",
+  "description": "Validates a Skill ISA composition file (the JSON / YAML form an author writes; reference instance examples/01-cable-insertion/skill.yaml). Structural validation per 01-skill-isa.md: the compositional algebra (sequence / parallel / reactive / repeat / branch / let-bind), that every primitive call key is one of the 50 ISA primitive ids, and that an extension call is namespaced ext.<ns>.<name>. Per-primitive parameter names, types, units, and enums are constrained only for primitives precisely typed so far (approach B, tightened one primitive at a time — currently all of category 1 reach except reach.retract (reach.to_pose § 1.1, reach.approach § 1.2, reach.align § 1.3, reach.hover § 1.5, reach.scan § 1.6), all of category 2 grasp (grasp.pinch § 2.1, grasp.power § 2.2, grasp.hook § 2.3, grasp.precision_tripod § 2.4, grasp.lateral § 2.5, grasp.platform § 2.6, grasp.pin § 2.7, grasp.envelope § 2.8, grasp.adjust § 2.9, grasp.release § 2.10), transport.move_to_pose § 4.1, and all of category 7 sense (sense.probe § 7.1, sense.inspect § 7.2, sense.weigh § 7.3, sense.locate § 7.4, sense.verify § 7.5); every other primitive's params is an open object. Backs conformance test class 1 (parser conformance, 05-conformance.md). The algebra is the abstract BNF of 01 § Compositional algebra; this schema fixes its concrete YAML serialization, where a let-bind is a sequence statement {let, from} whose binding scopes over the rest of the enclosing sequence (the BNF's explicit in(...) is accepted as an optional key).",
   "type": "object",
   "required": ["skill", "body"],
   "additionalProperties": false,
@@ -159,6 +159,18 @@
     "Direction": {
       "description": "A unit vector in a named frame (01 § Geometric types), or a let-reference. Inline object (the vector / its components) or a reference; the planner literal auto is accepted only where a parameter's own schema lists it.",
       "anyOf": [ { "type": "object" }, { "$ref": "#/$defs/Ref" } ]
+    },
+    "Compound": {
+      "description": "A perception-derived compound value (01 § Target / reference types — ObjectTarget, FeatureRef, SurfaceTarget, Pose6D, TactileTarget, ContactConfig). RFL fixes the type but not the estimation method; here it is supplied inline as an object or by a let-reference (typically a sense.* result). Internal field typing is a deeper increment.",
+      "anyOf": [ { "type": "object" }, { "$ref": "#/$defs/Ref" } ]
+    },
+    "CompoundOrAuto": {
+      "description": "A perception-derived compound (see Compound) typed T | auto in the spec: the literal auto (planner-derived), an inline object, or a let-reference.",
+      "anyOf": [ { "$ref": "#/$defs/Auto" }, { "type": "object" }, { "$ref": "#/$defs/Ref" } ]
+    },
+    "SlipResponse": {
+      "enum": ["abort", "retighten", "hold"],
+      "description": "Reaction to detected slip, shared across grasp primitives (default retighten)."
     },
     "Axes": {
       "description": "A set of principal axes, or all (01 § reach.align). Either the literal all or a non-empty array drawn from {x, y, z}.",
@@ -742,6 +754,148 @@
         }
       }
     },
+    "GraspPowerParams": {
+      "type": "object",
+      "description": "Parameters of grasp.power (01 § 2.2), precisely typed (approach B) — the seven parameters of the § 2.2 table, no more. target + force_budget are required; the rest carry the spec defaults.",
+      "required": ["target", "force_budget"],
+      "additionalProperties": false,
+      "properties": {
+        "target": { "$ref": "#/$defs/Compound", "description": "ObjectTarget — object to enclose." },
+        "force_budget": { "$ref": "#/$defs/Force", "description": "Force > 0; clamped to embodiment.limits.grip_force_max and target.max_contact_force." },
+        "grasp_pose": { "$ref": "#/$defs/CompoundOrAuto", "description": "Pose6D | auto — palm / enclosure pose (default auto)." },
+        "controlled_frame": { "$ref": "#/$defs/FrameRef", "description": "FrameRef — declared grasp frame (default embodiment.default_grasp_frame)." },
+        "enclosure_target": { "$ref": "#/$defs/CompoundOrAuto", "description": "TactileTarget | auto — desired wrap / contact state (default auto)." },
+        "slip_response": { "$ref": "#/$defs/SlipResponse", "description": "Reaction to detected slip (default retighten)." },
+        "timeout": { "$ref": "#/$defs/Duration", "description": "Duration | auto, > 0." }
+      }
+    },
+    "GraspHookParams": {
+      "type": "object",
+      "description": "Parameters of grasp.hook (01 § 2.3), precisely typed (approach B) — the six parameters of the § 2.3 table, no more. hook_feature + force_budget are required; the rest carry the spec defaults.",
+      "required": ["hook_feature", "force_budget"],
+      "additionalProperties": false,
+      "properties": {
+        "hook_feature": { "$ref": "#/$defs/Compound", "description": "FeatureRef — the handle / loop / bar to hook." },
+        "force_budget": { "$ref": "#/$defs/Force", "description": "Force > 0; clamped to limits." },
+        "grasp_pose": { "$ref": "#/$defs/CompoundOrAuto", "description": "Pose6D | auto — hook pose (default auto)." },
+        "controlled_frame": { "$ref": "#/$defs/FrameRef", "description": "FrameRef — declared grasp frame (default embodiment.default_grasp_frame)." },
+        "load_direction": {
+          "anyOf": [ { "$ref": "#/$defs/Auto" }, { "$ref": "#/$defs/Direction" } ],
+          "description": "Direction | auto — expected load direction once hooked (default auto)."
+        },
+        "timeout": { "$ref": "#/$defs/Duration", "description": "Duration | auto, > 0." }
+      }
+    },
+    "GraspPrecisionTripodParams": {
+      "type": "object",
+      "description": "Parameters of grasp.precision_tripod (01 § 2.4), precisely typed (approach B) — the eight parameters of the § 2.4 table, no more. target + force_budget are required; the rest carry the spec defaults.",
+      "required": ["target", "force_budget"],
+      "additionalProperties": false,
+      "properties": {
+        "target": { "$ref": "#/$defs/Compound", "description": "ObjectTarget — small object for three-finger opposition." },
+        "force_budget": { "$ref": "#/$defs/Force", "description": "Force > 0; clamped to limits." },
+        "grasp_pose": { "$ref": "#/$defs/CompoundOrAuto", "description": "Pose6D | auto — tripod contact-frame pose (default auto)." },
+        "controlled_frame": { "$ref": "#/$defs/FrameRef", "description": "FrameRef — declared grasp frame (default embodiment.default_grasp_frame)." },
+        "contact_config": { "$ref": "#/$defs/CompoundOrAuto", "description": "ContactConfig | auto — three-finger placement (default auto)." },
+        "tactile_target": { "$ref": "#/$defs/CompoundOrAuto", "description": "TactileTarget | auto — per-finger contact target (default auto)." },
+        "slip_response": { "$ref": "#/$defs/SlipResponse", "description": "Reaction to detected slip (default retighten)." },
+        "timeout": { "$ref": "#/$defs/Duration", "description": "Duration | auto, > 0." }
+      }
+    },
+    "GraspLateralParams": {
+      "type": "object",
+      "description": "Parameters of grasp.lateral (01 § 2.5), precisely typed (approach B) — the eight parameters of the § 2.5 table, no more. target + force_budget are required; the rest carry the spec defaults.",
+      "required": ["target", "force_budget"],
+      "additionalProperties": false,
+      "properties": {
+        "target": { "$ref": "#/$defs/Compound", "description": "ObjectTarget — thin / flat object for a side (key-grip) grasp." },
+        "force_budget": { "$ref": "#/$defs/Force", "description": "Force > 0; clamped to limits." },
+        "grasp_edge": { "$ref": "#/$defs/CompoundOrAuto", "description": "FeatureRef | auto — the edge to grip against the thumb side (default auto)." },
+        "grasp_pose": { "$ref": "#/$defs/CompoundOrAuto", "description": "Pose6D | auto — lateral contact-frame pose (default auto)." },
+        "controlled_frame": { "$ref": "#/$defs/FrameRef", "description": "FrameRef — declared grasp frame (default embodiment.default_grasp_frame)." },
+        "tactile_target": { "$ref": "#/$defs/CompoundOrAuto", "description": "TactileTarget | auto — contact target (default auto)." },
+        "slip_response": { "$ref": "#/$defs/SlipResponse", "description": "Reaction to detected slip (default retighten)." },
+        "timeout": { "$ref": "#/$defs/Duration", "description": "Duration | auto, > 0." }
+      }
+    },
+    "GraspPlatformParams": {
+      "type": "object",
+      "description": "Parameters of grasp.platform (01 § 2.6), precisely typed (approach B) — the six parameters of the § 2.6 table, no more. target is required; the rest carry the spec defaults. There is no force_budget (an open-palm support, not a closing grasp).",
+      "required": ["target"],
+      "additionalProperties": false,
+      "properties": {
+        "target": { "$ref": "#/$defs/Compound", "description": "ObjectTarget — object to support on the open effector." },
+        "support_pose": { "$ref": "#/$defs/CompoundOrAuto", "description": "Pose6D | auto — platform / palm pose under the object's CoM (default auto)." },
+        "controlled_frame": { "$ref": "#/$defs/FrameRef", "description": "FrameRef — declared support frame (default embodiment.default_support_frame)." },
+        "balance_tolerance": { "$ref": "#/$defs/Length", "description": "Length — max CoM offset from the support-polygon centroid (default 5 mm)." },
+        "tilt_response": {
+          "enum": ["abort", "recenter", "hold"],
+          "description": "Reaction to CoM drift toward the polygon edge (default recenter)."
+        },
+        "timeout": { "$ref": "#/$defs/Duration", "description": "Duration | auto, > 0." }
+      }
+    },
+    "GraspPinParams": {
+      "type": "object",
+      "description": "Parameters of grasp.pin (01 § 2.7), precisely typed (approach B) — the seven parameters of the § 2.7 table, no more. target + against_surface + force_budget are required; the rest carry the spec defaults. There is no slip_response.",
+      "required": ["target", "against_surface", "force_budget"],
+      "additionalProperties": false,
+      "properties": {
+        "target": { "$ref": "#/$defs/Compound", "description": "ObjectTarget — object to pin against an opposing surface." },
+        "against_surface": { "$ref": "#/$defs/Compound", "description": "SurfaceTarget — the surface to pin the object against." },
+        "force_budget": { "$ref": "#/$defs/Force", "description": "Force > 0 — the pinning force." },
+        "pin_direction": {
+          "anyOf": [ { "$ref": "#/$defs/Auto" }, { "$ref": "#/$defs/Direction" } ],
+          "description": "Direction | auto — direction to press (default auto = surface inward normal)."
+        },
+        "controlled_frame": { "$ref": "#/$defs/FrameRef", "description": "FrameRef — declared frame doing the pinning (default embodiment.default_grasp_frame)." },
+        "tactile_target": { "$ref": "#/$defs/CompoundOrAuto", "description": "TactileTarget | auto — contact target (default auto)." },
+        "timeout": { "$ref": "#/$defs/Duration", "description": "Duration | auto, > 0." }
+      }
+    },
+    "GraspEnvelopeParams": {
+      "type": "object",
+      "description": "Parameters of grasp.envelope (01 § 2.8), precisely typed (approach B) — the eight parameters of the § 2.8 table, no more. target + force_budget are required; the rest carry the spec defaults.",
+      "required": ["target", "force_budget"],
+      "additionalProperties": false,
+      "properties": {
+        "target": { "$ref": "#/$defs/Compound", "description": "ObjectTarget — object / soft body to enclose." },
+        "force_budget": { "$ref": "#/$defs/Force", "description": "Force > 0 — gentle; clamped to limits + fragility." },
+        "mode": {
+          "enum": ["conform", "cage"],
+          "description": "conform to the object, or cage it with clearance (default conform)."
+        },
+        "cage_clearance": {
+          "anyOf": [ { "$ref": "#/$defs/Auto" }, { "$ref": "#/$defs/Length" } ],
+          "description": "Length | auto — (cage) gap to leave around the object (default auto)."
+        },
+        "grasp_pose": { "$ref": "#/$defs/CompoundOrAuto", "description": "Pose6D | auto — enclosure pose (default auto)." },
+        "controlled_frame": { "$ref": "#/$defs/FrameRef", "description": "FrameRef — declared grasp frame (default embodiment.default_grasp_frame)." },
+        "tactile_target": { "$ref": "#/$defs/CompoundOrAuto", "description": "TactileTarget | auto — desired enclosure contact state (default auto)." },
+        "timeout": { "$ref": "#/$defs/Duration", "description": "Duration | auto, > 0." }
+      }
+    },
+    "GraspAdjustParams": {
+      "type": ["object", "null"],
+      "description": "Parameters of grasp.adjust (01 § 2.9), precisely typed (approach B) — the eight parameters of the § 2.9 table, no more. All parameters are optional (grasp_handle defaults to active), so a param-less call (null / empty) is valid.",
+      "additionalProperties": false,
+      "properties": {
+        "grasp_handle": { "$ref": "#/$defs/GraspHandle", "description": "GraspRef | active (default active) — the established grasp to modify." },
+        "new_force_budget": {
+          "anyOf": [ { "$ref": "#/$defs/Auto" }, { "$ref": "#/$defs/Force" } ],
+          "description": "Force | auto — adjusted grip force (default auto = re-derive from feedback)."
+        },
+        "reason": {
+          "enum": ["slip_recovery", "force_adapt", "recenter", "manual"],
+          "description": "Adjustment intent; informs strategy (default manual)."
+        },
+        "recenter": { "type": "boolean", "description": "Re-center contacts on the object (default false)." },
+        "preserve_pose": { "type": "boolean", "description": "Keep object pose fixed during the adjustment (default true)." },
+        "position_tolerance": { "$ref": "#/$defs/Length", "description": "Length — allowed object pose drift during adjust (default 2 mm)." },
+        "tactile_target": { "$ref": "#/$defs/CompoundOrAuto", "description": "TactileTarget | auto — target contact state after adjustment (default auto)." },
+        "timeout": { "$ref": "#/$defs/Duration", "description": "Duration | auto, > 0." }
+      }
+    },
     "Composition": {
       "description": "A node of the compositional algebra (01 § Compositional algebra). Exactly one of: a primitive call, an extension call, or one of the combinators sequence / parallel / reactive / repeat / branch / let-bind. The forms are disjoint by key namespace, so a well-formed node matches exactly one.",
       "type": "object",
@@ -815,6 +969,38 @@
         {
           "if": { "required": ["sense.verify"] },
           "then": { "properties": { "sense.verify": { "$ref": "#/$defs/SenseVerifyParams" } } }
+        },
+        {
+          "if": { "required": ["grasp.power"] },
+          "then": { "properties": { "grasp.power": { "$ref": "#/$defs/GraspPowerParams" } } }
+        },
+        {
+          "if": { "required": ["grasp.hook"] },
+          "then": { "properties": { "grasp.hook": { "$ref": "#/$defs/GraspHookParams" } } }
+        },
+        {
+          "if": { "required": ["grasp.precision_tripod"] },
+          "then": { "properties": { "grasp.precision_tripod": { "$ref": "#/$defs/GraspPrecisionTripodParams" } } }
+        },
+        {
+          "if": { "required": ["grasp.lateral"] },
+          "then": { "properties": { "grasp.lateral": { "$ref": "#/$defs/GraspLateralParams" } } }
+        },
+        {
+          "if": { "required": ["grasp.platform"] },
+          "then": { "properties": { "grasp.platform": { "$ref": "#/$defs/GraspPlatformParams" } } }
+        },
+        {
+          "if": { "required": ["grasp.pin"] },
+          "then": { "properties": { "grasp.pin": { "$ref": "#/$defs/GraspPinParams" } } }
+        },
+        {
+          "if": { "required": ["grasp.envelope"] },
+          "then": { "properties": { "grasp.envelope": { "$ref": "#/$defs/GraspEnvelopeParams" } } }
+        },
+        {
+          "if": { "required": ["grasp.adjust"] },
+          "then": { "properties": { "grasp.adjust": { "$ref": "#/$defs/GraspAdjustParams" } } }
         }
       ]
     },
