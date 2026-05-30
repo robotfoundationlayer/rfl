@@ -370,6 +370,37 @@ Three primitives leave a contact rather than form one — `reach.retract`, `gras
 - **Postcondition** — no task contact remains; `external_force ≈ 0`.
 - **Directional force monotonicity** — external force along the retreat / withdraw direction is non-increasing beyond a noise margin; an *increase* signals an obstacle behind the moving frame and triggers `contact_response` (a force *opposing* the retreat — the surface being left — is expected to decay and is not a violation).
 
+## Composition validity
+
+A composition is more than a sequence of valid primitives: a primitive's preconditions must hold *given the state the preceding primitives left*. The checks that enforce this are stated per primitive (each `*_inadmissible`, `no_active_grasp`, `orientation_unreachable` failure mode); this section collects them as one mechanically-checkable layer the algebra and planner apply at composition time, before execution. The rules live here; the full conformance tables (the lifecycle transition table, the stability-class → permitted-successor table) are owned by `05-conformance.md`.
+
+### DOF-admissibility
+
+An `in_hand` operation that moves a degree of freedom is admissible only if that DOF is `friction_held` (movable) in the grasp's `secured_dof` (§ Grasp state model) — never `form_held` or `rotation_constrained`. This single rule has one instance per primitive: `rotation_inadmissible`, `translation_inadmissible`, `roll_inadmissible`, `pivot_inadmissible`, `slide_inadmissible`. The same stability metadata gates transport: a `surface_bound` (`pin`) grasp is not freely transportable (`transport_inadmissible`).
+
+### Lifecycle transitions
+
+A primitive requiring a `held` input rejects a `free` frame (`no_active_grasp`); a `surface_bound` grasp rejects a free-transport successor (`transport_inadmissible`). These are the mechanically-checkable transition guards; the full transition table and the stability-class → permitted-successor table are `05`'s.
+
+### `GraspRef` supersession and dangling-reference prevention
+
+`in_hand.regrasp` and `transport.handoff` produce a **new** `GraspState` and supersede the originating `GraspRef` (the new grasp's `mode` / `closure` / topology differ, or ownership moves to another effector). A `GraspRef` bound by a `LetBind` is **invalidated** the moment it is superseded; using the stale handle in a later primitive is a composition error caught at validation, not a runtime surprise. This is the dangling-reference guard for grasp handles, the grasp-state counterpart of the `LetBind` flow checks below.
+
+### Last-resort admissibility
+
+`in_hand.flip` (the only continuity-suspending primitive) is admissible only when no continuity-preserving primitive — `in_hand.rotate`, `roll`, or `regrasp` — achieves the same reorientation (`continuity_alternative_exists` rejection). The "does a continuity-preserving alternative exist?" check is part of composition validity: the planner must establish that `flip` is genuinely the last resort before composing it.
+
+### Reverse-dependency composition
+
+When a primitive's precondition depends on an *earlier* reorientation, composition validity recognizes the "compose a prerequisite primitive first" pattern. `place.orient` rejects (`orientation_unreachable`) when the current grasp cannot present the required orientation and recommends a reorient-first; the planner composes an `in_hand.rotate` / `regrasp` *before* the placement so the placement's precondition holds. Each primitive keeps a single responsibility — `place.orient` never silently reorients — and the cross-category coupling is resolved by composition rather than by overloading a primitive.
+
+### `LetBind` flow checks
+
+A `LetBind` that carries a `sense` result into a downstream primitive is checked at composition time:
+
+- **Uncertainty matching (precision honesty).** When a `sense.locate` pose flows into a primitive, the algebra checks `measured uncertainty ≤ that primitive's target-resolution bound`. A pose may never be stamped with an uncertainty better than was achieved; conformance forbids overstating precision.
+- **Measured-value supply (the observe–act loop).** A `Measurement`'s `mass` / `center_of_mass` / `pose` fields populate the matching `ObjectTarget` fields via the binding, after which the downstream primitive's preconditions (e.g. `estimated_mass ≤ payload`) become checkable. This closes the observe → target-field → manipulate loop inside a composition — the primitive-level form of the white paper's L1 Data loop.
+
 ## Per-primitive semantic specification
 
 > **Status**: complete — all 50 primitives across all seven categories carry v0.1 freeze-ready text (2026-05-30). The enumeration table is the index; this section is the normative semantics.
@@ -734,7 +765,7 @@ GraspState := {
 }
 ```
 
-A `GraspRef` is a handle to a `GraspState`; the literal `active` resolves to the current `GraspState` of the addressed `controlled_frame`.
+A `GraspRef` is a handle to a `GraspState`; the literal `active` resolves to the current `GraspState` of the addressed `controlled_frame`. An operation that produces a new `GraspState` — `in_hand.regrasp`, `transport.handoff` — **supersedes** the originating `GraspRef`: the old handle is invalidated and a stale use is a composition error (§ Composition validity, `GraspRef` supersession).
 
 **Grasp lifecycle.**
 
