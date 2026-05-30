@@ -113,8 +113,83 @@ The frame declaration is mechanically checkable (Principle 3); the conformance s
 - **F3 — role-default consistency.** Each of the four role defaults names a control frame whose `roles` includes that role.
 - **F4 — well-known frame resolution.** `world`, `base`, and `task` resolve and are `calibration_valid`, and the declared transform chain relates every declared frame to each of them.
 
+## Capability manifest
+
+Not every embodiment implements every Skill ISA primitive, and a primitive often needs an orthogonal capacity (a compliance mode, a sensing modality, a safety regime) beyond the bare operation. The **capability manifest** is the embodiment's declaration of what it can do. It is the structure every per-category capability declaration below — grasp modes, in-hand sub-capabilities, transport, place, force, sense, collision, sensor, and safety — instantiates, so that capability checking is uniform across all fifty primitives.
+
+The manifest extends the `<rfl:capabilities>` block alongside the frame model. It declares three kinds of entry — **primitive capabilities**, **auxiliary capabilities**, and **limits** — over a forward-compatible key space.
+
+### Primitive capabilities
+
+A primitive capability is a boolean assertion *"this embodiment implements operation X."* Its key **is the Skill ISA primitive identifier** (`grasp.pinch`, `transport.follow_trajectory`, `force.scrub`, `sense.weigh`), or a category identifier (`transport`) standing for that category's base primitive. Binding the capability key space to the ISA enumeration keeps naming unambiguous and makes declaration directly checkable against the primitive's own conformance test.
+
+- **`reach.*` carries no capability key.** Free-space motion is the mandatory baseline every embodiment implements; the `reach` family is assumed-present and not declared.
+- **A category key implies the base primitive.** `transport` asserts `transport.move_to_pose`. A non-base primitive requires *both* its category key and its own key — `transport.follow_trajectory` requires `transport` **and** `transport.follow_trajectory`. (This is what the Skill ISA preconditions phrase as "declares `transport` with `follow_trajectory` support.")
+- **Grasp modes are sub-capabilities of `grasp`.** The ten grasp primitives' modes are the canonical keys `grasp.pinch`, `grasp.power`, `grasp.hook`, `grasp.tripod`, `grasp.lateral`, `grasp.platform`, `grasp.pin`, `grasp.envelope`. The Skill ISA's top-level spellings (`pinch_grasp`, `power_grasp`, …) denote these same keys; aligning the per-primitive prose to the dotted form is a pre-freeze formatting pass (as with the grasp-core DRY rewrite), not a semantic change.
+
+### Auxiliary capabilities
+
+An auxiliary capability is a named capacity **orthogonal to any single primitive** — several primitives may require the same one, and one primitive may require several. Unlike primitive capabilities it is not always boolean: it may carry an enumerated value or (for the safety regimes, defined in their own units below) a structured declaration.
+
+| Auxiliary capability | Value domain | Required by (examples) | Defined in |
+|---|---|---|---|
+| `compliance` | `{passive, active, virtual}` (+ a declared compliant direction where a primitive needs one) | all `force.*`; `force.wipe` / `force.scrub` need normal-direction compliance | force-descriptor unit |
+| `tactile_sensing` | boolean | all `grasp.*` (preferred; absence degrades to a force/position proxy, Principle 5) | tactile manifold (`04`) |
+| `tool_safety` | structured | `force.cut` and other hazardous-tool primitives | safety-capability unit / `05` |
+| `human_collaboration_safety` | structured | `place.hand_to` | safety-capability unit / `05` |
+
+A primitive's precondition names the primitive capability plus any auxiliary capabilities it needs; all are checked together at validation. This table lists the auxiliary capabilities surfaced so far; each is fully specified in the unit noted.
+
+### Limits
+
+A limit is an SI-valued scalar or range in the flat namespace `embodiment.limits.*`, exactly as the Skill ISA references them (`embodiment.limits.v_cartesian_max`, `embodiment.limits.payload_grasp_pinch`). Limits are kept flat — not nested under the capability that uses them — to match those references; the association between a limit and the capability it bounds is documentary, recorded per-capability in the units below.
+
+The binding rule (verifiable): **if a primitive capability is asserted, every `embodiment.limits.*` key its primitives reference MUST be present.** A manifest that claims `grasp.pinch` but omits `payload_grasp_pinch` is malformed.
+
+### Capability checking — the uniform `capability_absent` gate
+
+Capability satisfaction is a **deterministic validation-phase gate**, evaluated before any motion: the planner matches each primitive's required capabilities (primitive + auxiliary) against the manifest, and on any miss returns `capability_absent` — reject, no attempt, no embodiment displacement. Every primitive's `capability_absent` failure mode is this single contract; it is defined once here rather than re-specified per primitive.
+
+### Manifest acquisition and fidelity tier
+
+The manifest is **static**: declared in the URDF / MJCF `<rfl:capabilities>` block (or its sidecar) and acquired once at load-time / capability negotiation. This fixes the static portion of the capability-negotiation-timing question (see *Open issues*); per-action dynamic renegotiation remains open.
+
+Each capability assertion may carry a `tier` attribute reserved for the **fidelity tier** the embodiment claims for that operation. The tier's semantics — how a tier maps to a conformance class and badge — are owned by `05-conformance.md`; this chapter reserves only the syntax.
+
+### URDF / MJCF binding
+
+```xml
+<rfl:capabilities>
+  <!-- frame model: § Embodiment frame model -->
+  <rfl:skills>
+    <rfl:skill id="grasp.pinch" tier="full"/>
+    <rfl:skill id="grasp.power"/>
+    <rfl:skill id="transport"/>                  <!-- category baseline = transport.move_to_pose -->
+    <rfl:skill id="transport.follow_trajectory"/>
+    <rfl:skill id="force.scrub"/>
+  </rfl:skills>
+  <rfl:aux>
+    <rfl:capability name="compliance" value="active"/>
+    <rfl:capability name="tactile_sensing" value="true"/>
+  </rfl:aux>
+  <rfl:limits>
+    <rfl:limit name="payload_grasp_pinch" value="2.0"  unit="N"/>
+    <rfl:limit name="v_grasp"             value="0.05" unit="m/s"/>
+  </rfl:limits>
+</rfl:capabilities>
+```
+
+The XML maps onto the abstract fields `embodiment.capabilities` (the asserted primitive-key set), `embodiment.aux` (auxiliary name → value), and `embodiment.limits.*` (flat). Skill IDs and auxiliary names are extensible through `06-extension-registry.md` namespaces (Principle 5); an **unknown skill ID is rejected** (the suite must be able to test every asserted capability), and an unknown auxiliary name must carry a namespace prefix.
+
+### Conformance obligations
+
+- **M1 — capability ↔ implementation.** For every asserted primitive capability, that primitive's C1 nominal conformance test passes. Asserting a capability is a binding promise to implement it.
+- **M2 — limit completeness.** Every `embodiment.limits.*` key referenced by an asserted capability's primitives is present and SI-valued.
+- **M3 — auxiliary value domain.** Each enumerated auxiliary capability (`compliance`, …) holds a value within its defined domain.
+- **M4 — `capability_absent` determinism.** A primitive requiring an undeclared capability is rejected at validation with no attempt (externally measured displacement `< ε`).
+
 ## Open issues
 
-- Capability negotiation timing (load-time vs. session-start vs. per-action)
+- Capability negotiation timing — **static manifest portion resolved** (§ Capability manifest: declared in `<rfl:capabilities>`, acquired at load-time / negotiation; checked per-primitive at validation). Open: per-action *dynamic* renegotiation (session-start vs. per-action) for embodiments whose capabilities change at runtime.
 - Backward compatibility with ROS 2 action server conventions for non-RFL clients
 - Real-time guarantee scope (best-effort vs. hard deadline)

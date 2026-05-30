@@ -587,6 +587,8 @@ Any parameter typed `T | auto` may take the literal `auto`, deferring the value 
 
 `grasp` primitives form and commit a contact pattern on a target object. Unlike `reach`, contact is the *intent*. At the Skill ISA level a `grasp` primitive commits only the contact pattern and a force budget; the force-controlled completion (joint torques for tendon-driven hands, pneumatic pressure for bellows hands, jaw force for parallel-jaw grippers) is resolved per embodiment by the Translation Layer. `grasp` primitives are the first to carry a **capability requirement** (not every embodiment supports every grasp) and to integrate the **TactileManifold** for contact confirmation, with a graceful-degradation proxy for embodiments lacking tactile sensing (Principle 5).
 
+> **Capability-key normalization.** The capability a `grasp` primitive requires is keyed by its primitive identifier — `grasp.pinch`, `grasp.power`, etc. — under the capability manifest defined in `03-driver-interface.md` § Capability manifest. The top-level spellings used in these preconditions (`pinch_grasp`, `power_grasp`, …) denote those same dotted keys; aligning the prose to the dotted form is a pre-freeze formatting pass, not a semantic change.
+
 All ten `grasp` primitives share a common **grasp core** (`target`, `force_budget`, `grasp_pose`, tactile confirmation, capability requirement, hold-test verification) and differ only in a **contact-pattern abstraction** (antipodal pair / whole-volume enclosure / hook / tripod / lateral clamp / support / extrinsic pin / compliant-or-caged enclosure). The two held-state operations (`grasp.adjust`, `grasp.release`) act on the active-grasp state defined next rather than forming a new contact.
 
 ##### Grasp state model and stability metadata
