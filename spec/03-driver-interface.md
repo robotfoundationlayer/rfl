@@ -290,6 +290,59 @@ The dynamic grasp-stability limit derivation, the `max_acceleration` clamp, time
 
 The physical verification of dynamic stability, grasp continuity, and passive drive is owned by `02` / `05`.
 
+### Place capabilities
+
+`place` is a **composite** category: it adds no new force-dynamics axis and no new limit. Each `place` primitive is largely the composition of `transport.lower` (soft set-down with touchdown detection) and `grasp.release` (bounded open + withdraw), plus one guarantee neither sub-step provides — post-placement stability (the object's CoM projects inside its support polygon before release). Declaring a `place` sub-capability therefore presupposes the composed capabilities, which the planner checks.
+
+| Sub-capability | Composed dependency | Added requirement |
+|---|---|---|
+| `place.put_down` | `transport.lower` + `grasp.release` | supported-state predicate (`01`) |
+| `place.stack` | `transport.lower` + `grasp.release` | recursive stack stability + world-state support tracking (`01`) |
+| `place.insert_loose` | `transport.lower` + `grasp.release` | containment predicate + container geometry (`01`) |
+| `place.orient` | `transport.lower` + `grasp.release` + `in_hand` (reorient-first composition) | `OrientationSpec` type (`01`) |
+| `place.hand_to` | `grasp.release` family | `human_collaboration_safety` (§ Safety capabilities) |
+| `place.discard` | `transport.lower` + `grasp.release` | safe-drop / ballistic prediction (`01` / `05`) |
+
+`place` reuses the `transport` and `grasp` limits; it introduces no new `embodiment.limits.*` key.
+
+### Force capabilities and limits
+
+The `force` category capability plus ten sub-capabilities. Compliance (§ Compliance capability), tool-safety (§ Safety capabilities), and normal-direction compliance (§ Compliance capability) are already specified; the only new embodiment limit the category adds is `oscillation_max`.
+
+| Sub-capability | New limit | Auxiliary / referenced dependency |
+|---|---|---|
+| `force.insert_fit` | — | compliance; `SeatingSpec` type (`01`); seating/jam discrimination (`04` / `05`) |
+| `force.push` / `force.pull` | — | compliance; `PullStop` type (`01`); breakaway feature (`04`) |
+| `force.screw` / `force.unscrew` | — | compliance; tool-mediated force + `thread_pitch` coupling (`02`); `ScrewStop` (`01`) |
+| `force.press_button` | — | compliance; fine force resolution (`04`, proxy-degradable); detent feature (`04`) |
+| `force.snap_engage` | — | compliance; snap-signature detection (`04`); semi-reversibility class (`05`) |
+| `force.cut` | — | compliance; `tool_safety` (§ Safety capabilities); irreversible-operation class (`05`) |
+| `force.wipe` | — | normal-direction compliance; hybrid-axis encoding (`02`) |
+| `force.scrub` | **`oscillation_max`** (`Frequency`, Hz) | normal-direction compliance; deployment-declared wear/heat budget |
+
+The per-primitive force budgets (`shear_force_budget`, push / pull force, …) are primitive parameters clamped by the target's fragility, not embodiment limits; the only new manifest scalar `force` contributes is `oscillation_max`. The force-trajectory envelope class and its torque generalization are owned by `05`.
+
+### Sense capabilities
+
+Like `in_hand`, `sense` has **no base primitive**: every operation requires both the category capability `sense` and its sub-capability, plus a sensing requirement. `sense` introduces **no new embodiment limit** — `max_probe_force` is target-derived, not an embodiment field.
+
+| Sub-capability | Sensing requirement (proxy-degradable; owned by `04` / sensor descriptor) | Added |
+|---|---|---|
+| `sense.probe` | tactile / force sensing | `max_probe_force` (target-derived from the disturb threshold, **not** an embodiment limit) |
+| `sense.inspect` | the requisite sensor + modalities (§ Sensor descriptor) | observation-capturability contract (`04`) |
+| `sense.weigh` | force / torque sensing resolving the mass range | `Measurement.mass → ObjectTarget` flow (`01`) |
+| `sense.locate` | a modality meeting `required_precision` | `ObjectRef` resolution + precision honesty (`01`) |
+| `sense.verify` | sensing for `evidence_modalities` | three-valued verdict + evidence audit (`01`) |
+
+`max_probe_force = auto` resolves to a fraction below the **target's** disturb threshold (a perception-derived target property); the embodiment side only declares it can sense finely enough. The sensing modalities (tactile, force/torque, fine force resolution) are capabilities owned by `04-tactile-manifold.md` and referenced by the gate, not minted as new manifest auxiliaries here. The measurement-non-disturbance invariant is owned by `05` / `04`.
+
+#### Conformance obligations (place / force / sense)
+
+- **PFS1c — place composition gate.** A `place` sub-capability is rejected (`capability_absent`) unless its composed `transport.lower` / `grasp.release` capabilities (and, for `place.orient`, `in_hand`) are declared.
+- **PFS2c — force gate and `oscillation_max`.** A `force` sub-capability is rejected without `force`, its sub-key, and its required compliance; `force.scrub` carries `oscillation_max`.
+- **PFS3c — sense category + sub gate.** A `sense` operation is rejected unless `sense`, its sub-capability, and its sensing requirement are declared.
+- **PFS4c — no new place / sense limits.** `place` and `sense` introduce no new `embodiment.limits.*` key (reused / target-derived).
+
 ### Compliance capability
 
 The `force` category makes contact force the objective, and most of its primitives cannot run on a rigid embodiment: they need the effector to *yield* in a controlled way. **Compliance** is the auxiliary capability (introduced in the auxiliary-capability table above) that declares how an embodiment can do that. A rigid-only embodiment — one that declares no compliance mode — cannot run any `force` primitive that requires compliance.
