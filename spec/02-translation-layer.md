@@ -1,6 +1,6 @@
-# Translation Layer — Specification (skeleton)
+# Translation Layer — Specification
 
-> **Status**: pre-release skeleton. Full text targeted for v0.1 (2027 Q1).
+> **Status**: in progress (2026-05-31) — the canonical action representation, the `Envelope`, the quaternion pose representation with single-scalar geodesic orientation error, the under-constrained-orientation residual rule, and the rest-at-goal terminal semantics are specified. Remaining before freeze: the retargeting-determinism boundaries + capability negotiation, the grasp-force / stability derivations, and trajectory generation + time-scaling, tracked in § Open issues (Owned by `02`). This is the last spec-chapter group; closing it resolves the whole cross-chapter Open-issues TODO.
 
 ## Scope
 
@@ -11,22 +11,71 @@ This chapter defines:
 3. The deterministic retargeting algorithm `retarget(skill, embodiment) -> canonical_actions`
 4. The safety envelope semantics and how envelope constraints flow from Skill ISA into per-embodiment action parameters
 
-## Canonical action representation (provisional)
+## Canonical action representation
 
-A canonical action is a tuple:
+A canonical action is the embodiment-agnostic instruction `retarget` emits — the one representation a conformant driver (`03`) consumes. It is a tuple:
 
 ```
 CanonicalAction := (
-    target_frame:   FrameRef,
-    target_pose:    Pose6D,
-    force_budget:   Option<Force[N]>,
-    timing:         TimingHints,
-    tactile_target: Option<TactileTarget>,
-    safety_envelope: Envelope,
+    target_frame:    FrameRef,                  # the controlled frame this action moves (01 frame model)
+    target_pose:     Pose6D,                    # goal pose of target_frame (§ Pose representation)
+    force_budget:    Option<Force>,             # driven-force ceiling (force category); None for pure motion
+    timing:          TimingHints,               # nominal duration + timing mode (§ Terminal semantics; Unit 4 time-scaling)
+    tactile_target:  Option<TactileTarget>,     # contact-confirmation criterion (04); None when no contact intended
+    monitors:        set<Monitor>,              # StopConditions + feature events the action watches (01 / 04)
+    safety_envelope: Envelope,                  # the safety constraints in force throughout (below)
 )
 ```
 
-The full type definitions, including the `Envelope` algebra, will be specified before v0.1.
+The field *types* are owned elsewhere — `Pose6D` / `TactileTarget` and the `StopCondition` (`01`) / `ForceEvent` (`04`) a `Monitor` wraps — so this chapter fixes how a skill's parameters are *compiled into* the tuple and how the tuple is made deterministic, not the types themselves. `monitors` is the canonical-action home of the feature-monitoring seam every other chapter left to `02`: a `StopCondition` or a `ForceEvent` the action watches is emitted here as a `Monitor`, with its threshold / signature evaluated per the `01` / `04` definitions.
+
+### The `Envelope`
+
+The `safety_envelope` carries the safety constraints in force for the action — the per-embodiment instantiation of the primitive's Skill ISA safety envelope (`01`), with every bound clamped to the embodiment's declared limits (`03`):
+
+```
+Envelope := {
+  motion_bounds:  { v_max, a_max, w_max, … },   # kinematic caps (reach / transport), clamped to embodiment.limits.*
+  force_profile:  Option<ForceProfile>,          # the force / torque trajectory bound (force category); interval-checked by 05 ENV4
+  clearance:      Length,                          # min clearance to the collision model, with the exempt / augment sets (03)
+  compliance:     Option<Compliance>,              # the requested compliance mode + direction (03)
+  stop_time:      Duration,                        # max time to reach a safe state on a breach (embodiment.limits.stop_time)
+}
+```
+
+The envelope is the data the `05` envelope classes (`05` § The envelope-class taxonomy) sample against: `motion_bounds` for the interval-invariant class, `force_profile` for the force / torque-trajectory class. How each bound is *derived* — `min_holding_force`, the dynamic-stability `a_max` clamp, the reaction-load limit — is § Grasp-force and stability derivations (later unit).
+
+## Pose representation and orientation error
+
+`Pose6D` is a rigid-body pose: a **position** in R³ (metres) plus an **orientation** as a **unit quaternion**. This is the ROS 2-aligned representation (`geometry_msgs/Pose` parity, consistent with the ROS 2-compatible driver protocol of `03`); SE(3) is the group beneath it (used for composition and frame chaining), and the unit quaternion is the canonical serialization. The choice is provider-neutral (Principle 4): no embodiment's orientation convention is privileged.
+
+**The single-scalar geodesic orientation error.** The representation is chosen so that orientation error reduces to one scalar — the requirement that makes `pose_not_reached` decidable. For target orientation `q_t` and current `q_c` (unit quaternions):
+
+```
+θ_orient = 2 · arccos( |⟨q_t, q_c⟩| )      # geodesic angle on SO(3), in [0, π]
+```
+
+is the geodesic rotation between them; the `|·|` resolves the quaternion double-cover so `q` and `−q` denote one orientation. A pose is *reached* iff position error ≤ the primitive's `position_tolerance` **and** `θ_orient` ≤ its `orientation_tolerance`; `pose_not_reached` is the negation. The single scalar `θ_orient` is what every primitive's terminal postcondition and `orientation_tolerance` (`01`) compare against.
+
+**Under-constrained-orientation residual rule** (decided). When a primitive constrains fewer than three orientation axes — `reach.align` with a subset of `axes`, `place.orient` with one `OrientationSpec` constraint — the remaining orientation freedom is resolved by the **minimum geodesic rotation from the current orientation**: among all orientations satisfying the declared constraints, `retarget` selects the one nearest (smallest `θ_orient`) to the frame's current orientation. The rule applies **uniformly** wherever orientation is under-constrained, which is what makes the resolution deterministic (binding for `retarget` determinism, `05` Class 2) rather than an arbitrary pick from the satisfying set.
+
+## Terminal semantics — rest-at-goal
+
+v0.1 guarantees **rest-at-goal**: every motion primitive terminates at rest (zero commanded velocity) at its goal pose. The terminal-postcondition envelope class (`05`) and every `reach` primitive's "terminating at rest" postcondition (`01`) depend on it. To leave room for non-stop **trajectory blending** in a future version without breaking the guarantee (Principle 5), the canonical action's `timing` reserves a `stop_at_goal: bool` (default `true`): v0.1 fixes it `true`; a later version may set it `false` to blend one primitive's goal into the next's start without resting, and the change is additive — a v1.x driver implementing only `stop_at_goal = true` stays conformant.
+
+### Conformance obligations (canonical action)
+
+- **CA1c — pose reachability decidable.** `pose_not_reached` is decided from the position error and the single-scalar geodesic orientation error `θ_orient = 2·arccos|⟨q_t, q_c⟩|` against the primitive's `position_tolerance` / `orientation_tolerance`.
+- **CA2c — under-constrained residual determinism.** Where orientation is under-constrained, `retarget` resolves the residual as the minimum geodesic rotation from the current orientation, uniformly and deterministically.
+- **CA3c — rest-at-goal.** Every motion primitive terminates at rest at its goal in v0.1 (`stop_at_goal = true`); the reserved `stop_at_goal` field admits future non-stop blending additively without breaking the guarantee.
+- **CA4c — envelope clamping.** Every `Envelope` bound is the primitive's Skill ISA safety-envelope constraint clamped to the embodiment's declared `embodiment.limits.*`; an action whose bound exceeds a declared limit is malformed.
+
+### Deferred and referenced
+
+- **`Pose6D`, `TactileTarget`, `StopCondition`, the per-primitive tolerances and safety envelopes** the tuple and `Envelope` carry — `01-skill-isa.md` / `04-tactile-manifold.md`.
+- **The embodiment limits** every `Envelope` bound clamps to — `03-driver-interface.md` § Capability manifest.
+- **The derivations** of the force / acceleration bounds (`min_holding_force`, dynamic-stability `a_max`, reaction-load) — § Grasp-force and stability derivations (later unit).
+- **`TimingHints` and time-scaling** — § Trajectory generation and timing (later unit).
 
 ## Retargeting algorithm — determinism requirement
 
@@ -132,9 +181,9 @@ These issues surfaced during `reach` / `grasp` primitive design and are now addr
 
 ### Owned by `02-translation-layer.md` (this chapter)
 
-- **Pose representation choice** (SE(3) / quat+t / axis-angle): must admit a single-scalar geodesic orientation error so `pose_not_reached` is decidable.
-- **Under-constrained-orientation residual rule** (*decided*): minimum geodesic rotation from the current orientation; applied uniformly wherever orientation is under-constrained, binding for `retarget` determinism.
-- **Rest-at-goal vs. trajectory blending**: v0.1 guarantees rest-at-goal; reserve room (e.g. `stop_at_goal: bool`) for non-stop blending without breaking the guarantee (Principle 5).
+- ~~**Pose representation choice** (SE(3) / quat+t / axis-angle)~~ **[resolved → § Pose representation and orientation error]**: `Pose6D` is position (R³) + unit quaternion (ROS 2 `geometry_msgs/Pose` parity; SE(3) the group beneath). The single-scalar geodesic orientation error `θ_orient = 2·arccos|⟨q_t, q_c⟩|` makes `pose_not_reached` decidable (CA1c).
+- ~~**Under-constrained-orientation residual rule** (*decided*)~~ **[resolved → § Pose representation and orientation error]**: among orientations satisfying the declared constraints, `retarget` picks the minimum-geodesic-rotation one from the current orientation, uniformly — deterministic, binding for `retarget` determinism (CA2c).
+- ~~**Rest-at-goal vs. trajectory blending**~~ **[resolved → § Terminal semantics — rest-at-goal]**: v0.1 guarantees rest-at-goal; `timing` reserves `stop_at_goal: bool` (default `true`) so future non-stop blending is additive without breaking the guarantee (CA3c, Principle 5).
 - **Normative sweep-pattern generators**: `Σ` for `pattern ∈ {raster, spiral, arc, waypoints}` as a deterministic function of `(region, pattern, standoff, overlap, FOV)`, in a normative appendix.
 - **`min_holding_force` derivation**: deterministic from `target` mass, grasp mode, friction, load direction; required for `grasp.adjust` / `transport` safety.
 - **Dynamic grasp-stability limit derivation**: the dynamic counterpart of `min_holding_force` — from stability metadata (`secured_dof` / `closure` / `flags`) + object mass + grasp geometry, derive the maximum acceleration at which the inertial load does not cause in-grasp slip. Clamps `max_acceleration` for all `transport` primitives; the core of transport safety.
