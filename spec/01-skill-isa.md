@@ -219,6 +219,8 @@ Duration        ::= Number ("ms" | "s")
 
 > **Frame-field resolution.** The `embodiment.default_*_frame` defaults and `embodiment.default_tool_axis` that primitive parameter tables reference are defined in `03-driver-interface.md` § Embodiment frame model. In particular `embodiment.default_tool_axis` is per control frame — it resolves to the `tool_axis` of the currently resolved `controlled_frame`, not an embodiment-global constant.
 
+> **`EffectorRef` resolution.** `EffectorRef` (the type of `transport.handoff`'s `receiver`) addresses a control frame on the same embodiment (a bare frame name, the `FrameRef` case) or another (`embodiment_id:frame_name`); its resolution semantics and the coordination-channel requirement for the remote case are defined in `03-driver-interface.md` § Multi-embodiment addressing.
+
 ### Target types (perception-derived; carry uncertainty)
 
 | Type | Fields | Used by |

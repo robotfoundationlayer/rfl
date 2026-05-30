@@ -88,7 +88,7 @@ One frame may carry several roles (a parallel-gripper TCP is commonly `grasp` + 
 The frame model is declared inside the `<rfl:capabilities>` block introduced above. The XML is the URDF / MJCF-native surface; it maps one-to-one onto the abstract `embodiment.*` fields and onto the JSON `schemas/embodiment-descriptor.schema.json` whose file format is owned by `02-translation-layer.md`.
 
 ```xml
-<rfl:capabilities>
+<rfl:capabilities embodiment-id="urn:rfl:robot:left-arm-01">
   <rfl:reference-frames world="world" base="base_link" task="task">
     <rfl:gravity frame="world" x="0" y="0" z="-9.81" unit="m/s^2"/>
   </rfl:reference-frames>
@@ -619,6 +619,61 @@ When `world.gravity` is absent or the zero vector:
 - **GR1c — resolution determinism.** With `world.gravity` declared, the `±gravity` defaults resolve to identical unit vectors across identical inputs (byte-for-byte).
 - **GR2c — gravity consistency.** A `transport.lift` along the resolved `up_direction` raises the object against the declared gravity (externally measured height increase along `−gravity`).
 - **GR3c — gravity-free fallback.** With `world.gravity` absent, a `lift` / `lower` with no explicit direction is `underdetermined` (no motion), and a `drive = gravity` primitive is rejected.
+
+## Multi-embodiment addressing
+
+`transport.handoff` transfers a held object to a partner effector — bimanual (two effectors of one embodiment) or inter-robot (two embodiments). Bimanual handoff closes within one embodiment's `retarget` and is fully specified; inter-robot handoff needs a way to *address* an effector on another embodiment and a channel to *coordinate* two drivers. This section defines that addressing and the coordination-channel capability. The coordination protocol itself, and its two-party determinism, are owned by `02-translation-layer.md`.
+
+### `EffectorRef`
+
+`EffectorRef` (the type of `transport.handoff`'s `receiver`) addresses an effector — a control frame — that may be on the same embodiment or another:
+
+- **Local** — a bare `frame_name`, resolved in the local embodiment's `control_frames`. This is the `FrameRef` case.
+- **Remote** — `embodiment_id:frame_name`, naming both the target embodiment and the control frame on it.
+
+This realizes the frame-namespacing seam left open in § Embodiment frame model: a `FrameRef` addresses one embodiment, and `EffectorRef` is its cross-embodiment generalization. The Skill ISA type system references `EffectorRef`; its resolution semantics are defined here.
+
+### Embodiment identity
+
+Cross-embodiment addressing needs a stable root. Each embodiment declares a stable, unique `embodiment.id` (a URN or ROS 2 namespace, e.g. `urn:rfl:robot:right-arm-02`) as the `embodiment-id` attribute on `<rfl:capabilities>`. It is the namespace prefix in a remote `EffectorRef`.
+
+### Resolution and scope boundary
+
+- A **local** `EffectorRef` resolves against the embodiment's own `control_frames`.
+- A **remote** `EffectorRef` resolves only when a coordination channel reaches the named `embodiment_id`'s driver and frame model.
+
+The **discovery / registry** that maps an `embodiment_id` to a driver endpoint (a fleet manager, ROS 2 multi-robot discovery) is a deployment / transport concern, out of scope — as the environment model is for the collision model. RFL defines the addressing syntax and the requirement that a remote effector be resolvable through the coordination channel, not the discovery mechanism.
+
+### Coordination-channel capability
+
+Inter-robot handoff requires the two drivers to agree on the handoff pose, the timing, the make-before-break ordering, and the combined co-grasp force. The `coordination_channel` auxiliary capability declares that an embodiment can participate in that coordination. Its endpoint and transport are a deployment / `02` concern; the declaration states only the ability. When it is absent, a handoff to a remote `receiver` returns `coordination_unavailable` and the giver retains the object.
+
+### Bimanual vs. inter-robot
+
+| | `receiver` `EffectorRef` | Coordination channel | `retarget` | Status |
+|---|---|---|---|---|
+| **Bimanual** | local (another frame on the same embodiment) | not required (one embodiment coordinates its own two effectors) | closes within a single `retarget` | fully specified (`transport.handoff` C1) |
+| **Inter-robot** | remote `embodiment_id:frame` | required (both parties declare it) | coordinates two `retarget` runs, exceeding single-embodiment determinism | protocol + two-party determinism owned by `02` |
+
+### Capability gate (handoff specialization)
+
+- **Bimanual** `transport.handoff` requires `transport` + `transport.handoff` + a second local control frame with a grasp capability.
+- **Inter-robot** `transport.handoff` additionally requires `coordination_channel` on both parties; its absence is `coordination_unavailable`, giver retains the object.
+
+### Referenced (other chapters)
+
+- The coordination protocol and two-party determinism semantics (coordinating two `retarget` runs beyond the byte-for-byte single-embodiment boundary) → `02-translation-layer.md`.
+- Two-party continuity verification (make-before-break, combined force `≤ cograsp_force_budget`, instrumented receiver) → `05-conformance.md`.
+- Discovery / registry → deployment / transport layer.
+
+### Conformance obligations (multi-embodiment)
+
+- **MEA1c — addressing resolution.** A local `EffectorRef` resolves to a `control_frame`; a remote one resolves only when the coordination channel reaches its `embodiment_id`.
+- **MEA2c — bimanual without coordination.** A handoff to a local `receiver` succeeds without `coordination_channel` (`transport.handoff` C1).
+- **MEA3c — inter-robot gate.** A handoff to a remote `receiver` without `coordination_channel` returns `coordination_unavailable`, and the giver retains the object.
+- **MEA4c — embodiment-id uniqueness.** Each embodiment declares a stable, unique `embodiment.id`.
+
+The two-party continuity verification is owned by `05`, and the coordination protocol / determinism by `02`.
 
 ## Open issues
 
