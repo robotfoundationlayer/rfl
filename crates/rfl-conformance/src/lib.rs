@@ -116,6 +116,8 @@ pub enum Fault {
     UnderSecure,
     /// `wrench.force` above any budget (violates the force-trajectory bound, ENV4).
     OverForce,
+    /// `wrench.torque` above any torque budget (violates the force-trajectory bound, ENV4).
+    OverTorque,
     /// `outcome = indeterminate`, no `final_pose` (violates terminal-postcondition).
     NeverSettle,
 }
@@ -153,6 +155,13 @@ impl Driver for FaultyDriver {
                 for t in &mut report.telemetry {
                     if let Some(w) = t.wrench.as_mut() {
                         w.force = [0.0, 0.0, 999.0];
+                    }
+                }
+            }
+            Fault::OverTorque => {
+                for t in &mut report.telemetry {
+                    if let Some(w) = t.wrench.as_mut() {
+                        w.torque = [0.0, 0.0, 999.0];
                     }
                 }
             }

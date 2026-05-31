@@ -97,3 +97,40 @@ fn never_settle_driver_fails_terminal_postcondition() {
         CheckOutcome::Fail(_)
     ));
 }
+
+fn screw_dir() -> PathBuf {
+    Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples/03-screw-fasten")
+}
+
+#[test]
+fn nominal_screw_passes_force_trajectory() {
+    let dir = screw_dir();
+    let pairs = drive(
+        ReferenceDriver::default(),
+        &dir.join("skill.yaml"),
+        &dir.join("embodiments/allegro.yaml"),
+    )
+    .expect("drive");
+    // force.screw is action index 5.
+    let (goal, report) = &pairs[5];
+    assert_eq!(suffix_of(&goal.action_id), "screw");
+    assert_eq!(check_envelope(EnvelopeClass::ForceTrajectory, goal, report), CheckOutcome::Pass);
+}
+
+#[test]
+fn over_torque_driver_fails_screw_force_trajectory() {
+    let dir = screw_dir();
+    let pairs = drive(
+        FaultyDriver::new(Fault::OverTorque),
+        &dir.join("skill.yaml"),
+        &dir.join("embodiments/allegro.yaml"),
+    )
+    .expect("drive");
+    // force.screw (index 5) -> torque-trajectory must reject the over-budget wrench torque.
+    let (goal, report) = &pairs[5];
+    assert_eq!(suffix_of(&goal.action_id), "screw");
+    assert!(matches!(
+        check_envelope(EnvelopeClass::ForceTrajectory, goal, report),
+        CheckOutcome::Fail(_)
+    ));
+}
