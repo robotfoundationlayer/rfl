@@ -58,16 +58,26 @@ impl Driver for ReferenceDriver {
         };
         // Echo any commanded force budget as plausible in-protocol content (carries
         // increment 3's bounds through; C2's envelope checkers will sample it).
-        let (wrench, securing_force) = match &ca.force_budget {
-            Some(q) => {
-                let mag = q.parse().map_or(0.0, |(v, _)| v);
-                (
-                    Some(Wrench { force: [0.0, 0.0, mag], torque: [0.0, 0.0, 0.0] }),
-                    Some(q.clone()),
-                )
-            }
-            None => (None, None),
+        // Echo any commanded force budget into wrench.force / securing_force and any
+        // commanded torque (force.screw, in force_profile.torque) into wrench.torque
+        // (within budget) — so the C2 / E3 envelope checkers have something to sample.
+        let force_mag = ca.force_budget.as_ref().and_then(|q| q.parse().map(|(v, _)| v));
+        let torque_mag = ca
+            .safety_envelope
+            .force_profile
+            .as_ref()
+            .and_then(|fp| fp.get("torque"))
+            .and_then(serde_json::Value::as_str)
+            .and_then(|s| rfl_core::quantity::Quantity(s.to_string()).parse().map(|(v, _)| v));
+        let wrench = if force_mag.is_some() || torque_mag.is_some() {
+            Some(Wrench {
+                force: [0.0, 0.0, force_mag.unwrap_or(0.0)],
+                torque: [0.0, 0.0, torque_mag.unwrap_or(0.0)],
+            })
+        } else {
+            None
         };
+        let securing_force = ca.force_budget.clone();
         let telemetry = Telemetry {
             message: "telemetry",
             action_id: goal.action_id.clone(),
@@ -298,15 +308,33 @@ pub fn check_envelope(
             CheckOutcome::Pass
         }
         EnvelopeClass::ForceTrajectory => {
-            let Some(budget) = goal.canonical_action.force_budget.as_ref().and_then(quantity_mag)
-            else {
-                return CheckOutcome::Pass; // no budget claimed
-            };
-            for t in &report.telemetry {
-                if let Some(w) = &t.wrench {
-                    let mag = w.force.iter().map(|x| x * x).sum::<f64>().sqrt();
-                    if mag > budget {
-                        return CheckOutcome::Fail(format!("|wrench.force| {mag} > budget {budget}"));
+            // Force budget (linear) — when present (e.g. force.insert_fit).
+            if let Some(budget) = goal.canonical_action.force_budget.as_ref().and_then(quantity_mag) {
+                for t in &report.telemetry {
+                    if let Some(w) = &t.wrench {
+                        let mag = w.force.iter().map(|x| x * x).sum::<f64>().sqrt();
+                        if mag > budget {
+                            return CheckOutcome::Fail(format!("|wrench.force| {mag} > budget {budget}"));
+                        }
+                    }
+                }
+            }
+            // Torque budget (rotational) — when present (e.g. force.screw, in force_profile.torque).
+            let torque_budget = goal
+                .canonical_action
+                .safety_envelope
+                .force_profile
+                .as_ref()
+                .and_then(|fp| fp.get("torque"))
+                .and_then(serde_json::Value::as_str)
+                .and_then(|s| rfl_core::quantity::Quantity(s.to_string()).parse().map(|(v, _)| v));
+            if let Some(tb) = torque_budget {
+                for t in &report.telemetry {
+                    if let Some(w) = &t.wrench {
+                        let mag = w.torque.iter().map(|x| x * x).sum::<f64>().sqrt();
+                        if mag > tb {
+                            return CheckOutcome::Fail(format!("|wrench.torque| {mag} > torque budget {tb}"));
+                        }
                     }
                 }
             }
@@ -428,5 +456,28 @@ mod tests {
         .unwrap();
         // grasp.pinch (index 1) has a securing_force -> lowered to the violating value.
         assert_eq!(pairs[1].1.telemetry[0].securing_force.as_ref().unwrap().0, "0.1 N");
+    }
+
+    #[test]
+    fn nominal_screw_passes_torque_trajectory_and_echoes_torque() {
+        let ex = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples/03-screw-fasten");
+        let pairs = drive(
+            ReferenceDriver::default(),
+            &ex.join("skill.yaml"),
+            &ex.join("embodiments/allegro.yaml"),
+        )
+        .unwrap();
+        // force.screw is action index 5 (locate, pinch, transport, locate, align, screw, ...).
+        let (goal, report) = &pairs[5];
+        // the driver echoes the clamped torque (0.2 N·m) into wrench.torque.
+        assert!((report.telemetry[0].wrench.as_ref().unwrap().torque[2] - 0.2).abs() < 1e-9);
+        assert_eq!(check_envelope(EnvelopeClass::ForceTrajectory, goal, report), CheckOutcome::Pass);
+        // an over-budget torque is rejected.
+        let mut bad = report.clone();
+        bad.telemetry[0].wrench.as_mut().unwrap().torque = [0.0, 0.0, 999.0];
+        assert!(matches!(
+            check_envelope(EnvelopeClass::ForceTrajectory, goal, &bad),
+            CheckOutcome::Fail(_)
+        ));
     }
 }
