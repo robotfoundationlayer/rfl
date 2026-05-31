@@ -13,7 +13,7 @@ This chapter defines:
 
 ## ROS 2 compatibility
 
-The Driver Interface is **ROS 2-compatible** but not ROS 2-mandatory: an embodiment that does not use ROS 2 may implement the protocol over a different transport (gRPC, MQTT, DDS direct) provided the wire format matches the canonical message definitions in `schemas/driver-interface/`.
+The Driver Interface is **ROS 2-compatible** but not ROS 2-mandatory: an embodiment that does not use ROS 2 may implement the protocol over a different transport (gRPC, MQTT, DDS direct) provided the wire format matches the canonical message definitions in `schemas/driver-interface.schema.json`.
 
 ## URDF / MJCF extensions
 
@@ -690,8 +690,115 @@ Inter-robot handoff requires the two drivers to agree on the handoff pose, the t
 
 The two-party continuity verification is owned by `05`, and the coordination protocol / determinism by `02`.
 
+## Canonical driver messages
+
+The sections above define what an embodiment **declares** (frames, capabilities, limits, collision geometry, sensors, gravity, addressing). This section defines what **flows at execution time**: the canonical messages a driver exposes to run a retargeted action and report back. It fulfils § Scope item 1 (the ROS 2 message types and action interfaces a driver must expose) and the *execute* / *report* phases of the § Scope item 4 lifecycle; the surrounding lifecycle phases (init / capability negotiation / shutdown) are a named seam, deferred (see *Open issues*).
+
+The messages are the runtime counterpart of the static manifest: where the manifest is checked once at load-time, these carry one action through execution. They are exactly what **Test class 3** (`05` § Four test classes — "a driver accepts the canonical actions, executes them within stated tolerances, and reports back via the protocol") verifies a driver against.
+
+### The action / service mapping
+
+A retargeted skill is a *stream* of canonical actions (`02`); a driver executes them one at a time. Each canonical action is a long-running, observable, terminating operation — the shape of a **ROS 2 action**. The clearance query (§ Collision model) is a synchronous request / response — the shape of a **ROS 2 service**.
+
+| Message | ROS 2 shape | Direction | Defined from |
+|---|---|---|---|
+| **execute** | action **Goal** | RFL → driver | the `02` `CanonicalAction` |
+| **telemetry** | action **Feedback** | driver → RFL | the `05` envelope-class sampling needs, on the `04` timebase |
+| **status** | action **Result** | driver → RFL | the `05` audit record + the protocol failure modes this chapter owns |
+| **clearance-query** | **Service** (request / response) | RFL → driver | § Collision model's clearance signature |
+
+The mapping is **ROS 2-compatible, not ROS 2-mandatory** (§ ROS 2 compatibility): a non-ROS 2 driver implements the same four canonical payloads over its transport. The payload field tables below — not the ROS 2 binding — are normative, and are the structures `schemas/driver-interface.schema.json` encodes.
+
+#### Types owned elsewhere are carried, not redefined
+
+`execute` carries a `02` `CanonicalAction`; `telemetry` and `status` carry `01` / `04` / `05` types (`Pose6D`, `TactileTarget`, `ForceEvent`, `Verdict`, the fidelity tier). This chapter fixes the **message envelope** — the fields that frame a payload as a driver request, feedback, or result — and references the carried types by name, exactly as the capability manifest references `embodiment.limits.*` without redefining the quantities. The carried representation types stay owned by their chapters (`Pose6D` by `02`, `Verdict` by `01`, the fidelity tier and `ForceEvent` by `04`); the message schema floors them rather than re-encoding a representation it does not own.
+
+### Execute — the action goal
+
+The `execute` goal delivers one canonical action to the driver:
+
+| Field | Type | Meaning |
+|---|---|---|
+| `action_id` | identifier | correlates this action's `telemetry` and `status`; unique within a session |
+| `canonical_action` | `CanonicalAction` (`02`) | the embodiment-agnostic instruction `retarget` emitted — `target_frame`, `target_pose`, `force_budget`, `timing`, `tactile_target`, `monitors`, `safety_envelope` (`02` § Canonical action representation), carried verbatim |
+
+The driver accepts the action and begins execution; its `safety_envelope` bounds are already clamped to the embodiment's declared `embodiment.limits.*` by `retarget` (`02` CA4c), and a driver MUST reject an action whose bound exceeds a declared limit rather than attempt it (the driver-boundary restatement of CA4c). The `canonical_action` payload is **not re-typed here**: its representation-owned fields (`Pose6D`, the `Envelope` sub-structures, `TactileTarget`, `Monitor`) are floored in the schema and owned by `02` / `01` / `04`.
+
+### Telemetry — the action feedback
+
+`telemetry` is the continuous sample stream the driver emits during execution; it is what the `05` envelope classes interval-sample (`05` § Endpoint vs. interval sampling). Each sample is stamped on the **`04` common monotonic manifold timebase** so the sampled invariant is evaluated deterministically (`05` fixture reproducibility, Class 2):
+
+| Field | Type | Read by |
+|---|---|---|
+| `action_id` | identifier | correlation to the `execute` goal |
+| `t` | timestamp on the `04` manifold timebase | every interval class; multi-rate features align on the slowest-contributing-feature grid (`04` TM16c) |
+| `realized_pose` | `Pose6D` (`02`, floored) | terminal-postcondition + interval-invariant classes (pose at / over the motion) |
+| `wrench` | `{ force, torque }` (floored) | force/torque-trajectory class (`05` ENV4) |
+| `securing_force` | `Force` | grasp-continuity class — the held object's securing force, checked `≥ min_holding_force` every sample (`05` GC1) |
+| `tactile` | feature readings (`04`; present only when `tactile_sensing` is declared) | manifold confirmation; absent on a proxy-tier embodiment |
+| `events` | set of `ForceEvent` (`04`, floored) | the breakaway / detent events fired this sample (`04` § Force events) |
+| `fidelity_tier` | `{ manifold, proxy, proxy_reactive }` (`04`) | the confirmation tier in effect, propagated into the audit record (`05` AUD3) |
+
+Telemetry is feedback *for one action*: it streams between `execute` and `status`. A driver without contact sensing omits `tactile` and reports `securing_force` / `wrench` from its force / position proxy at the lower `fidelity_tier` (`04` § The force/position proxy) — the same graceful degradation the manifest's tactile-preferred-not-required policy permits.
+
+### Status — the action result
+
+`status` is the driver's terminal report. It carries the **outcome**, the **failure classification** under the ownership split (protocol-level modes this chapter owns; primitive-specific modes `01` owns), and the **audit record** (`05` § The audit record):
+
+| Field | Type | Meaning |
+|---|---|---|
+| `action_id` | identifier | correlation to the `execute` goal |
+| `outcome` | `{ succeeded, failed, indeterminate }` | the three-valued terminal verdict; `indeterminate` is never coerced to success or failure (`01` three-valued control flow) |
+| `failure_class` | one of `{ capability_absent, no_collision_free_path, blocked, out_of_range, region_underdetermined, coordination_unavailable }` (present iff `outcome = failed` and the cause is protocol-level) | the **protocol-level** failure modes this chapter defines — `capability_absent` (§ Capability checking — the uniform `capability_absent` gate), `no_collision_free_path` / `blocked` (§ Collision model), `out_of_range` / `region_underdetermined` (§ Sensor descriptor), `coordination_unavailable` (§ Multi-embodiment addressing) |
+| `failure_detail` | namespaced token (optional) | the **primitive-specific** failure mode the executed primitive declares in `01` (e.g. `jammed`, `grasp_lost`, `pose_not_reached`); `01` owns the vocabulary, so this chapter constrains the token's form but does not re-enumerate it |
+| `verdict` | `Verdict` (`01`, floored) | the evidence-bearing three-valued verdict — `true` / `false` above `confidence_threshold`, else `indeterminate` — with its `evidence` (`05` AUD1) |
+| `fidelity_tier` | `{ manifold, proxy, proxy_reactive }` (`04`) | the tier the confirmation actually achieved; a result claiming `manifold` when it was degraded is malformed (`05` AUD3) |
+| `safety_flags` | `{ momentary_release: bool, freed_part_disposition: optional }` | `momentary_release` for a continuity-suspending operation (`05` AUD2); the freed-part disposition (`retained` / `safe_zone_release`) for a freeing operation (`04` / `05` AUD3) |
+| `final_pose` | `Pose6D` (`02`, floored; optional) | the realized terminal pose, for the terminal-postcondition check |
+
+The split keeps ownership clean: a driver reports a protocol-level miss with `failure_class` (the modes defined in this chapter's own sections), and a primitive-level failure with `failure_detail` carrying the `01` vocabulary token — without this chapter re-enumerating every primitive's failure modes (just as the manifest references limits without redefining them). The `verdict` / `fidelity_tier` / `safety_flags` together are the persisted audit record `05` requires (AUD1–AUD3); RFL produces the evidence, `05` persists and propagates it.
+
+### Clearance query — the service
+
+The clearance query (§ Collision model) is the one synchronous service. Its semantics — the deterministic minimum-clearance evaluation against the model with the exempt / augment sets — are defined there; this is its message form:
+
+**Request**
+
+| Field | Type | Meaning |
+|---|---|---|
+| `moving` | `MovingSet` (`effector(frame)` / `effector_with_held(frame, grasp)`) | the body / bodies that sweep (§ Collision model, Moving set) |
+| `motion` | `MotionQuery` (`at_pose` / `corridor` / `swept`) | the geometry swept — all three mandatory (§ Collision model, Motion query) |
+| `exempt` | set of model element | static-model elements excluded as intended proximity (§ Collision model, Exemption and augmentation) |
+| `augment` | set of model element | extra obstacles added to the static model (the freed-object dual) |
+
+**Response**
+
+| Field | Type | Meaning |
+|---|---|---|
+| `clearance` | `Length` | the minimum clearance over the motion; the caller requires `≥ clearance` |
+| `result` | `{ ok, no_collision_free_path }` | `no_collision_free_path` when the moving set cannot clear the model (self-collision or `blocked`), distinguishing "tight but feasible" from "no feasible path" |
+
+The query is deterministic: identical `(moving, motion, exempt, augment, model)` yield an identical `clearance` (§ Collision model, X6c) — binding because the clearance decisions are compared against frozen conformance fixtures.
+
+### Conformance obligations (canonical messages)
+
+These are the test-class-3 obligations on the message contract; the per-primitive execution tolerances they carry are owned by `01` / `05`.
+
+- **DM1 — execute acceptance and limit gate.** A driver accepts a well-formed `execute` goal carrying a `02` `CanonicalAction` and begins execution; it rejects (no attempt) an action whose `safety_envelope` bound exceeds a declared `embodiment.limits.*` (the driver-boundary restatement of `02` CA4c).
+- **DM2 — telemetry on the manifold timebase.** Every `telemetry` sample is stamped on the `04` common monotonic timebase, with multi-rate features aligned on the slowest-contributing-feature grid (`04` TM16c); the `05` envelope-class sampler evaluates each interval invariant from the telemetry stream.
+- **DM3 — status carries the audit record.** A `status` result carries the honest three-valued `outcome` / `verdict` (`indeterminate` never coerced), the achieved `fidelity_tier`, and the safety flags (`momentary_release`, freed-part disposition) — the persisted audit record of `05` AUD1–AUD3. A protocol-level failure is reported in `failure_class`, a primitive-specific one in `failure_detail`.
+- **DM4 — clearance determinism and coverage.** The clearance service returns an identical `clearance` for identical inputs (§ Collision model X6c) and answers all three `MotionQuery` geometries (X1c).
+
+### Deferred and referenced
+
+- **The carried representation types** — `CanonicalAction` / `Envelope` / `Pose6D` (`02`), `TactileTarget` / `ForceEvent` / the manifold timebase / the fidelity tier (`04`), `Verdict` and the primitive-specific failure-mode vocabulary (`01`) — are floored in the message schema and owned by their chapters.
+- **The envelope-class sampling discipline** that reads `telemetry`, and the **audit record** that `status` populates — `05-conformance.md` (§ The envelope-class taxonomy, § Audit and transparency).
+- **The clearance query semantics** the service formalizes — § Collision model (this chapter).
+- **The lifecycle handshake** (init / capability negotiation / shutdown) framing these runtime messages — a named seam, deferred (see *Open issues*); capability negotiation re-surfaces the already-specified embodiment descriptor (`02` / § Capability manifest).
+
 ## Open issues
 
 - Capability negotiation timing — **static manifest portion resolved** (§ Capability manifest: declared in `<rfl:capabilities>`, acquired at load-time / negotiation; checked per-primitive at validation). Open: per-action *dynamic* renegotiation (session-start vs. per-action) for embodiments whose capabilities change at runtime.
 - Backward compatibility with ROS 2 action server conventions for non-RFL clients
 - Real-time guarantee scope (best-effort vs. hard deadline)
+- Lifecycle message forms (init / capability-negotiation exchange / shutdown) framing the runtime messages of § Canonical driver messages — the *execute* / *report* phases are specified there; the surrounding handshake is deferred. Capability negotiation re-surfaces the already-specified embodiment descriptor (§ Capability manifest).
