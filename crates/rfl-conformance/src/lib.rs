@@ -60,7 +60,16 @@ impl Driver for ReferenceDriver {
         // Echo any commanded force budget into wrench.force / securing_force and any
         // commanded torque (force.screw, in force_profile.torque) into wrench.torque
         // (within budget) — so the C2 / E3 envelope checkers have something to sample.
-        let force_mag = ca.force_budget.as_ref().and_then(|q| q.parse().map(|(v, _)| v));
+        // Echo the commanded force_budget, or — on a wipe with no budget — the normal_force
+        // band setpoint (force.wipe), so the ForceTrajectory band leg has an in-band sample.
+        let force_mag = ca.force_budget.as_ref().and_then(|q| q.parse().map(|(v, _)| v)).or_else(|| {
+            ca.safety_envelope
+                .force_profile
+                .as_ref()
+                .and_then(|fp| fp.get("normal_force"))
+                .and_then(serde_json::Value::as_str)
+                .and_then(|s| rfl_core::quantity::Quantity(s.to_string()).parse().map(|(v, _)| v))
+        });
         let torque_mag = ca
             .safety_envelope
             .force_profile
@@ -169,6 +178,9 @@ pub enum Fault {
     /// Drop the middle telemetry sample's `realized_pose` (violates interval-invariant,
     /// ENV2 — a mid-interval gap while the endpoint still conforms).
     MidIntervalDrop,
+    /// `wrench.force` driven to zero (loss of contact — violates the force.wipe band's lower
+    /// edge; the mirror of `OverForce`).
+    LoseContact,
 }
 
 /// Wraps the nominal `ReferenceDriver` and injects one `Fault` into every report it
@@ -222,6 +234,13 @@ impl Driver for FaultyDriver {
                 let mid = report.telemetry.len() / 2;
                 if let Some(t) = report.telemetry.get_mut(mid) {
                     t.realized_pose = None;
+                }
+            }
+            Fault::LoseContact => {
+                for t in &mut report.telemetry {
+                    if let Some(w) = t.wrench.as_mut() {
+                        w.force = [0.0, 0.0, 0.0];
+                    }
                 }
             }
         }
@@ -516,7 +535,7 @@ pub fn envelope_class_for(suffix: &str) -> Option<EnvelopeClass> {
     match suffix {
         "align" | "retract" | "scan" => Some(EnvelopeClass::TerminalPostcondition),
         "pinch" | "release" | "transport" => Some(EnvelopeClass::GraspContinuity),
-        "insert_fit" | "screw" | "unscrew" | "press_button" => Some(EnvelopeClass::ForceTrajectory),
+        "insert_fit" | "screw" | "unscrew" | "press_button" | "wipe" => Some(EnvelopeClass::ForceTrajectory),
         "hover" | "carry" => Some(EnvelopeClass::IntervalInvariant),
         _ => None, // locate / inspect: perception, no envelope
     }
@@ -599,6 +618,36 @@ fn station_keeping_violation(goal: &ExecuteGoal, report: &DriverReport) -> Optio
     None
 }
 
+/// If the action carries a `normal_force` band (`force.wipe`, `spec/01` § 6.8) and any
+/// `wrench` sample's `|force|` falls outside `[normal_force − tol, normal_force + tol]`, the
+/// failure reason (below = loss of contact, above = over-force); else `None`. Vacuous when no
+/// `normal_force` band (insert_fit / screw / press_button) — the two-sided counterpart of the
+/// securing floor, on contact wrench.
+fn contact_band_violation(goal: &ExecuteGoal, report: &DriverReport) -> Option<String> {
+    let fp = goal.canonical_action.safety_envelope.force_profile.as_ref()?;
+    let setpoint = fp
+        .get("normal_force")
+        .and_then(serde_json::Value::as_str)
+        .and_then(|s| rfl_core::quantity::Quantity(s.to_string()).parse().map(|(v, _)| v))?;
+    let tol = fp
+        .get("normal_force_tolerance")
+        .and_then(serde_json::Value::as_str)
+        .and_then(|s| rfl_core::quantity::Quantity(s.to_string()).parse().map(|(v, _)| v))?;
+    let (lo, hi) = (setpoint - tol, setpoint + tol);
+    for t in &report.telemetry {
+        if let Some(w) = &t.wrench {
+            let mag = w.force.iter().map(|x| x * x).sum::<f64>().sqrt();
+            if mag < lo {
+                return Some(format!("contact lost: |wrench.force| {mag} < {lo} (normal_force {setpoint} − tol {tol})"));
+            }
+            if mag > hi {
+                return Some(format!("over-force: |wrench.force| {mag} > {hi} (normal_force {setpoint} + tol {tol})"));
+            }
+        }
+    }
+    None
+}
+
 /// Verify a driver report against the action's envelope class (`spec/05` ENV1–ENV4,
 /// GC1). A pure function of the commanded `execute` goal and the returned report.
 #[must_use]
@@ -656,6 +705,11 @@ pub fn check_envelope(
                         }
                     }
                 }
+            }
+            // Contact-maintenance band (force.wipe, spec/01 § 6.8): the two-sided lower+upper
+            // edge. Vacuous without a normal_force band (insert_fit / screw / press_button).
+            if let Some(reason) = contact_band_violation(goal, report) {
+                return CheckOutcome::Fail(reason);
             }
             CheckOutcome::Pass
         }
@@ -1110,5 +1164,73 @@ mod tests {
         let bottoms =
             DriverReport { telemetry: vec![sample(vec![])], status: status(Outcome::Failed) };
         assert_eq!(check_actuation(&goal, &bottoms), CheckOutcome::Pass);
+    }
+
+    #[test]
+    fn contact_band_rejects_loss_of_contact_and_over_force() {
+        use rfl_core::canonical::{
+            CanonicalAction, Envelope, MotionBounds, PoseExpr, TimingHints, TimingMode,
+        };
+        use rfl_core::driver::{Outcome, RealizedPose, Status, Telemetry, Verdict, Wrench};
+        let action = CanonicalAction {
+            target_frame: "control".into(),
+            target_pose: PoseExpr::Ref { r#ref: "panel".into() },
+            force_budget: None,
+            timing: TimingHints {
+                nominal_duration: None,
+                timing_mode: TimingMode::TimeScalable,
+                stop_at_goal: true,
+            },
+            tactile_target: None,
+            monitors: vec![],
+            safety_envelope: Envelope {
+                motion_bounds: MotionBounds::default(),
+                force_profile: Some(serde_json::json!({ "normal_force": "5 N", "normal_force_tolerance": "1 N" })),
+                station_keeping: None,
+                clearance: None,
+                compliance: None,
+                stop_time: None,
+            },
+        };
+        let goal = ExecuteGoal::wrap("s/e/0001-wipe".to_string(), action);
+        let report = |fz: f64| {
+            let t = Telemetry {
+                message: "telemetry",
+                action_id: "s/e/0001-wipe".to_string(),
+                t: 1.0,
+                realized_pose: Some(RealizedPose::placeholder()),
+                wrench: Some(Wrench { force: [0.0, 0.0, fz], torque: [0.0, 0.0, 0.0] }),
+                securing_force: None,
+                station_error: None,
+                tactile: vec![],
+                events: vec![],
+                fidelity_tier: None,
+            };
+            DriverReport {
+                telemetry: vec![t],
+                status: Status {
+                    message: "status",
+                    action_id: "s/e/0001-wipe".to_string(),
+                    outcome: Outcome::Succeeded,
+                    verdict: Some(Verdict { value: true, confidence: 1.0, evidence: vec![] }),
+                    fidelity_tier: None,
+                    final_pose: Some(RealizedPose::placeholder()),
+                    failure_class: None,
+                    failure_detail: None,
+                },
+            }
+        };
+        // in band (5 N) -> Pass.
+        assert_eq!(check_envelope(EnvelopeClass::ForceTrajectory, &goal, &report(5.0)), CheckOutcome::Pass);
+        // loss of contact (0 N, below 4) -> Fail.
+        assert!(matches!(
+            check_envelope(EnvelopeClass::ForceTrajectory, &goal, &report(0.0)),
+            CheckOutcome::Fail(_)
+        ));
+        // over-force (9 N, above 6) -> Fail.
+        assert!(matches!(
+            check_envelope(EnvelopeClass::ForceTrajectory, &goal, &report(9.0)),
+            CheckOutcome::Fail(_)
+        ));
     }
 }

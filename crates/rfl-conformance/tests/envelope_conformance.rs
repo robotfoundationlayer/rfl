@@ -510,3 +510,54 @@ fn press_button_over_force_fails_trajectory() {
         CheckOutcome::Fail(_)
     ));
 }
+
+// --- force.wipe contact-maintenance band (spec/01 § 6.8) -------------------------------------
+
+#[test]
+fn nominal_wipe_holds_the_contact_band() {
+    let dir = screw_dir();
+    let pairs = drive(
+        ReferenceDriver::default(),
+        &dir.join("skill-wipe.yaml"),
+        &dir.join("embodiments/allegro.yaml"),
+    )
+    .expect("drive");
+    let (goal, report) = &pairs[0];
+    assert_eq!(suffix_of(&goal.action_id), "wipe");
+    // nominal wrench echoes the 5 N setpoint -> in [4, 6] band.
+    assert_eq!(check_envelope(EnvelopeClass::ForceTrajectory, goal, report), CheckOutcome::Pass);
+}
+
+#[test]
+fn wipe_loss_of_contact_fails() {
+    let dir = screw_dir();
+    let pairs = drive(
+        FaultyDriver::new(Fault::LoseContact),
+        &dir.join("skill-wipe.yaml"),
+        &dir.join("embodiments/allegro.yaml"),
+    )
+    .expect("drive");
+    let (goal, report) = &pairs[0];
+    // wrench.force -> 0, below the band lower edge -> the new lower-bound bite.
+    assert!(matches!(
+        check_envelope(EnvelopeClass::ForceTrajectory, goal, report),
+        CheckOutcome::Fail(_)
+    ));
+}
+
+#[test]
+fn wipe_over_force_fails() {
+    let dir = screw_dir();
+    let pairs = drive(
+        FaultyDriver::new(Fault::OverForce),
+        &dir.join("skill-wipe.yaml"),
+        &dir.join("embodiments/allegro.yaml"),
+    )
+    .expect("drive");
+    let (goal, report) = &pairs[0];
+    // wrench.force -> 999, above the band upper edge.
+    assert!(matches!(
+        check_envelope(EnvelopeClass::ForceTrajectory, goal, report),
+        CheckOutcome::Fail(_)
+    ));
+}
