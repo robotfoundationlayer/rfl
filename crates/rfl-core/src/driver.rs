@@ -103,9 +103,10 @@ pub struct Telemetry {
     /// Tactile feature readings (manifold confirmation).
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub tactile: Vec<TactileReading>,
-    /// Force events fired this sample (breakaway / detent).
+    /// ForceEvents fired this sample (`04` § Force events; `ForceEventFloor` objects:
+    /// `kind` / `at` / `magnitude`, e.g. a detent click). Read by `check_actuation`.
     #[serde(skip_serializing_if = "Vec::is_empty")]
-    pub events: Vec<String>,
+    pub events: Vec<serde_json::Value>,
     /// The fidelity tier in effect.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub fidelity_tier: Option<String>,
