@@ -21,6 +21,8 @@ use crate::skill_isa::{
     ReachRetract, ReachScan, ScanPattern, SenseInspect, Skill, Statement, TactileTargetArg,
     TransportMoveToPose,
 };
+use crate::grasp_force::{self, GraspMode};
+use std::collections::BTreeMap;
 
 /// The retargeting result: the canonical action stream plus the per-action
 /// primitive suffix used to build deterministic action ids.
@@ -30,6 +32,45 @@ pub struct RetargetOutput {
     pub actions: Vec<CanonicalAction>,
     /// The primitive suffix for each action (for the action id).
     pub suffixes: Vec<&'static str>,
+}
+
+/// The object currently held by the active grasp, carried across the sequence walk
+/// so a later `transport` / `force` primitive can derive mass-dependent bounds
+/// (`spec/02` GF2c / GF3c). Set when a grasp closes, cleared when it releases.
+#[derive(Debug, Clone)]
+#[allow(dead_code)] // weight_n / mode are read by the GF2c / GF3c lowerings (next commits)
+struct HeldObject {
+    /// Held-object weight in newtons (`target.estimated_mass`).
+    weight_n: f64,
+    /// The closure mode of the active grasp.
+    mode: GraspMode,
+}
+
+/// Mutable grasp state threaded through the retarget sequence walk.
+#[derive(Debug, Clone, Default)]
+struct GraspContext {
+    /// The object currently held, if any.
+    held: Option<HeldObject>,
+}
+
+/// Resolve each let-variable bound from a `sense.locate` to the declared
+/// `estimated_mass` of its target object, giving `let-var -> weight`. A declared
+/// prior, never runtime-measured (RD1c), so a grasp targeting such a variable can
+/// look up the held-object weight at retarget time.
+fn build_weights(skill: &Skill) -> BTreeMap<String, Quantity> {
+    let mut weights = BTreeMap::new();
+    for stmt in &skill.body.sequence {
+        if let Statement::LetBind(b) = stmt {
+            if let Primitive::SenseLocate(sl) = b.from.as_ref() {
+                if let Some(decl) = skill.objects.get(&sl.target_ref) {
+                    if let Some(mass) = &decl.estimated_mass {
+                        weights.insert(b.r#let.clone(), mass.clone());
+                    }
+                }
+            }
+        }
+    }
+    weights
 }
 
 /// Retarget a skill onto an embodiment (`spec/02`). Deterministic for identical
@@ -42,13 +83,15 @@ pub struct RetargetOutput {
 pub fn retarget(skill: &Skill, embodiment: &Embodiment) -> crate::Result<RetargetOutput> {
     let mut actions = Vec::new();
     let mut suffixes = Vec::new();
+    let weights = build_weights(skill);
+    let mut ctx = GraspContext::default();
     for stmt in &skill.body.sequence {
         let prim = match stmt {
             Statement::Primitive(p) => p,
             Statement::LetBind(b) => &b.from,
         };
         check_capability(prim, embodiment)?;
-        let (action, suffix) = lower(prim, embodiment);
+        let (action, suffix) = lower(prim, embodiment, &mut ctx, &weights);
         actions.push(action);
         suffixes.push(suffix);
     }
@@ -93,14 +136,19 @@ fn check_capability(prim: &Primitive, e: &Embodiment) -> crate::Result<()> {
 /// Lower one primitive to a canonical action and its action-id suffix. Every
 /// cable-insertion primitive is handled, so lowering is infallible (capability
 /// errors are raised earlier by `check_capability`).
-fn lower(prim: &Primitive, e: &Embodiment) -> (CanonicalAction, &'static str) {
+fn lower(
+    prim: &Primitive,
+    e: &Embodiment,
+    ctx: &mut GraspContext,
+    weights: &BTreeMap<String, Quantity>,
+) -> (CanonicalAction, &'static str) {
     match prim {
         Primitive::SenseLocate(p) => (lower_sense_locate(p, e), "locate"),
-        Primitive::GraspPinch(p) => (lower_grasp_pinch(p, e), "pinch"),
+        Primitive::GraspPinch(p) => (lower_grasp_pinch(p, e, ctx, weights), "pinch"),
         Primitive::TransportMoveToPose(p) => (lower_transport_move_to_pose(p, e), "transport"),
         Primitive::ReachAlign(p) => (lower_reach_align(p, e), "align"),
         Primitive::ForceInsertFit(p) => (lower_force_insert_fit(p, e), "insert_fit"),
-        Primitive::GraspRelease(p) => (lower_grasp_release(p, e), "release"),
+        Primitive::GraspRelease(p) => (lower_grasp_release(p, e, ctx), "release"),
         Primitive::ReachRetract(p) => (lower_reach_retract(p, e), "retract"),
         Primitive::ReachScan(p) => (lower_reach_scan(p, e), "scan"),
         Primitive::SenseInspect(p) => (lower_sense_inspect(p, e), "inspect"),
@@ -162,13 +210,20 @@ fn base_envelope(e: &Embodiment) -> Envelope {
     }
 }
 
-/// Lower `grasp.pinch`. force_budget is clamped to grip_force_max (CA4c). The
-/// tactile_target `auto` is kept (manifold tier) on a tactile embodiment and
-/// degraded to the force/position proxy when tactile_sensing is undeclared
-/// (`spec/04` § Graceful degradation: position-convergence ∧ force-rise-and-hold,
-/// disclosed at the proxy fidelity tier).
-fn lower_grasp_pinch(p: &GraspPinch, e: &Embodiment) -> CanonicalAction {
-    let force_budget = Some(clamp_force(&p.force_budget, "grip_force_max", e));
+/// Lower `grasp.pinch`. force_budget is clamped to grip_force_max (CA4c) and floored
+/// at the GF1c static minimum derived from the declared held weight; the floor is also
+/// emitted in force_profile (the grasp-continuity invariant `05` GC1 samples it). The
+/// tactile_target `auto` is kept (manifold tier) on a tactile embodiment and degraded
+/// to the force/position proxy when tactile_sensing is undeclared (`spec/04`
+/// § Graceful degradation). The held object is recorded for the downstream transport /
+/// force derivations (GF2c / GF3c).
+fn lower_grasp_pinch(
+    p: &GraspPinch,
+    e: &Embodiment,
+    ctx: &mut GraspContext,
+    weights: &BTreeMap<String, Quantity>,
+) -> CanonicalAction {
+    let mut force_budget = clamp_force(&p.force_budget, "grip_force_max", e);
     let tactile_target = Some(match (&p.tactile_target, e.tactile_sensing()) {
         (TactileTargetArg::Auto(_), true) => TactileTargetOut::Auto,
         (TactileTargetArg::Auto(_), false) => TactileTargetOut::Proxy {
@@ -178,10 +233,23 @@ fn lower_grasp_pinch(p: &GraspPinch, e: &Embodiment) -> CanonicalAction {
             TactileTargetOut::Explicit(serde_json::to_value(v).unwrap_or(serde_json::Value::Null))
         }
     });
+    let mut env = base_envelope(e);
+    if let Some((weight_n, _)) = weights.get(&p.target).and_then(|q| q.parse()) {
+        let mhf = grasp_force::min_holding_force(weight_n, GraspMode::Pinch);
+        env.force_profile =
+            Some(serde_json::json!({ "min_holding_force": Quantity::from_si(mhf, "N").0 }));
+        if let Some((fb, unit)) = force_budget.parse() {
+            if mhf > fb {
+                let unit = unit.to_string();
+                force_budget = Quantity::from_si(mhf, &unit);
+            }
+        }
+        ctx.held = Some(HeldObject { weight_n, mode: GraspMode::Pinch });
+    }
     CanonicalAction {
         target_frame: e.grasp_frame().to_string(),
         target_pose: PoseExpr::Ref { r#ref: p.target.clone() },
-        force_budget,
+        force_budget: Some(force_budget),
         timing: TimingHints {
             nominal_duration: None,
             timing_mode: TimingMode::Strict,
@@ -189,7 +257,7 @@ fn lower_grasp_pinch(p: &GraspPinch, e: &Embodiment) -> CanonicalAction {
         },
         tactile_target,
         monitors: vec![],
-        safety_envelope: base_envelope(e),
+        safety_envelope: env,
     }
 }
 
@@ -299,10 +367,11 @@ fn lower_force_insert_fit(p: &ForceInsertFit, e: &Embodiment) -> CanonicalAction
     }
 }
 
-/// Lower `grasp.release`: a state change releasing the active grasp; v0 emits a
+/// Lower `grasp.release`: clears the active grasp from the context and emits a
 /// zero-distance withdraw along the default retract direction. The break-contact
 /// postcondition (`spec/01`) is symbolic in v0.
-fn lower_grasp_release(_p: &GraspRelease, e: &Embodiment) -> CanonicalAction {
+fn lower_grasp_release(_p: &GraspRelease, e: &Embodiment, ctx: &mut GraspContext) -> CanonicalAction {
+    ctx.held = None;
     CanonicalAction {
         target_frame: e.grasp_frame().to_string(),
         target_pose: PoseExpr::AxisRelative {
@@ -475,7 +544,9 @@ mod tests {
         let Statement::Primitive(Primitive::GraspPinch(p)) = &skill.body.sequence[1] else {
             panic!("expected grasp.pinch at index 1");
         };
-        super::lower_grasp_pinch(p, emb)
+        let weights = super::build_weights(skill);
+        let mut ctx = super::GraspContext::default();
+        super::lower_grasp_pinch(p, emb, &mut ctx, &weights)
     }
 
     #[test]
@@ -566,5 +637,32 @@ mod tests {
         assert_eq!(pattern.as_str(), "raster");
         assert_eq!(poses.len(), 9); // allegro palm_cam 60x45 -> 9 sweep poses
         assert_eq!(out.suffixes, vec!["scan", "inspect"]);
+    }
+
+    #[test]
+    fn pinch_emits_min_holding_force_floor() {
+        let (skill, emb) = load("allegro");
+        let out = retarget_pinch_only(&skill, &emb);
+        let fp = serde_json::to_string(&out.safety_envelope.force_profile).unwrap();
+        assert!(fp.contains("\"min_holding_force\":\"2.9 N\""), "got {fp}");
+        // 8 N task budget exceeds the 2.9 N floor and is under the 20 N ceiling -> unchanged.
+        assert_eq!(out.force_budget.as_ref().unwrap().0, "8 N");
+    }
+
+    #[test]
+    fn release_clears_held_context() {
+        let (skill, emb) = load("allegro");
+        let weights = super::build_weights(&skill);
+        let mut ctx = super::GraspContext::default();
+        let Statement::Primitive(Primitive::GraspPinch(p)) = &skill.body.sequence[1] else {
+            panic!("expected grasp.pinch at index 1");
+        };
+        super::lower_grasp_pinch(p, &emb, &mut ctx, &weights);
+        assert!(ctx.held.is_some());
+        let Statement::Primitive(Primitive::GraspRelease(r)) = &skill.body.sequence[6] else {
+            panic!("expected grasp.release at index 6");
+        };
+        super::lower_grasp_release(r, &emb, &mut ctx);
+        assert!(ctx.held.is_none());
     }
 }
