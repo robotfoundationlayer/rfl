@@ -78,10 +78,23 @@ collides with nor depends on the symbolic Rust workspace):
   grasp success (object lifted + placed), and integration-cost capture (driver LOC, time).
 - `README.md` — bringup instructions + how to run.
 
+The driver gets the canonical actions through a **minimal Python binding** rather than
+shelling out to the CLI — and that binding is the seed of the planned `bindings/`:
+
+- `bindings/python/` — a minimal PyO3 crate (path-dependent on `crates/rfl-core`, built with
+  `maturin`) exposing one function: `rfl.retarget(skill_yaml: str, descriptor_yaml: str) ->
+  str` (the canonical-action JSONL). It wraps the already-stable rfl-core surface
+  (`Skill::parse_yaml` → `Embodiment::parse_yaml` → `translation::retarget` →
+  `canonical::to_jsonl` — exactly the logic of `rfl-conformance`'s `retarget_example_to_jsonl`,
+  string-in / string-out). Being string-based it does not churn as primitive coverage or the
+  canonical JSON format evolve. This is the PincherX driver's retarget bridge **and** the
+  first real content of the otherwise-planned `bindings/` directory; the C (cbindgen) binding
+  and the full typed binding stay v1.0 deferrals.
+
 ## 5. Data flow
 
-1. `rfl-cli retarget hardware/pincherx-100/skill-pickplace.yaml --embodiment
-   hardware/pincherx-100/pincherx-100.yaml` → canonical-action JSONL: a `sense.locate`
+1. The driver calls `rfl.retarget(skill_pickplace_yaml, pincherx_100_yaml)` in-process (the
+   minimal Python binding above) → canonical-action JSONL: a `sense.locate`
    (pose bound at runtime), a `grasp.pinch` (carrying the derived `min_holding_force`), a
    `transport.move_to_pose` (held; carrying the propagated floor, increment 10), a
    `grasp.release`, and a `reach.retract`.
@@ -183,13 +196,17 @@ control for step 3).
 - **The baseline-only schema finding** — relaxing the descriptor schema's `minItems: 1` to
   express a pure-reach embodiment is a valid, on-thesis spec improvement, but not needed here
   (this descriptor declares `grasp.pinch`); deferred as its own small spec/schema change.
+- **The C (cbindgen) binding and the full typed Python binding** — v1.0 deferrals; only the
+  minimal retarget-only Python binding (§ 4) is in scope now (it has a real consumer: the
+  driver).
 - **Full physical-arm calibration** — after the sim proof.
 
 ## 11. Confirm during implementation (transcribe from source, not memory)
 
-- Whether `rfl-cli retarget` accepts arbitrary skill / descriptor file paths (vs example
-  stems); if not, a thin Python wrapper calling `rfl_core::translation::retarget`, or a CLI
-  extension.
+- The minimal PyO3 binding `bindings/python/` (§ 4): wrap rfl-core's `retarget_example_to_jsonl`
+  logic as `rfl.retarget(skill_yaml, descriptor_yaml) -> jsonl` (string-in / string-out),
+  path-dependent on `crates/rfl-core`, built with `maturin`; confirm the PyO3 + maturin setup
+  and that the resulting module imports in the driver's Python environment.
 - The exact Interbotix Python API for the installed version: the manipulator class, the
   set-end-effector-pose method (+ its 4-DOF argument set), and the **gripper open/close**
   calls — confirmed at bringup.
