@@ -21,6 +21,16 @@ impl Quantity {
         let value: f64 = num.trim().parse().ok()?;
         Some((value, unit.trim()))
     }
+
+    /// Build a quantity from an SI magnitude and unit, rounding the magnitude to 6
+    /// decimals for byte-deterministic emission (RD1c) and formatting it with the
+    /// shortest round-trip representation (`10.0 -> "10"`, `7.5 -> "7.5"`). Used for
+    /// retarget-*derived* quantities (grasp-force / acceleration), which, unlike
+    /// authored quantities, are computed floats.
+    #[must_use]
+    pub fn from_si(value: f64, unit: &str) -> Quantity {
+        Quantity(format!("{} {}", crate::canonical::round6(value), unit))
+    }
 }
 
 #[cfg(test)]
@@ -37,5 +47,20 @@ mod tests {
     #[test]
     fn rejects_non_quantity() {
         assert_eq!(Quantity("auto".into()).parse(), None);
+    }
+
+    #[test]
+    fn from_si_formats_shortest_roundtrip() {
+        assert_eq!(Quantity::from_si(10.0, "N").0, "10 N");
+        assert_eq!(Quantity::from_si(7.5, "N").0, "7.5 N");
+        assert_eq!(Quantity::from_si(2.9, "N").0, "2.9 N");
+        // 9.80665 / 29 ≈ 0.33816034 -> round6 -> 0.33816.
+        assert_eq!(Quantity::from_si(9.80665 / 29.0, "m/s^2").0, "0.33816 m/s^2");
+    }
+
+    #[test]
+    fn from_si_is_repeatable() {
+        let v = 9.80665 / 29.0;
+        assert_eq!(Quantity::from_si(v, "m/s^2"), Quantity::from_si(v, "m/s^2"));
     }
 }
