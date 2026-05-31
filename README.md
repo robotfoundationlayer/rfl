@@ -62,9 +62,9 @@ The whitepaper PDFs above are the authoritative reference at v0.1; the in-repo `
 rfl/
 ├── whitepaper/           # ✅ Whitepaper PDFs + figures (60 + 73 pages)
 ├── spec/                 # ✅ Specification documents (Markdown, work in progress)
-├── examples/             # ✅ Worked examples (01-cable-insertion, 02-surface-scan)
-├── crates/               # 🚧 Rust workspace (rfl-core / rfl-cli / rfl-conformance): rfl-cli retarget engine implemented (cable-insertion, surface-scan Σ, grasp-force GF1c–GF3c), Class 2 conformance green; full 50-primitive coverage + bindings → v1.0
-├── docs/                 # 🚧 Documentation site skeleton (getting-started.md only)
+├── examples/             # ✅ Worked examples (01-cable-insertion, 02-surface-scan, 03-screw-fasten)
+├── crates/               # 🚧 Rust workspace (rfl-core / rfl-cli / rfl-conformance): rfl-cli retarget engine across three worked examples (structural, generative Σ, mass-dependent grasp-force GF1c–GF4c incl. tool-mediated force.screw); conformance test classes 1–3 green (schema, determinism goldens, driver-protocol round-trip + envelope-class checks); full 50-primitive coverage + bindings → v1.0
+├── docs/                 # 🚧 Docs: getting-started.md + design/ (per-increment reference-implementation design records)
 ├── schemas/              # ✅ Four JSON schemas + validator (skill-isa, embodiment-descriptor, driver-interface, tactile-manifold/adapter — all precisely typed; validate.py = conformance test class 1 with anti-drift invariants C1–C7)
 ├── bindings/             # ⏳ Python (PyO3) + C (cbindgen) bindings (planned for v1.0)
 └── conformance/          # ⏳ Conformance test suite (planned for v1.0)
@@ -82,7 +82,7 @@ The three-layer division, the ~50 primitives and their categorization, the compo
 
 ### Open through the v0.1 review period
 
-All four machine-readable schemas (`skill-isa`, `embodiment-descriptor`, `driver-interface`, and `tactile-manifold/adapter`) are now precisely typed against their `spec/` parameter tables and backed by a committed conformance-test-class-1 validator (`schemas/validate.py`, with seven cross-schema anti-drift invariants C1–C7, run via `uv run --with jsonschema --with pyyaml python schemas/validate.py`). What remains open through the review period: the extension registry (`spec/06`) and the per-skill ε-tolerance table for Class 2-loose conformance (data-dependent, pending reference-implementation measurements). Reference-implementation engineering has begun: the `rfl-cli retarget` engine deterministically retargets the worked-example skills onto three embodiment descriptors, including the mass-dependent grasp-force derivations (GF1c–GF3c), and is backed by conformance test class 2 (byte-deterministic golden snapshots validated against the driver-interface schema). Full 50-primitive coverage and the language bindings remain v1.0 targets.
+All four machine-readable schemas (`skill-isa`, `embodiment-descriptor`, `driver-interface`, and `tactile-manifold/adapter`) are now precisely typed against their `spec/` parameter tables and backed by a committed conformance-test-class-1 validator (`schemas/validate.py`, with seven cross-schema anti-drift invariants C1–C7, run via `uv run --with jsonschema --with pyyaml python schemas/validate.py`). What remains open through the review period: the extension registry (`spec/06`) and the per-skill ε-tolerance table for Class 2-loose conformance (data-dependent, pending reference-implementation measurements). Reference-implementation engineering has begun: the `rfl-cli retarget` engine deterministically retargets three worked-example skills (cable insertion, surface scan, screw fastening) onto three embodiment descriptors, including the mass-dependent grasp-force derivations (GF1c–GF4c, with the tool-mediated torque reaction for `force.screw`), and is backed by conformance test classes 2 and 3 (byte-deterministic retarget goldens, the driver-protocol round-trip, and the envelope-class checkers verified against adversarial drivers). Full 50-primitive coverage and the language bindings remain v1.0 targets.
 
 ### Targeted milestones
 
