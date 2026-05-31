@@ -143,6 +143,9 @@ pub enum Primitive {
     /// `transport.carry`.
     #[serde(rename = "transport.carry")]
     TransportCarry(TransportCarry),
+    /// `force.press_button`.
+    #[serde(rename = "force.press_button")]
+    ForcePressButton(ForcePressButton),
 }
 
 /// `sense.locate` modality (`$defs/SenseLocateParams.modality`).
@@ -475,6 +478,23 @@ pub struct ForceScrew {
     /// The grasp on the fastener or the driving tool.
     #[serde(default)]
     pub grasp_handle: Option<GraspHandle>,
+}
+
+/// `force.press_button` parameters (v0 subset of `$defs/ForcePressButtonParams`, § 6.6).
+/// `target` + `actuation` + `force_budget` are required. v0 lowers the force_budget (the
+/// force-trajectory leg) + the detent actuation marker; `press_direction` / `max_travel` /
+/// `release_after` are schema-carried but symbolic in v0 (the over-travel guard is deferred).
+#[derive(Debug, Clone, serde::Deserialize)]
+pub struct ForcePressButton {
+    /// The button surface / frame to press (v0: a frame ref).
+    pub target: FrameRef,
+    /// `ActuationSpec` — what marks actuation: `detent` (v0) | `effort_rise(force_threshold)`.
+    pub actuation: serde_yaml::Value,
+    /// Max press force (over-travel / mechanism-damage limit) — the force-trajectory bound.
+    pub force_budget: Quantity,
+    /// Required compliance mode.
+    #[serde(default)]
+    pub compliance: Option<Compliance>,
 }
 
 /// `force.unscrew` parameters (v0 subset of `$defs/ForceUnscrewParams`). Mirrors

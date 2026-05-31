@@ -1,0 +1,5 @@
+---
+source: crates/rfl-conformance/tests/press_button.rs
+expression: "jsonl_for(\"leap\")"
+---
+{"message":"execute","action_id":"press-button/cmu-leap-v1/0001-press_button","canonical_action":{"target_frame":"tcp_index","target_pose":{"ref":"button"},"force_budget":"5 N","timing":{"timing_mode":"time_scalable","stop_at_goal":true},"monitors":[{"stop_condition":"detent"}],"safety_envelope":{"motion_bounds":{"v_max":"0.5 m/s","a_max":"2.0 m/s^2","w_max":"2.5 rad/s"},"force_profile":{"actuation":"detent"},"compliance":"active","stop_time":"0.08 s"}}}

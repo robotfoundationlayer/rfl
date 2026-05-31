@@ -1,0 +1,17 @@
+# Example 03 — Press button (force.press_button variant)
+# A momentary button press: advance into the button until its actuation detent (click)
+# fires, within a press-force budget, without over-travel past the click. Exercises the
+# event-gated force class (spec/05 ENV4 + the ForceEvent channel): a detent marks
+# actuation; a force rise with no detent is no_actuation (a stuck / absent button).
+skill: press-button
+description: >
+  Press a panel button until its actuation detent fires, within a press-force budget.
+
+body:
+  sequence:
+
+    - force.press_button:
+        target: button
+        actuation: detent
+        force_budget: 5 N
+        compliance: active

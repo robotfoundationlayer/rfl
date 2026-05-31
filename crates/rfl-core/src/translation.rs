@@ -17,7 +17,7 @@ use crate::canonical::{
 use crate::embodiment::Embodiment;
 use crate::quantity::Quantity;
 use crate::skill_isa::{
-    Axes, Axis, Compliance, DisturbanceArg, ForceInsertFit, ForceScrew, ForceUnscrew, GraspPinch, GraspRelease,
+    Axes, Axis, Compliance, DisturbanceArg, ForceInsertFit, ForcePressButton, ForceScrew, ForceUnscrew, GraspPinch, GraspRelease,
     Primitive, ReachAlign, ReachHover, ReachRetract, ReachScan, ScanPattern, SenseInspect, Skill, StabilityMarginArg,
     Statement, TactileTargetArg, TransportCarry, TransportMoveToPose,
 };
@@ -131,6 +131,7 @@ fn check_capability(prim: &Primitive, e: &Embodiment) -> crate::Result<()> {
         Primitive::ForceInsertFit(_) => "force.insert_fit",
         Primitive::ForceScrew(_) => "force.screw",
         Primitive::ForceUnscrew(_) => "force.unscrew",
+        Primitive::ForcePressButton(_) => "force.press_button",
         Primitive::SenseInspect(_) => "sense.inspect",
     };
     if e.has_skill(key) {
@@ -158,6 +159,7 @@ fn lower(
         Primitive::ForceInsertFit(p) => (lower_force_insert_fit(p, e, ctx), "insert_fit"),
         Primitive::ForceScrew(p) => (lower_force_screw(p, e, ctx), "screw"),
         Primitive::ForceUnscrew(p) => (lower_force_unscrew(p, e, ctx), "unscrew"),
+        Primitive::ForcePressButton(p) => (lower_force_press_button(p, e), "press_button"),
         Primitive::GraspRelease(p) => (lower_grasp_release(p, e, ctx), "release"),
         Primitive::ReachRetract(p) => (lower_reach_retract(p, e), "retract"),
         Primitive::ReachScan(p) => (lower_reach_scan(p, e), "scan"),
@@ -469,6 +471,49 @@ fn lower_reach_hover(p: &ReachHover, e: &Embodiment) -> CanonicalAction {
         monitors: vec![],
         safety_envelope: env,
     }
+}
+
+/// Lower `force.press_button` (`spec/01` § 6.6): an effector press bounded by a force
+/// trajectory (press force ≤ `force_budget`) and gated by an actuation event. v0 emits the
+/// `force_budget` (the ForceTrajectory leg), the detent actuation marker into `force_profile`
+/// (the bench echoes the detent; `check_actuation` verifies it), and the actuation as a
+/// `Monitor` stop condition. Detent only; `effort_rise(force_threshold)` is carried but
+/// unmarked (deferred). The over-travel / `max_travel` guard needs a displacement signal
+/// (deferred).
+fn lower_force_press_button(p: &ForcePressButton, e: &Embodiment) -> CanonicalAction {
+    let monitors = vec![Monitor { stop_condition: yaml_to_json(&p.actuation) }];
+    let mut env = base_envelope(e);
+    env.compliance = p.compliance.map(|c| {
+        match c {
+            Compliance::Passive => "passive",
+            Compliance::Active => "active",
+            Compliance::Auto => "auto",
+        }
+        .to_string()
+    });
+    if actuation_is_detent(&p.actuation) {
+        env.force_profile = Some(serde_json::json!({ "actuation": "detent" }));
+    }
+    CanonicalAction {
+        target_frame: e.control_frame().to_string(),
+        target_pose: PoseExpr::Ref { r#ref: p.target.clone() },
+        force_budget: Some(p.force_budget.clone()),
+        timing: TimingHints {
+            nominal_duration: None,
+            timing_mode: TimingMode::TimeScalable,
+            stop_at_goal: true,
+        },
+        tactile_target: None,
+        monitors,
+        safety_envelope: env,
+    }
+}
+
+/// True if an `ActuationSpec` is the detent mode (bare `detent` or `{detent: ...}`).
+fn actuation_is_detent(v: &serde_yaml::Value) -> bool {
+    v.as_str() == Some("detent")
+        || v.as_mapping()
+            .is_some_and(|m| m.contains_key(serde_yaml::Value::String("detent".to_string())))
 }
 
 /// Convert a `serde_yaml::Value` to a `serde_json::Value` deterministically.
@@ -1039,6 +1084,36 @@ mod tests {
         let emb = load("allegro").1; // cable allegro lacks force.screw
         let err = retarget(&skill, &emb).unwrap_err();
         assert!(err.to_string().contains("capability_absent: force.screw"), "got {err}");
+    }
+
+    const PRESS_SKILL: &str = "skill: t\nbody:\n  sequence:\n    - force.press_button: { target: button, actuation: detent, force_budget: 5 N }\n";
+
+    #[test]
+    fn press_button_capability_absent_when_not_declared() {
+        let skill = Skill::parse_yaml(PRESS_SKILL).unwrap();
+        let emb = load("allegro").1; // cable allegro lacks force.press_button
+        let err = retarget(&skill, &emb).unwrap_err();
+        assert!(err.to_string().contains("capability_absent: force.press_button"), "got {err}");
+    }
+
+    #[test]
+    fn press_button_lowers_force_budget_and_detent_actuation() {
+        let dir =
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples/03-screw-fasten");
+        let skill =
+            Skill::parse_yaml(&std::fs::read_to_string(dir.join("skill-press.yaml")).unwrap()).unwrap();
+        let emb = crate::embodiment::Embodiment::parse_yaml(
+            &std::fs::read_to_string(dir.join("embodiments/allegro.yaml")).unwrap(),
+        )
+        .unwrap();
+        let out = retarget(&skill, &emb).expect("retarget");
+        assert_eq!(out.suffixes, vec!["press_button"]);
+        let a = &out.actions[0];
+        assert_eq!(a.force_budget.as_ref().map(|q| q.0.as_str()), Some("5 N"));
+        let fp = serde_json::to_string(&a.safety_envelope.force_profile).unwrap();
+        assert!(fp.contains("\"actuation\":\"detent\""), "got {fp}");
+        let mon = serde_json::to_string(&a.monitors).unwrap();
+        assert!(mon.contains("detent"), "got {mon}");
     }
 
     #[test]
