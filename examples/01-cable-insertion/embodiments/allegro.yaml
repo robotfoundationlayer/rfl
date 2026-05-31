@@ -20,7 +20,7 @@ embodiment:
 
   # Capability manifest — 03 § Capability manifest.
   capabilities:
-    skills: [grasp.pinch, grasp.lateral, grasp.envelope, transport, force.insert_fit, sense.locate]
+    skills: [grasp.pinch, grasp.lateral, grasp.envelope, transport, transport.carry, force.insert_fit, sense.locate]
     aux:
       tactile_sensing: true        # distributed fingertip tactile → manifold-tier confirmation
       compliance: active
@@ -35,6 +35,7 @@ embodiment:
     joint_velocity_ceiling:      3.0 rad/s
     stop_time:                   0.1 s
     tracking_bandwidth:          5 Hz
+    stability_margin:            0.5         # transport.carry holding-capacity headroom (03 § Transport)
     # shared force-closure grasp limits (grasp.pinch / lateral / envelope)
     grip_force_max:              20 N
     v_grasp:                     0.05 m/s

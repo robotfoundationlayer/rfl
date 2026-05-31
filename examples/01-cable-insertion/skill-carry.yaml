@@ -1,0 +1,37 @@
+# Example 01 (variant) — Cable carry under disturbance
+# Reuses the cable connector + the three descriptors; swaps the plain transport for a
+# transport.carry, exercising the held interval-invariant envelope class (spec/01 § 4.4,
+# spec/05 ENV1). The pinch establishes the held object (connector.estimated_mass) so the
+# carry has a grasp to keep secured; the carry a_max is clamped below the plain dynamic
+# limit to reserve margin for the disturbance_budget (spec/02:137).
+
+skill: cable-carry
+description: >
+  Grasp a connector and carry it under disturbance to a staging pose, maintaining
+  grasp stability throughout (transport.carry — the held interval-invariant).
+
+objects:
+  connector: { ref: connector, estimated_mass: 1.45 N }   # ~148 g; the held object the carry secures
+
+body:
+  sequence:
+
+    # 1 — Locate the connector; bind its measured pose.
+    - let: connector_t
+      from:
+        sense.locate: { target_ref: connector, modality: auto }
+
+    # 2 — Grasp the connector (antipodal pinch); establishes the held object.
+    - grasp.pinch:
+        target: connector_t
+        force_budget: 8 N
+        tactile_target: auto
+        slip_response: retighten
+
+    # 3 — Carry the held connector to a staging pose under disturbance. The acceleration
+    #     is clamped below the plain-transport limit to reserve stability_margin for the
+    #     0.4 N disturbance budget; stability_margin: auto = the embodiment default.
+    - transport.carry:
+        motion: { to_pose: { frame: staging, offset: { along: +z, distance: 100 mm } } }
+        disturbance_budget: 0.4 N
+        stability_margin: auto

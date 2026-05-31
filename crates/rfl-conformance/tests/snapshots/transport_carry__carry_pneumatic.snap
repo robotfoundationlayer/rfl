@@ -1,0 +1,7 @@
+---
+source: crates/rfl-conformance/tests/transport_carry.rs
+expression: "jsonl_for(\"pneumatic-6f\")"
+---
+{"message":"execute","action_id":"cable-carry/generic-pneumatic-6f/0001-locate","canonical_action":{"target_frame":"head_cam","target_pose":{"ref":"connector"},"timing":{"timing_mode":"strict","stop_at_goal":true},"safety_envelope":{"motion_bounds":{}}}}
+{"message":"execute","action_id":"cable-carry/generic-pneumatic-6f/0002-pinch","canonical_action":{"target_frame":"palm","target_pose":{"ref":"connector_t"},"force_budget":"8 N","timing":{"timing_mode":"strict","stop_at_goal":true},"tactile_target":{"proxy":{"tier":"proxy","criterion":"position_convergence_and_force_hold"}},"safety_envelope":{"motion_bounds":{"v_max":"0.3 m/s","a_max":"0.8 m/s^2","w_max":"1.2 rad/s"},"force_profile":{"min_holding_force":"2.9 N"},"stop_time":"0.15 s"}}}
+{"message":"execute","action_id":"cable-carry/generic-pneumatic-6f/0003-carry","canonical_action":{"target_frame":"palm","target_pose":{"frame":"staging","offset":{"along":"+z","distance":"100 mm"}},"timing":{"timing_mode":"time_scalable","stop_at_goal":true},"safety_envelope":{"motion_bounds":{"v_max":"0.3 m/s","a_max":"0 m/s^2","w_max":"1.2 rad/s"},"force_profile":{"disturbance_budget":"0.4 N","min_holding_force":"2.9 N","stability_margin":0.5},"stop_time":"0.15 s"}}}
