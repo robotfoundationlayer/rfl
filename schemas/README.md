@@ -23,8 +23,21 @@ JSON Schema definitions for the machine-readable RFL artifacts. They formalize t
 
 ## Validating
 
+`validate.py` is the committed conformance-test-class-1 runner: it checks both
+schemas (Draft 2020-12), validates every reference instance against them, and
+asserts the cross-schema consistency invariants (the descriptor's capability
+enum is exactly `skill-isa`'s `PrimitiveId` set minus `reach.*` plus the four
+category gates; the extension-key pattern is shared; the closed-core tactile
+feature set is identical). It exits non-zero on any failure.
+
 ```bash
 # Ephemeral environment, no project pollution:
+uv run --with jsonschema --with pyyaml python schemas/validate.py
+```
+
+The equivalent inline form, for reference:
+
+```bash
 uv run --with jsonschema --with pyyaml python - <<'PY'
 import json, yaml, glob
 from jsonschema import Draft202012Validator
