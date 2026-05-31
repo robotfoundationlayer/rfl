@@ -5,6 +5,10 @@ members = [
     "crates/rfl-cli",
     "crates/rfl-conformance",
 ]
+# bindings/python is a PyO3 cdylib built only via maturin; excluding it keeps
+# workspace-wide `cargo test`/`cargo build` (and the green conformance suite)
+# byte-identical and lets maturin invoke cargo inside it without a member error.
+exclude = ["bindings/python"]
 
 [workspace.package]
 version = "0.0.1"

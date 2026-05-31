@@ -1,0 +1,15 @@
+[build-system]
+requires = ["maturin>=1.0,<2.0"]
+build-backend = "maturin"
+
+[project]
+name = "rfl"
+dynamic = ["version"]
+description = "Robot Foundation Layer — minimal Python binding (retarget engine)"
+requires-python = ">=3.9"
+license = { text = "Apache-2.0" }
+
+[tool.maturin]
+# Adds the pyo3 extension-module feature only for maturin builds, so the produced
+# cdylib does not link libpython (symbols resolve at import time).
+features = ["pyo3/extension-module"]

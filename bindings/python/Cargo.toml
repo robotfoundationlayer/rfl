@@ -1,0 +1,24 @@
+# Excluded from the workspace; workspace.package fields cannot be inherited here —
+# keep version/edition/license/etc. in sync with /Cargo.toml manually.
+[package]
+name = "rfl"
+description = "Robot Foundation Layer — minimal Python binding (retarget engine)"
+version = "0.0.1"
+edition = "2024"
+rust-version = "1.85"
+license = "Apache-2.0"
+repository = "https://github.com/robotfoundationlayer/rfl"
+homepage = "https://github.com/robotfoundationlayer"
+authors = ["Yoichiro Hara <yo@vox.delivery>"]
+
+[lib]
+# Python import name. Must match the `#[pymodule]` name in src/lib.rs.
+name = "rfl"
+crate-type = ["cdylib"]
+
+[dependencies]
+# abi3-py39: one extension that imports on any CPython >= 3.9 (covers ROS 2
+# Humble=3.10 / Jazzy=3.12). extension-module is added by maturin at build time
+# (see pyproject [tool.maturin].features) so it is not a default feature here.
+pyo3 = { version = "0.28", features = ["abi3-py39"] }
+rfl-core = { path = "../../crates/rfl-core" }
