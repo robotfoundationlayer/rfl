@@ -1,6 +1,6 @@
 # Example 01 — Cable insertion across three hand classes
 
-> **Status**: worked example populated (2026-05-31). The three embodiment descriptors **validate against `schemas/embodiment-descriptor.schema.json`** (Draft 2020-12, verified); `skill.yaml` is a reference instance of the forthcoming `skill-isa.schema.json`; `run.py` invokes the reference CLI (`crates/rfl-cli`, in progress). The trace below is the design-level walkthrough.
+> **Status**: worked example running (2026-05-31). The three embodiment descriptors validate against `schemas/embodiment-descriptor.schema.json` and `skill.yaml` against `schemas/skill-isa.schema.json` (Draft 2020-12, verified). The reference CLI (`crates/rfl-cli`) retargets this skill onto all three embodiments: `run.py --embodiment {allegro,leap,pneumatic-6f}` emits the per-hand `execute`-message JSONL (Translation Layer v0), and the pneumatic run exercises the force/position-proxy degradation end to end. Conformance test class 2 (`crates/rfl-conformance`) pins the output against committed golden snapshots. The trace below is the design-level walkthrough.
 
 One Skill ISA composition (`skill.yaml`) executes on three **structurally distinct** hand classes without change — the operational test of Principle 1 (embodiment-agnostic):
 
@@ -65,7 +65,7 @@ The semantics are identical; the embodiment descriptor is the only thing that ch
 ## How to run
 
 ```bash
-# From the repository root, once the rfl-cli reference implementation builds:
+# From the repository root:
 python3 examples/01-cable-insertion/run.py --embodiment allegro
 python3 examples/01-cable-insertion/run.py --embodiment leap
 python3 examples/01-cable-insertion/run.py --embodiment pneumatic-6f
@@ -75,4 +75,4 @@ cargo run -p rfl-cli -- retarget examples/01-cable-insertion/skill.yaml \
     --embodiment examples/01-cable-insertion/embodiments/allegro.yaml
 ```
 
-Until `rfl-cli` builds, `run.py` prints the intended invocation; the skill and embodiment descriptors are complete and reviewable now.
+`run.py` prints the invocation it runs, then streams the retargeted canonical actions as one `execute` message per line (JSONL). The same `skill.yaml` produces a different stream per embodiment (per-hand control frame, manifold vs. proxy tactile confirmation, clamped motion bounds); only the descriptor changes.
