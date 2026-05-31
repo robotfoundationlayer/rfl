@@ -2,13 +2,13 @@
 
 Worked examples that exercise the full Skill ISA → Translation Layer → Driver Interface chain across structurally distinct embodiments.
 
-## Planned examples
+## Examples
 
 | # | Example | Embodiments exercised | Status |
 |---|---|---|---|
 | 01 | `cable-insertion/` | Tendon-driven 4-finger (e.g., Allegro), direct-drive 4-finger (e.g., LEAP), pneumatic 6-finger | populated (skill + 3 descriptors + walkthrough) |
-| 02 | `pick-and-place/` | Same three + collaborative arm | planned |
-| 03 | `bimanual-handoff/` | Two arms with different end-effector classes | planned |
+| 02 | `surface-scan/` | Same three | populated (`reach.scan` raster + spiral sweep, `sense.inspect`; `skill.yaml` + `skill-spiral.yaml` + 3 descriptors) |
+| 03 | `screw-fasten/` | Same three | populated (grasp + transport + `force.screw` + 3 descriptors) |
 
 Each example contains:
 
