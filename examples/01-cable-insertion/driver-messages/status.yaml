@@ -1,0 +1,17 @@
+# status — the action Result (03 § Canonical driver messages, Status).
+# The terminal report for the force.insert_fit action: a seated insertion (the
+# all_of effort-rise-at-depth fired, not a jam). It carries the 05 audit record —
+# the three-valued verdict with evidence, the achieved fidelity tier — and no
+# failure (outcome = succeeded, so failure_class / failure_detail are absent).
+message: status
+action_id: cable-insertion/allegro/0005-insert_fit
+outcome: succeeded
+verdict:                                  # 01 three-valued Verdict + evidence (05 AUD1)
+  value: true
+  confidence: 0.97
+  evidence:
+    - effort rise at the expected insertion depth (seated, not jam)
+fidelity_tier: manifold                   # seating read from fingertip force at manifold tier
+final_pose:
+  position: [0.412, -0.088, 0.239]
+  orientation: [0.0, 0.0, 0.0, 1.0]

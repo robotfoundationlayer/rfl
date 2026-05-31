@@ -1,0 +1,6 @@
+# clearance-query response (03 § Canonical driver messages, Clearance query).
+# The driver's deterministic answer: the minimum clearance over the swept motion
+# (the caller requires >= the action's clearance bound) and a feasible result.
+message: clearance_response
+clearance: 12 mm
+result: ok

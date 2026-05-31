@@ -1,0 +1,22 @@
+# telemetry — the action Feedback (03 § Canonical driver messages, Telemetry).
+# One sample mid-insertion, stamped on the 04 common monotonic manifold timebase.
+# This is what the 05 envelope classes interval-sample: realized_pose (terminal /
+# interval), wrench (force/torque-trajectory ENV4), securing_force (grasp-continuity
+# GC1, >= min_holding_force), tactile feature readings (manifold confirmation), and
+# the fidelity_tier in effect. The Allegro hand has tactile sensing, so confirmation
+# runs at manifold tier; a proxy-tier embodiment would omit `tactile`.
+message: telemetry
+action_id: cable-insertion/allegro/0005-insert_fit
+t: 2.418                                  # seconds on the 04 manifold timebase
+realized_pose:
+  position: [0.412, -0.088, 0.236]
+  orientation: [0.0, 0.0, 0.0, 1.0]
+wrench:
+  force: [0.1, -0.2, 11.4]                # N
+  torque: [0.0, 0.0, 0.0]                 # N*m
+securing_force: 8 N                        # held connector secured >= min_holding_force (GC1)
+tactile:
+  - { feature: normal_force, reading: "8.2 N" }
+  - { feature: force_derivative, reading: "rising" }
+events: []                                # no breakaway / detent fired this sample
+fidelity_tier: manifold

@@ -54,9 +54,14 @@ def load_schema(name: str) -> dict:
 def main() -> int:
     skill = load_schema("skill-isa.schema.json")
     descriptor = load_schema("embodiment-descriptor.schema.json")
+    driver = load_schema("driver-interface.schema.json")
 
     print("Schema well-formedness (JSON Schema Draft 2020-12)")
-    for label, schema in (("skill-isa", skill), ("embodiment-descriptor", descriptor)):
+    for label, schema in (
+        ("skill-isa", skill),
+        ("embodiment-descriptor", descriptor),
+        ("driver-interface", driver),
+    ):
         try:
             Draft202012Validator.check_schema(schema)
             check(f"check_schema {label}", True)
@@ -74,6 +79,11 @@ def main() -> int:
     for emb in sorted((EXAMPLES / "embodiments").glob("*.yaml")):
         errs = list(desc_validator.iter_errors(yaml.safe_load(emb.read_text())))
         check(f"{emb.name} vs embodiment-descriptor", not errs, errs[0].message if errs else "")
+
+    drv_validator = Draft202012Validator(driver)
+    for msg in sorted((EXAMPLES / "driver-messages").glob("*.yaml")):
+        errs = list(drv_validator.iter_errors(yaml.safe_load(msg.read_text())))
+        check(f"{msg.name} vs driver-interface", not errs, errs[0].message if errs else "")
 
     print("\nCross-schema consistency (anti-drift)")
 
@@ -102,6 +112,14 @@ def main() -> int:
     tactile_drift = sk_core ^ desc_core
     check("C3 tactile closed-core features identical", not tactile_drift,
           f"symmetric difference {sorted(tactile_drift)}")
+
+    # C4 — the driver-interface telemetry tactile-feature core is identical to
+    # skill-isa's, so telemetry feature keys cannot drift from the manifold
+    # taxonomy. Reuses sk_core from C3.
+    drv_core = set(driver["$defs"]["TactileFeature"]["oneOf"][0]["enum"])
+    drv_drift = sk_core ^ drv_core
+    check("C4 tactile closed-core identical (driver-interface telemetry)", not drv_drift,
+          f"symmetric difference {sorted(drv_drift)}")
 
     print()
     if failures:

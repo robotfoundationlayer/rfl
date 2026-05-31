@@ -1,0 +1,213 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "RFL Driver Interface — canonical messages",
+  "description": "Canonical driver message payloads (03-driver-interface.md § Canonical driver messages): execute (action Goal), telemetry (action Feedback), status (action Result), and the clearance-query service (request / response). A message is exactly one of the five, discriminated by `message`. Representation types owned by other chapters (CanonicalAction / Pose6D by 02, Verdict by 01, ForceEvent / TactileFeature / the fidelity tier by 04) are carried, not redefined — floored here. Backs conformance test class 3 (driver-protocol compliance).",
+  "oneOf": [
+    { "$ref": "#/$defs/ExecuteGoal" },
+    { "$ref": "#/$defs/TelemetryFeedback" },
+    { "$ref": "#/$defs/StatusResult" },
+    { "$ref": "#/$defs/ClearanceRequest" },
+    { "$ref": "#/$defs/ClearanceResponse" }
+  ],
+  "$defs": {
+    "Identifier": {
+      "description": "An action correlation id, opaque and unique within a session; ties an execute goal to its telemetry feedback and status result.",
+      "type": "string",
+      "minLength": 1
+    },
+    "Force": {
+      "description": "A force value (canonical wire unit N): a unit-suffixed quantity string (N / kN / mN). A realized wire value carries no let-reference (post-retarget).",
+      "type": "string",
+      "pattern": "^-?[0-9]+(\\.[0-9]+)?\\s+(N|kN|mN)$"
+    },
+    "Length": {
+      "description": "A length value (canonical wire unit m): a unit-suffixed quantity string (m / mm / cm).",
+      "type": "string",
+      "pattern": "^-?[0-9]+(\\.[0-9]+)?\\s+(m|mm|cm)$"
+    },
+    "FidelityTier": {
+      "description": "The confirmation fidelity tier (04 § Fidelity tier and audit honesty): manifold > proxy > proxy_reactive.",
+      "enum": ["manifold", "proxy", "proxy_reactive"]
+    },
+    "TactileFeature": {
+      "description": "A TactileManifold feature (04 § Feature taxonomy): one of the eleven closed-core features, or an ext.<ns>.<name> registered extension feature (06). The closed core is fixed so the conformance suite can enumerate it; it is asserted identical to skill-isa's TactileFeature core (validate.py C4).",
+      "oneOf": [
+        { "enum": ["contact", "normal_force", "shear", "pressure", "contact_area", "contact_centroid", "load_distribution", "slip", "force_derivative", "deformation_rate", "bending"] },
+        { "type": "string", "pattern": "^ext\\.[a-z_]+\\.[a-z_]+$" }
+      ]
+    },
+    "CanonicalActionFloor": {
+      "description": "The 02 CanonicalAction, carried verbatim (target_frame, target_pose:Pose6D, force_budget, timing, tactile_target, monitors, safety_envelope:Envelope). Its fields and their representation are owned by 02 / 01 / 04, so this is an open floor — the driver-interface schema does not re-encode a representation it does not own.",
+      "type": "object"
+    },
+    "Pose6DFloor": {
+      "description": "A 02 Pose6D (position in R^3 + unit quaternion). Representation owned by 02; floored here.",
+      "type": "object"
+    },
+    "WrenchFloor": {
+      "description": "A measured force / torque wrench. Representation owned by 02 / 04; floored here.",
+      "type": "object"
+    },
+    "VerdictFloor": {
+      "description": "A 01 three-valued Verdict (true / false above confidence_threshold, else indeterminate) with evidence. Owned by 01; floored here.",
+      "type": "object"
+    },
+    "ForceEventFloor": {
+      "description": "A 04 ForceEvent (kind / at / magnitude — breakaway or detent). Owned by 04; floored here.",
+      "type": "object"
+    },
+    "ModelElement": {
+      "description": "A collision-model element designator (03 § Collision model): a named designator (target / region / against_surface / setdown_surface / support_object / a freed object) or a structured reference.",
+      "type": ["string", "object"]
+    },
+    "MovingSet": {
+      "description": "The body / bodies that sweep (03 § Collision model, Moving set): effector(frame) or effector_with_held(frame, grasp).",
+      "type": "object",
+      "required": ["kind", "frame"],
+      "properties": {
+        "kind": { "enum": ["effector", "effector_with_held"] },
+        "frame": { "type": "string" },
+        "grasp": { "type": "string" }
+      },
+      "additionalProperties": false,
+      "if": { "properties": { "kind": { "const": "effector_with_held" } } },
+      "then": { "required": ["kind", "frame", "grasp"] }
+    },
+    "MotionQuery": {
+      "description": "The geometry swept (03 § Collision model, Motion query): at_pose / corridor / swept, all three mandatory of a driver. The geometry payload (a pose / a from-to pair / a trajectory or rotation) has its representation owned by 01 / 02 — floored.",
+      "type": "object",
+      "required": ["kind"],
+      "properties": {
+        "kind": { "enum": ["at_pose", "corridor", "swept"] },
+        "geometry": {}
+      },
+      "additionalProperties": false
+    },
+    "ExecuteGoal": {
+      "description": "execute — the action Goal (RFL -> driver): delivers one canonical action.",
+      "type": "object",
+      "required": ["message", "action_id", "canonical_action"],
+      "properties": {
+        "message": { "const": "execute" },
+        "action_id": { "$ref": "#/$defs/Identifier" },
+        "canonical_action": { "$ref": "#/$defs/CanonicalActionFloor" }
+      },
+      "additionalProperties": false
+    },
+    "TelemetryFeedback": {
+      "description": "telemetry — the action Feedback (driver -> RFL): a continuous sample stamped on the 04 manifold timebase, interval-sampled by the 05 envelope classes. Only message / action_id / t are mandatory; the rest are present per the executing primitive (a pure reach has no securing_force / wrench, a proxy-tier embodiment omits tactile).",
+      "type": "object",
+      "required": ["message", "action_id", "t"],
+      "properties": {
+        "message": { "const": "telemetry" },
+        "action_id": { "$ref": "#/$defs/Identifier" },
+        "t": { "description": "Timestamp on the 04 common monotonic manifold timebase; multi-rate features align on the slowest-contributing-feature grid (04 TM16c).", "type": "number" },
+        "realized_pose": { "$ref": "#/$defs/Pose6DFloor" },
+        "wrench": { "$ref": "#/$defs/WrenchFloor" },
+        "securing_force": { "$ref": "#/$defs/Force" },
+        "tactile": {
+          "description": "Manifold feature readings (present only when tactile_sensing is declared). The feature key is checkable against the closed core; its reading representation is owned by 04, floored.",
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["feature"],
+            "properties": {
+              "feature": { "$ref": "#/$defs/TactileFeature" },
+              "reading": {}
+            },
+            "additionalProperties": false
+          }
+        },
+        "events": {
+          "description": "ForceEvents fired this sample (breakaway / detent, 04 § Force events).",
+          "type": "array",
+          "items": { "$ref": "#/$defs/ForceEventFloor" }
+        },
+        "fidelity_tier": { "$ref": "#/$defs/FidelityTier" }
+      },
+      "additionalProperties": false
+    },
+    "StatusResult": {
+      "description": "status — the action Result (driver -> RFL): the terminal outcome, the ownership-split failure classification, and the 05 audit record. failure_class carries the protocol-level modes this chapter owns; failure_detail carries the primitive-specific 01 vocabulary token (form-constrained, not re-enumerated here).",
+      "type": "object",
+      "required": ["message", "action_id", "outcome"],
+      "properties": {
+        "message": { "const": "status" },
+        "action_id": { "$ref": "#/$defs/Identifier" },
+        "outcome": {
+          "description": "The three-valued terminal verdict; indeterminate is never coerced to success or failure (01 three-valued control flow).",
+          "enum": ["succeeded", "failed", "indeterminate"]
+        },
+        "failure_class": {
+          "description": "A protocol-level failure mode defined in this chapter's own sections (capability_absent § Capability checking; no_collision_free_path / blocked § Collision model; out_of_range / region_underdetermined § Sensor descriptor; coordination_unavailable § Multi-embodiment addressing). Present iff outcome = failed and the cause is protocol-level.",
+          "enum": ["capability_absent", "no_collision_free_path", "blocked", "out_of_range", "region_underdetermined", "coordination_unavailable"]
+        },
+        "failure_detail": {
+          "description": "The primitive-specific failure mode the executed primitive declares in 01 (e.g. jammed, grasp_lost, pose_not_reached), or an ext.<ns>.<name> extension mode. 01 owns the vocabulary, so the form is constrained but the modes are not enumerated here.",
+          "type": "string",
+          "pattern": "^([a-z][a-z_]*|ext\\.[a-z_]+\\.[a-z_]+)$"
+        },
+        "verdict": { "$ref": "#/$defs/VerdictFloor" },
+        "fidelity_tier": { "$ref": "#/$defs/FidelityTier" },
+        "safety_flags": {
+          "description": "Safety-critical facts the audit record propagates (05 AUD2 / AUD3).",
+          "type": "object",
+          "properties": {
+            "momentary_release": {
+              "description": "Set by a continuity-suspending operation (in_hand.flip), persisted and propagated downstream (05 AUD2).",
+              "type": "boolean"
+            },
+            "freed_part_disposition": {
+              "description": "A freeing operation's disposition contract (04 § Freed-part handling): retained or safe_zone_release(zone), never an uncontrolled drop. The zone representation is owned by 04, floored.",
+              "type": "object",
+              "required": ["disposition"],
+              "properties": {
+                "disposition": { "enum": ["retained", "safe_zone_release"] },
+                "zone": {}
+              },
+              "additionalProperties": false
+            }
+          },
+          "additionalProperties": false
+        },
+        "final_pose": { "$ref": "#/$defs/Pose6DFloor" }
+      },
+      "additionalProperties": false
+    },
+    "ClearanceRequest": {
+      "description": "clearance-query request (03 § Collision model): a deterministic minimum-clearance query against the static model with the exempt / augment sets.",
+      "type": "object",
+      "required": ["message", "moving", "motion"],
+      "properties": {
+        "message": { "const": "clearance_request" },
+        "moving": { "$ref": "#/$defs/MovingSet" },
+        "motion": { "$ref": "#/$defs/MotionQuery" },
+        "exempt": {
+          "description": "Static-model elements excluded as intended proximity.",
+          "type": "array",
+          "items": { "$ref": "#/$defs/ModelElement" }
+        },
+        "augment": {
+          "description": "Extra obstacles added to the static model (the freed-object dual).",
+          "type": "array",
+          "items": { "$ref": "#/$defs/ModelElement" }
+        }
+      },
+      "additionalProperties": false
+    },
+    "ClearanceResponse": {
+      "description": "clearance-query response (03 § Collision model): the minimum clearance over the motion and the feasibility result. Deterministic for identical inputs (X6c).",
+      "type": "object",
+      "required": ["message", "clearance", "result"],
+      "properties": {
+        "message": { "const": "clearance_response" },
+        "clearance": { "$ref": "#/$defs/Length" },
+        "result": {
+          "description": "no_collision_free_path when the moving set cannot clear the model (self-collision or blocked), distinguishing tight-but-feasible from no-feasible-path.",
+          "enum": ["ok", "no_collision_free_path"]
+        }
+      },
+      "additionalProperties": false
+    }
+  }
+}

@@ -1,0 +1,30 @@
+# execute — the action Goal (03 § Canonical driver messages, Execute).
+# A reference instance of one retargeted canonical action: step 5 of skill.yaml
+# (force.insert_fit) compiled onto the Allegro hand. The canonical_action payload
+# is the 02 CanonicalAction, carried verbatim; the schema floors its representation-
+# owned fields (Pose6D, Envelope, TactileTarget, Monitor) — they are shown here in
+# their 02 / 01 / 04 concrete form to demonstrate intent, not constrained by 03.
+message: execute
+action_id: cable-insertion/allegro/0005-insert_fit
+canonical_action:
+  target_frame: tcp_right                 # a control frame on the embodiment (03 frame model)
+  target_pose:                            # 02 Pose6D: position (m, world) + unit quaternion
+    position: [0.412, -0.088, 0.231]
+    orientation: [0.0, 0.0, 0.0, 1.0]
+  force_budget: 15 N
+  timing:
+    nominal_duration: 4 s
+    timing_mode: time_scalable
+    stop_at_goal: true                    # v0.1 fixes true (02 § Terminal semantics)
+  tactile_target: auto
+  monitors:                               # the StopCondition / ForceEvent the action watches (02)
+    - stop_condition:
+        all_of:                           # the seating/jam discriminator (01 § Stop conditions)
+          - effort_rise: 12 N
+          - reached: { depth: 8 mm }
+  safety_envelope:                        # 02 Envelope, bounds already clamped to embodiment.limits.*
+    motion_bounds: { v_max: 0.05 m/s, a_max: 0.2 m/s^2 }
+    force_profile: { axial: 15 N }
+    clearance: 5 mm
+    compliance: active
+    stop_time: 0.2 s

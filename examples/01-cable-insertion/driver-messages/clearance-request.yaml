@@ -1,0 +1,17 @@
+# clearance-query request (03 § Canonical driver messages, Clearance query; the
+# service formalization of § Collision model). The swept-volume query the planner
+# issues before step 3's transport, with the held connector in the moving set and
+# the manipulation target exempt from the clearance result.
+message: clearance_request
+moving:
+  kind: effector_with_held                # effector U held object's swept volume
+  frame: tcp_right
+  grasp: cable-insertion/allegro/0002-pinch
+motion:
+  kind: swept                             # full swept volume of the transport trajectory
+  geometry:
+    from: { frame: connector_t }
+    to: { frame: receptacle, offset: { along: -z, distance: 30 mm } }
+exempt:
+  - target                                # intended proximity to the manipulation target
+augment: []
