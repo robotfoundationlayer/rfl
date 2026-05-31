@@ -423,6 +423,28 @@ pub fn check_envelope(
     }
 }
 
+/// Verify the § 4.4 C2 graceful-degradation contract on an OVER-budget disturbance report:
+/// the carry must NOT claim success, must report the `disturbance_exceeded` halt reason, and
+/// must keep the object secured (`securing_force >= min_holding_force` at every sample — a
+/// controlled halt, not a drop). Distinct from `check_envelope`: this judges the *failure
+/// shape* of an over-budget injection (`spec/05` ENV3), not correct execution.
+#[must_use]
+pub fn check_graceful_degradation(goal: &ExecuteGoal, report: &DriverReport) -> CheckOutcome {
+    if matches!(report.status.outcome, Outcome::Succeeded) {
+        return CheckOutcome::Fail("claimed success under an over-budget disturbance".to_string());
+    }
+    if report.status.failure_detail.as_deref() != Some("disturbance_exceeded") {
+        return CheckOutcome::Fail(format!(
+            "expected failure_detail disturbance_exceeded, got {:?}",
+            report.status.failure_detail
+        ));
+    }
+    if let Some(reason) = securing_floor_violation(goal, report) {
+        return CheckOutcome::Fail(format!("object not secured during halt: {reason}"));
+    }
+    CheckOutcome::Pass
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -627,5 +649,54 @@ mod tests {
             CheckOutcome::Fail(_)
         ));
         assert_eq!(check_envelope(EnvelopeClass::TerminalPostcondition, &goal, &bad), CheckOutcome::Pass);
+    }
+
+    #[test]
+    fn graceful_degradation_accepts_secured_halt_rejects_pretended_success() {
+        use rfl_core::driver::{Outcome, RealizedPose, Status, Telemetry, Verdict};
+        let goal = ExecuteGoal::wrap("s/e/0003-carry".to_string(), sample_action());
+        // sample_action carries no force_profile, so the object-secured clause is vacuous here
+        // (it is exercised end-to-end by the Drops integration test); this covers clauses 1-2.
+        let report = |outcome: Outcome, detail: Option<&str>| {
+            let status = Status {
+                message: "status",
+                action_id: "s/e/0003-carry".to_string(),
+                outcome,
+                verdict: Some(Verdict { value: false, confidence: 1.0, evidence: vec![] }),
+                fidelity_tier: None,
+                final_pose: Some(RealizedPose::placeholder()),
+                failure_class: detail.map(|_| "blocked".to_string()),
+                failure_detail: detail.map(str::to_string),
+            };
+            DriverReport {
+                telemetry: vec![Telemetry {
+                    message: "telemetry",
+                    action_id: "s/e/0003-carry".to_string(),
+                    t: 1.0,
+                    realized_pose: Some(RealizedPose::placeholder()),
+                    wrench: None,
+                    securing_force: None,
+                    tactile: vec![],
+                    events: vec![],
+                    fidelity_tier: None,
+                }],
+                status,
+            }
+        };
+        // graceful halt: Failed + disturbance_exceeded -> Pass.
+        assert_eq!(
+            check_graceful_degradation(&goal, &report(Outcome::Failed, Some("disturbance_exceeded"))),
+            CheckOutcome::Pass
+        );
+        // pretended success -> Fail (clause 1).
+        assert!(matches!(
+            check_graceful_degradation(&goal, &report(Outcome::Succeeded, None)),
+            CheckOutcome::Fail(_)
+        ));
+        // wrong halt reason -> Fail (clause 2).
+        assert!(matches!(
+            check_graceful_degradation(&goal, &report(Outcome::Failed, Some("blocked"))),
+            CheckOutcome::Fail(_)
+        ));
     }
 }
