@@ -486,8 +486,8 @@
       "additionalProperties": false,
       "properties": {
         "target": {
-          "description": "ObjectTarget to pinch-grasp (perception-derived; typically reaches the call as a let-reference). An inline object or a let-reference.",
-          "anyOf": [ { "type": "object" }, { "$ref": "#/$defs/Ref" } ]
+          "description": "ObjectTarget to pinch-grasp (perception-derived; typically reaches the call as a let-reference). An inline ObjectTarget or a let-reference.",
+          "anyOf": [ { "$ref": "#/$defs/ObjectTarget" }, { "$ref": "#/$defs/Ref" } ]
         },
         "force_budget": {
           "$ref": "#/$defs/Force",
