@@ -348,6 +348,59 @@
       "description": "A perception-derived compound (see Compound) typed T | auto in the spec: the literal auto (planner-derived), an inline object, or a let-reference.",
       "anyOf": [ { "$ref": "#/$defs/Auto" }, { "type": "object" }, { "$ref": "#/$defs/Ref" } ]
     },
+    "TactileTargetOrAuto": {
+      "description": "TactileTarget | auto (the type the grasp params carry, 01 § 2): the literal auto (the planner derives the per-mode default of 04 § The TactileTarget type), an inline TactileTarget, or a let-reference (typically a sense.* result). The precise inline form replaces the earlier open-object floor — the deeper increment 01's grasp params deferred.",
+      "anyOf": [ { "$ref": "#/$defs/Auto" }, { "$ref": "#/$defs/TactileTarget" }, { "$ref": "#/$defs/Ref" } ]
+    },
+    "TactileTarget": {
+      "description": "A contact-confirmation criterion in TactileManifold terms (04 § The TactileTarget type): all_of a non-empty set of clauses, each a feature comparison quantified over a site set. Authored inline; the auto and let-reference forms are carried by TactileTargetOrAuto.",
+      "type": "object",
+      "required": ["all_of"],
+      "additionalProperties": false,
+      "properties": {
+        "all_of": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/TactileClause" } }
+      }
+    },
+    "TactileClause": {
+      "description": "One clause of a TactileTarget (04 § The TactileTarget type): TactileClause := (feature, comparator, threshold, quantifier).",
+      "type": "object",
+      "required": ["feature", "comparator", "threshold", "quantifier"],
+      "additionalProperties": false,
+      "properties": {
+        "feature": { "$ref": "#/$defs/TactileFeature" },
+        "comparator": { "enum": [">=", "<=", "==", "within"], "description": "The BNF comparators >= | <= | == | within; within takes a [lo, hi] range threshold." },
+        "threshold": { "$ref": "#/$defs/TactileThreshold" },
+        "quantifier": { "$ref": "#/$defs/TactileSiteQuantifier" }
+      }
+    },
+    "TactileFeature": {
+      "description": "A TactileManifold feature (04 § Feature taxonomy): one of the eleven closed-core features, or an ext.<ns>.<name> registered extension feature (06). The closed core is fixed so the conformance suite can enumerate it.",
+      "oneOf": [
+        { "enum": ["contact", "normal_force", "shear", "pressure", "contact_area", "contact_centroid", "load_distribution", "slip", "force_derivative", "deformation_rate", "bending"] },
+        { "type": "string", "pattern": "^ext\\.[a-z_]+\\.[a-z_]+$" }
+      ]
+    },
+    "TactileThreshold": {
+      "description": "A TactileClause threshold, typed to the feature's quantity (Force N, Pressure Pa, Probability 0-1, Area m^2, ...). Exact per-feature quantity typing is a deeper increment; here a threshold is a unit-suffixed quantity string, a bare number (dimensionless features such as contact), a two-element [lo, hi] range (the within comparator), or a let-reference.",
+      "anyOf": [
+        { "type": "string", "pattern": "^-?[0-9]+(\\.[0-9]+)?(\\s+\\S+)?$" },
+        { "type": "number" },
+        { "type": "array", "minItems": 2, "maxItems": 2, "items": { "anyOf": [ { "type": "string", "pattern": "^-?[0-9]+(\\.[0-9]+)?(\\s+\\S+)?$" }, { "type": "number" } ] } },
+        { "$ref": "#/$defs/Ref" }
+      ]
+    },
+    "TactileSiteQuantifier": {
+      "description": "A site quantifier over a relational role (04 § Site model): at_least(n, role) | all(role) | exactly(n, role).",
+      "oneOf": [
+        { "type": "object", "required": ["at_least"], "additionalProperties": false, "properties": { "at_least": { "type": "object", "required": ["n", "role"], "additionalProperties": false, "properties": { "n": { "type": "integer", "minimum": 1 }, "role": { "$ref": "#/$defs/TactileSiteRole" } } } } },
+        { "type": "object", "required": ["all"], "additionalProperties": false, "properties": { "all": { "type": "object", "required": ["role"], "additionalProperties": false, "properties": { "role": { "$ref": "#/$defs/TactileSiteRole" } } } } },
+        { "type": "object", "required": ["exactly"], "additionalProperties": false, "properties": { "exactly": { "type": "object", "required": ["n", "role"], "additionalProperties": false, "properties": { "n": { "type": "integer", "minimum": 1 }, "role": { "$ref": "#/$defs/TactileSiteRole" } } } } }
+      ]
+    },
+    "TactileSiteRole": {
+      "enum": ["antipodal", "enclosure", "support", "probe"],
+      "description": "A site relational role (04 § Site model)."
+    },
     "SlipResponse": {
       "enum": ["abort", "retighten", "hold"],
       "description": "Reaction to detected slip, shared across grasp primitives (default retighten)."
@@ -394,8 +447,8 @@
           "description": "FrameRef — declared grasp frame (default embodiment.default_grasp_frame)."
         },
         "tactile_target": {
-          "description": "TactileTarget | auto — contact-confirmation criterion in TactileManifold terms; auto = normal_force >= epsilon at >= 2 antipodal sites.",
-          "anyOf": [ { "$ref": "#/$defs/Auto" }, { "type": "object" }, { "$ref": "#/$defs/Ref" } ]
+          "$ref": "#/$defs/TactileTargetOrAuto",
+          "description": "TactileTarget | auto — contact-confirmation criterion in TactileManifold terms; auto = normal_force >= epsilon at >= 2 antipodal sites."
         },
         "slip_response": {
           "enum": ["abort", "retighten", "hold"],
@@ -952,7 +1005,7 @@
           "anyOf": [ { "$ref": "#/$defs/Auto" }, { "$ref": "#/$defs/Ratio" } ],
           "description": "Ratio | auto — required fraction of available contact sites that must engage (default auto)."
         },
-        "tactile_target": { "$ref": "#/$defs/CompoundOrAuto", "description": "TactileTarget | auto — desired enclosure contact state (default auto)." },
+        "tactile_target": { "$ref": "#/$defs/TactileTargetOrAuto", "description": "TactileTarget | auto — desired enclosure contact state (default auto)." },
         "slip_response": { "$ref": "#/$defs/SlipResponse", "description": "Reaction to detected slip (default retighten)." },
         "timeout": { "$ref": "#/$defs/Duration", "description": "Duration | auto, > 0." }
       }
@@ -976,7 +1029,7 @@
         },
         "grasp_pose": { "$ref": "#/$defs/CompoundOrAuto", "description": "Pose6D | auto — hook engagement pose (default auto)." },
         "controlled_frame": { "$ref": "#/$defs/FrameRef", "description": "FrameRef — declared grasp frame (default embodiment.default_grasp_frame)." },
-        "tactile_target": { "$ref": "#/$defs/CompoundOrAuto", "description": "TactileTarget | auto — contact along the hook inner curve / full seating (default auto)." },
+        "tactile_target": { "$ref": "#/$defs/TactileTargetOrAuto", "description": "TactileTarget | auto — contact along the hook inner curve / full seating (default auto)." },
         "timeout": { "$ref": "#/$defs/Duration", "description": "Duration | auto, > 0." }
       }
     },
@@ -990,7 +1043,7 @@
         "force_budget": { "$ref": "#/$defs/Force", "description": "Force > 0; clamped to grip_force_max and target.max_contact_force." },
         "grasp_pose": { "$ref": "#/$defs/CompoundOrAuto", "description": "Pose6D | auto — tripod contact-frame pose (default auto)." },
         "controlled_frame": { "$ref": "#/$defs/FrameRef", "description": "FrameRef — declared grasp frame (default embodiment.default_grasp_frame)." },
-        "tactile_target": { "$ref": "#/$defs/CompoundOrAuto", "description": "TactileTarget | auto — auto = normal_force >= epsilon at 3 non-collinear sites (default auto)." },
+        "tactile_target": { "$ref": "#/$defs/TactileTargetOrAuto", "description": "TactileTarget | auto — auto = normal_force >= epsilon at 3 non-collinear sites (default auto)." },
         "slip_response": { "$ref": "#/$defs/SlipResponse", "description": "Reaction to detected slip (default retighten)." },
         "timeout": { "$ref": "#/$defs/Duration", "description": "Duration | auto, > 0." }
       }
@@ -1006,7 +1059,7 @@
         "grasp_edge": { "$ref": "#/$defs/CompoundOrAuto", "description": "FeatureRef | auto — the edge to grip against the thumb side (default auto)." },
         "grasp_pose": { "$ref": "#/$defs/CompoundOrAuto", "description": "Pose6D | auto — lateral contact-frame pose (default auto)." },
         "controlled_frame": { "$ref": "#/$defs/FrameRef", "description": "FrameRef — declared grasp frame (default embodiment.default_grasp_frame)." },
-        "tactile_target": { "$ref": "#/$defs/CompoundOrAuto", "description": "TactileTarget | auto — contact target (default auto)." },
+        "tactile_target": { "$ref": "#/$defs/TactileTargetOrAuto", "description": "TactileTarget | auto — contact target (default auto)." },
         "slip_response": { "$ref": "#/$defs/SlipResponse", "description": "Reaction to detected slip (default retighten)." },
         "timeout": { "$ref": "#/$defs/Duration", "description": "Duration | auto, > 0." }
       }
@@ -1025,7 +1078,7 @@
           "description": "Direction | auto — direction the support resists, usually anti-gravity (default auto = opposing the load)."
         },
         "controlled_frame": { "$ref": "#/$defs/FrameRef", "description": "FrameRef — support-surface frame (default embodiment.default_support_frame)." },
-        "tactile_target": { "$ref": "#/$defs/CompoundOrAuto", "description": "TactileTarget | auto — auto = distributed load over the support area with CoM inside the polygon (default auto)." },
+        "tactile_target": { "$ref": "#/$defs/TactileTargetOrAuto", "description": "TactileTarget | auto — auto = distributed load over the support area with CoM inside the polygon (default auto)." },
         "timeout": { "$ref": "#/$defs/Duration", "description": "Duration | auto, > 0." }
       }
     },
@@ -1040,7 +1093,7 @@
         "force_budget": { "$ref": "#/$defs/Force", "description": "Force > 0 — normal force pressing the object onto the surface; clamped to grip_force_max and target.max_contact_force." },
         "pin_pose": { "$ref": "#/$defs/CompoundOrAuto", "description": "Pose6D | auto — effector contact pose on the object's exposed face (default auto = opposite against_surface)." },
         "controlled_frame": { "$ref": "#/$defs/FrameRef", "description": "FrameRef — declared contact frame (default embodiment.default_grasp_frame)." },
-        "tactile_target": { "$ref": "#/$defs/CompoundOrAuto", "description": "TactileTarget | auto — contact target (default auto)." },
+        "tactile_target": { "$ref": "#/$defs/TactileTargetOrAuto", "description": "TactileTarget | auto — contact target (default auto)." },
         "timeout": { "$ref": "#/$defs/Duration", "description": "Duration | auto, > 0." }
       }
     },
@@ -1062,7 +1115,7 @@
         },
         "grasp_pose": { "$ref": "#/$defs/CompoundOrAuto", "description": "Pose6D | auto — enclosure pose (default auto)." },
         "controlled_frame": { "$ref": "#/$defs/FrameRef", "description": "FrameRef — declared grasp frame (default embodiment.default_grasp_frame)." },
-        "tactile_target": { "$ref": "#/$defs/CompoundOrAuto", "description": "TactileTarget | auto — desired enclosure contact state (default auto)." },
+        "tactile_target": { "$ref": "#/$defs/TactileTargetOrAuto", "description": "TactileTarget | auto — desired enclosure contact state (default auto)." },
         "timeout": { "$ref": "#/$defs/Duration", "description": "Duration | auto, > 0." }
       }
     },
@@ -1083,7 +1136,7 @@
         "recenter": { "type": "boolean", "description": "Re-center contacts on the object (default false)." },
         "preserve_pose": { "type": "boolean", "description": "Keep object pose fixed during the adjustment (default true)." },
         "position_tolerance": { "$ref": "#/$defs/Length", "description": "Length — allowed object pose drift during adjust (default 2 mm)." },
-        "tactile_target": { "$ref": "#/$defs/CompoundOrAuto", "description": "TactileTarget | auto — target contact state after adjustment (default auto)." },
+        "tactile_target": { "$ref": "#/$defs/TactileTargetOrAuto", "description": "TactileTarget | auto — target contact state after adjustment (default auto)." },
         "timeout": { "$ref": "#/$defs/Duration", "description": "Duration | auto, > 0." }
       }
     },
