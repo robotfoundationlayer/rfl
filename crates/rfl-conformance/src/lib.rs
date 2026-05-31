@@ -95,6 +95,19 @@ impl Driver for ReferenceDriver {
             .station_keeping
             .as_ref()
             .map(|_| rfl_core::quantity::Quantity("0 mm".to_string()));
+        // Echo the detent ForceEvent for an action carrying a detent actuation contract
+        // (force.press_button, spec/01 § 6.6): the nominal press detects the actuation click.
+        // Absent for every other action (events stays empty).
+        let events: Vec<serde_json::Value> = match ca
+            .safety_envelope
+            .force_profile
+            .as_ref()
+            .and_then(|fp| fp.get("actuation"))
+            .and_then(serde_json::Value::as_str)
+        {
+            Some("detent") => vec![serde_json::json!({ "kind": "detent" })],
+            _ => vec![],
+        };
         // Interval-invariant actions (reach.hover) are sampled over the interval (ENV2,
         // spec/05); every other action emits a single terminal-ish sample. N is decided
         // by the envelope class so future interval-invariant primitives inherit it.
@@ -117,7 +130,7 @@ impl Driver for ReferenceDriver {
                     securing_force: securing_force.clone(),
                     station_error: station_error.clone(),
                     tactile: vec![],
-                    events: vec![],
+                    events: events.clone(),
                     fidelity_tier: fidelity_tier.clone(),
                 }
             })
@@ -367,6 +380,62 @@ impl Driver for HoverSettlingDriver {
     }
 }
 
+/// How a driver reports a `force.press_button` press (`spec/01` § 6.6). `Actuates` is the
+/// nominal detent + success; `Bottoms` is the conformant `no_actuation` (a force rise with no
+/// detent — a stuck / absent button); `ClaimsActuation` is adversarial (success, no detent).
+#[derive(Debug, Clone, Copy)]
+pub enum PressButtonResponse {
+    /// Conformant: the actuation detent fired and the press succeeded (ReferenceDriver nominal).
+    Actuates,
+    /// Conformant: no detent fired -> no_actuation reported honestly (force kept within budget).
+    Bottoms,
+    /// Adversarial: claim success though no detent fired.
+    ClaimsActuation,
+}
+
+/// The `force.press_button` bench: models a driver's actuation outcome. Reuses the nominal
+/// `ReferenceDriver` (which echoes the detent for an actuation contract) and mutates it per
+/// `response`. Non-press actions pass through unchanged.
+#[derive(Debug)]
+pub struct PressButtonDriver {
+    inner: ReferenceDriver,
+    response: PressButtonResponse,
+}
+
+impl PressButtonDriver {
+    /// A press-button driver with the given actuation outcome.
+    #[must_use]
+    pub fn new(response: PressButtonResponse) -> Self {
+        PressButtonDriver { inner: ReferenceDriver::default(), response }
+    }
+}
+
+impl Driver for PressButtonDriver {
+    fn execute(&mut self, goal: &ExecuteGoal) -> DriverReport {
+        let mut report = self.inner.execute(goal);
+        match self.response {
+            PressButtonResponse::Actuates => {} // nominal: detent echoed + Succeeded
+            PressButtonResponse::Bottoms => {
+                for t in &mut report.telemetry {
+                    t.events.clear(); // no detent fired
+                }
+                report.status.outcome = Outcome::Failed;
+                report.status.failure_class = Some("blocked".to_string());
+                report.status.failure_detail = Some("no_actuation".to_string());
+                if let Some(v) = report.status.verdict.as_mut() {
+                    v.value = false; // honest: the button was not actuated
+                }
+            }
+            PressButtonResponse::ClaimsActuation => {
+                for t in &mut report.telemetry {
+                    t.events.clear(); // no detent, yet claims success
+                }
+            }
+        }
+        report
+    }
+}
+
 /// Retarget the skill onto the embodiment and drive every `execute` message through
 /// `driver`, returning the `(goal, report)` pair per action. Generic over any
 /// `Driver` (the nominal `ReferenceDriver` or a `FaultyDriver`). Action ids match the
@@ -447,7 +516,7 @@ pub fn envelope_class_for(suffix: &str) -> Option<EnvelopeClass> {
     match suffix {
         "align" | "retract" | "scan" => Some(EnvelopeClass::TerminalPostcondition),
         "pinch" | "release" | "transport" => Some(EnvelopeClass::GraspContinuity),
-        "insert_fit" | "screw" | "unscrew" => Some(EnvelopeClass::ForceTrajectory),
+        "insert_fit" | "screw" | "unscrew" | "press_button" => Some(EnvelopeClass::ForceTrajectory),
         "hover" | "carry" => Some(EnvelopeClass::IntervalInvariant),
         _ => None, // locate / inspect: perception, no envelope
     }
@@ -663,6 +732,37 @@ pub fn check_settling(report: &DriverReport) -> CheckOutcome {
             "expected failure_detail station_exceeded, got {:?}",
             report.status.failure_detail
         ));
+    }
+    CheckOutcome::Pass
+}
+
+/// Verify the § 6.6 actuation postcondition for `force.press_button`: an actuated (Succeeded)
+/// press MUST show the detent ForceEvent that marks actuation. Vacuous unless the action
+/// carries an `actuation` contract (every non-press_button action passes). Makes the `events`
+/// ForceEvent channel falsifiable — a success claimed without a detent fails.
+#[must_use]
+pub fn check_actuation(goal: &ExecuteGoal, report: &DriverReport) -> CheckOutcome {
+    if goal
+        .canonical_action
+        .safety_envelope
+        .force_profile
+        .as_ref()
+        .and_then(|fp| fp.get("actuation"))
+        .is_none()
+    {
+        return CheckOutcome::Pass; // not an actuated press -> vacuous
+    }
+    if matches!(report.status.outcome, Outcome::Succeeded) {
+        let has_detent = report.telemetry.iter().any(|t| {
+            t.events
+                .iter()
+                .any(|e| e.get("kind").and_then(serde_json::Value::as_str) == Some("detent"))
+        });
+        if !has_detent {
+            return CheckOutcome::Fail(
+                "press_button claimed success without a detent actuation event".to_string(),
+            );
+        }
     }
     CheckOutcome::Pass
 }
@@ -945,5 +1045,70 @@ mod tests {
         assert!(matches!(check_settling(&report(Outcome::Succeeded, None)), CheckOutcome::Fail(_)));
         // wrong halt reason -> Fail.
         assert!(matches!(check_settling(&report(Outcome::Failed, Some("blocked"))), CheckOutcome::Fail(_)));
+    }
+
+    #[test]
+    fn check_actuation_requires_a_detent_on_success() {
+        use rfl_core::canonical::{
+            CanonicalAction, Envelope, MotionBounds, PoseExpr, TimingHints, TimingMode,
+        };
+        use rfl_core::driver::{Outcome, RealizedPose, Status, Telemetry, Verdict};
+        let action = CanonicalAction {
+            target_frame: "control".into(),
+            target_pose: PoseExpr::Ref { r#ref: "button".into() },
+            force_budget: Some(rfl_core::quantity::Quantity("5 N".into())),
+            timing: TimingHints {
+                nominal_duration: None,
+                timing_mode: TimingMode::TimeScalable,
+                stop_at_goal: true,
+            },
+            tactile_target: None,
+            monitors: vec![],
+            safety_envelope: Envelope {
+                motion_bounds: MotionBounds::default(),
+                force_profile: Some(serde_json::json!({ "actuation": "detent" })),
+                station_keeping: None,
+                clearance: None,
+                compliance: None,
+                stop_time: None,
+            },
+        };
+        let goal = ExecuteGoal::wrap("s/e/0001-press_button".to_string(), action);
+        let sample = |events: Vec<serde_json::Value>| Telemetry {
+            message: "telemetry",
+            action_id: "s/e/0001-press_button".to_string(),
+            t: 1.0,
+            realized_pose: Some(RealizedPose::placeholder()),
+            wrench: None,
+            securing_force: None,
+            station_error: None,
+            tactile: vec![],
+            events,
+            fidelity_tier: None,
+        };
+        let status = |outcome: Outcome| Status {
+            message: "status",
+            action_id: "s/e/0001-press_button".to_string(),
+            outcome,
+            verdict: Some(Verdict { value: true, confidence: 1.0, evidence: vec![] }),
+            fidelity_tier: None,
+            final_pose: Some(RealizedPose::placeholder()),
+            failure_class: None,
+            failure_detail: None,
+        };
+        // Succeeded + detent -> Pass.
+        let ok = DriverReport {
+            telemetry: vec![sample(vec![serde_json::json!({ "kind": "detent" })])],
+            status: status(Outcome::Succeeded),
+        };
+        assert_eq!(check_actuation(&goal, &ok), CheckOutcome::Pass);
+        // Succeeded + no detent -> Fail (the events bite).
+        let claims =
+            DriverReport { telemetry: vec![sample(vec![])], status: status(Outcome::Succeeded) };
+        assert!(matches!(check_actuation(&goal, &claims), CheckOutcome::Fail(_)));
+        // Not succeeded -> vacuously Pass.
+        let bottoms =
+            DriverReport { telemetry: vec![sample(vec![])], status: status(Outcome::Failed) };
+        assert_eq!(check_actuation(&goal, &bottoms), CheckOutcome::Pass);
     }
 }

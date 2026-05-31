@@ -7,9 +7,10 @@
 //! REJECTED by the matching checker — the non-circular proof that the suite bites.
 
 use rfl_conformance::{
-    check_envelope, check_graceful_degradation, check_settling, drive, envelope_class_for,
-    CheckOutcome, DisturbanceDriver, DisturbanceResponse, EnvelopeClass, Fault, FaultyDriver,
-    HoverResponse, HoverSettlingDriver, ReferenceDriver,
+    check_actuation, check_envelope, check_graceful_degradation, check_settling, drive,
+    envelope_class_for, CheckOutcome, DisturbanceDriver, DisturbanceResponse, EnvelopeClass, Fault,
+    FaultyDriver, HoverResponse, HoverSettlingDriver, PressButtonDriver, PressButtonResponse,
+    ReferenceDriver,
 };
 use std::path::{Path, PathBuf};
 
@@ -445,4 +446,67 @@ fn hover_over_envelope_false_success_fails_settling() {
     .expect("drive");
     let (_, report) = &pairs[0];
     assert!(matches!(check_settling(report), CheckOutcome::Fail(_)));
+}
+
+// --- force.press_button event-gated actuation (spec/01 § 6.6) --------------------------------
+
+#[test]
+fn nominal_press_button_passes_actuation_and_force_trajectory() {
+    let dir = screw_dir();
+    let pairs = drive(
+        ReferenceDriver::default(),
+        &dir.join("skill-press.yaml"),
+        &dir.join("embodiments/allegro.yaml"),
+    )
+    .expect("drive");
+    let (goal, report) = &pairs[0];
+    assert_eq!(suffix_of(&goal.action_id), "press_button");
+    assert_eq!(check_envelope(EnvelopeClass::ForceTrajectory, goal, report), CheckOutcome::Pass);
+    assert_eq!(check_actuation(goal, report), CheckOutcome::Pass);
+}
+
+#[test]
+fn press_button_bottoming_out_is_honest() {
+    let dir = screw_dir();
+    let pairs = drive(
+        PressButtonDriver::new(PressButtonResponse::Bottoms),
+        &dir.join("skill-press.yaml"),
+        &dir.join("embodiments/allegro.yaml"),
+    )
+    .expect("drive");
+    let (goal, report) = &pairs[0];
+    // no detent fired, force held: not a success, and check_actuation does not falsely fail it.
+    assert_eq!(check_actuation(goal, report), CheckOutcome::Pass);
+    assert_eq!(check_envelope(EnvelopeClass::ForceTrajectory, goal, report), CheckOutcome::Pass);
+    assert!(!matches!(report.status.outcome, rfl_core::driver::Outcome::Succeeded));
+}
+
+#[test]
+fn press_button_false_actuation_fails() {
+    let dir = screw_dir();
+    let pairs = drive(
+        PressButtonDriver::new(PressButtonResponse::ClaimsActuation),
+        &dir.join("skill-press.yaml"),
+        &dir.join("embodiments/allegro.yaml"),
+    )
+    .expect("drive");
+    let (goal, report) = &pairs[0];
+    // claims success but emitted no detent -> the events channel bites.
+    assert!(matches!(check_actuation(goal, report), CheckOutcome::Fail(_)));
+}
+
+#[test]
+fn press_button_over_force_fails_trajectory() {
+    let dir = screw_dir();
+    let pairs = drive(
+        FaultyDriver::new(Fault::OverForce),
+        &dir.join("skill-press.yaml"),
+        &dir.join("embodiments/allegro.yaml"),
+    )
+    .expect("drive");
+    let (goal, report) = &pairs[0];
+    assert!(matches!(
+        check_envelope(EnvelopeClass::ForceTrajectory, goal, report),
+        CheckOutcome::Fail(_)
+    ));
 }
