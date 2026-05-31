@@ -3,7 +3,7 @@
 > A neutral, semantically-typed abstraction layer between Vision-Language-Action foundation models and robotic embodiments.
 
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
-[![Status: pre-release](https://img.shields.io/badge/Status-pre--release-orange)](#status-2026-05-30)
+[![Status: pre-release](https://img.shields.io/badge/Status-pre--release-orange)](#status-2026-05-31)
 [![Spec: v0.1 draft](https://img.shields.io/badge/Spec-v0.1_draft-green)](whitepaper/RFL_SPEC_v0.1_en.pdf)
 
 ## TL;DR
@@ -49,8 +49,8 @@ The whitepaper is the long-form argument; the [`spec/`](spec/) directory hosts t
 | [`spec/00-overview.md`](spec/00-overview.md) | Drafted |
 | [`spec/01-skill-isa.md`](spec/01-skill-isa.md) | Design complete — 50 primitives, type system, algebra (predicates / three-valued verdict), world-state model, composition validity |
 | [`spec/02-translation-layer.md`](spec/02-translation-layer.md) | Design complete — canonical action + `Envelope`, quaternion pose + single-scalar geodesic error, determinism boundary (Class 2-strict / 2-loose), grasp-force / stability derivations, trajectory generation + time-scaling; § Open issues (the cross-chapter design driver) fully resolved |
-| [`spec/03-driver-interface.md`](spec/03-driver-interface.md) | Design complete — frame model, capability manifest, collision model, sensor / gravity / safety descriptors, multi-embodiment addressing |
-| [`spec/04-tactile-manifold.md`](spec/04-tactile-manifold.md) | Design complete — feature-field model, feature taxonomy, contact-sensor descriptor, `TactileTarget`, graceful-degradation proxy, slip / force-event / deformation discrimination, freed-part handling, sensing-scope contracts |
+| [`spec/03-driver-interface.md`](spec/03-driver-interface.md) | Design complete — frame model, capability manifest, collision model, sensor / gravity / safety descriptors, multi-embodiment addressing, canonical driver messages (execute / telemetry / status + clearance-query service) |
+| [`spec/04-tactile-manifold.md`](spec/04-tactile-manifold.md) | Design complete — feature-field model, feature taxonomy, contact-sensor descriptor, `TactileTarget`, graceful-degradation proxy, slip / force-event / deformation discrimination, freed-part handling, sensing-scope contracts, per-sensor-class adapter mapping |
 | [`spec/05-conformance.md`](spec/05-conformance.md) | Design complete — envelope-class taxonomy, grasp-continuity modes, closure / stability / composition, reversibility + irreversible-operation safety, hazardous-operation benches, audit trail, conformance regime (determinism floor / fidelity tier / recursive simulator) |
 | [`spec/06-extension-registry.md`](spec/06-extension-registry.md) | Skeleton |
 
@@ -65,7 +65,7 @@ rfl/
 ├── examples/             # ✅ Worked examples (skeleton — 01-cable-insertion)
 ├── crates/               # 🚧 Rust workspace (skeleton — rfl-core, rfl-cli, rfl-conformance)
 ├── docs/                 # 🚧 Documentation site skeleton (getting-started.md only)
-├── schemas/              # ✅ JSON schemas + validator (skill-isa + embodiment-descriptor precisely typed; validate.py = conformance test class 1; driver-interface / tactile-manifold planned)
+├── schemas/              # ✅ Four JSON schemas + validator (skill-isa, embodiment-descriptor, driver-interface, tactile-manifold/adapter — all precisely typed; validate.py = conformance test class 1 with anti-drift invariants C1–C7)
 ├── bindings/             # ⏳ Python (PyO3) + C (cbindgen) bindings (planned for v1.0)
 └── conformance/          # ⏳ Conformance test suite (planned for v1.0)
 ```
@@ -82,7 +82,7 @@ The three-layer division, the ~50 primitives and their categorization, the compo
 
 ### Open through the v0.1 review period
 
-The two core schemas (`skill-isa.schema.json` and `embodiment-descriptor.schema.json`) are now precisely typed against their `spec/` parameter tables and backed by a committed conformance-test-class-1 validator (`schemas/validate.py`, run via `uv run --with jsonschema --with pyyaml python schemas/validate.py`). The `driver-interface` and `tactile-manifold` schemas, error codes, the extension registry, and the per-skill ε-tolerance table for Class 2-loose conformance remain open.
+All four machine-readable schemas (`skill-isa`, `embodiment-descriptor`, `driver-interface`, and `tactile-manifold/adapter`) are now precisely typed against their `spec/` parameter tables and backed by a committed conformance-test-class-1 validator (`schemas/validate.py`, with seven cross-schema anti-drift invariants C1–C7, run via `uv run --with jsonschema --with pyyaml python schemas/validate.py`). What remains open through the review period: the extension registry (`spec/06`) and the per-skill ε-tolerance table for Class 2-loose conformance (data-dependent, pending reference-implementation measurements). Reference-implementation engineering (`crates/rfl-cli` — the `retarget` engine) is the next phase.
 
 ### Targeted milestones
 
