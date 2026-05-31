@@ -420,8 +420,10 @@ pub struct ReachScan {
 
 /// `reach.hover` parameters (v0 subset of `$defs/ReachHoverParams`). Sustained
 /// station-keeping at a standoff over a bounded interval (`spec/01` § 1.5). v0 models
-/// the target frame, the standoff, and the duration (carried, not lowered); the § 1.5
-/// tolerances / tracking carry spec defaults and are not emitted.
+/// the target frame, the standoff, and the duration (carried, not lowered). The § 1.5
+/// settling pair (`station_tolerance` / `settling_time`) is parsed and lowered when an
+/// explicit `settling_time` opts in (ENV3); the remaining tracking parameters carry
+/// spec defaults and are not emitted.
 #[derive(Debug, Clone, serde::Deserialize)]
 pub struct ReachHover {
     /// The surface / frame to hover over (v0: a frame name).
@@ -431,6 +433,13 @@ pub struct ReachHover {
     /// Hold duration (`Duration | until`; carried, symbolic in v0).
     #[serde(default)]
     pub duration: Option<serde_yaml::Value>,
+    /// Allowed positional excursion from the hover setpoint (`spec/01` § 1.5, default 2 mm).
+    #[serde(default)]
+    pub station_tolerance: Option<Quantity>,
+    /// Max time to return within `station_tolerance` after a disturbance (`Duration | auto`;
+    /// an explicit Duration opts the hover into the ENV3 settling contract, `spec/01` § 1.5).
+    #[serde(default)]
+    pub settling_time: Option<serde_yaml::Value>,
 }
 
 /// `sense.inspect` parameters (v0 subset of `$defs/SenseInspectParams`).

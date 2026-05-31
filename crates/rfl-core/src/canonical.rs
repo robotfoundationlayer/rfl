@@ -166,6 +166,11 @@ pub struct Envelope {
     /// The force / torque trajectory bound (force category).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub force_profile: Option<serde_json::Value>,
+    /// The station-keeping contract for an interval-invariant station hold
+    /// (`reach.hover` settling, `spec/01` § 1.5): `{station_tolerance, settling_time}`.
+    /// The disturbance-recovery leg of the interval-invariant check (`05` ENV3) samples it.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub station_keeping: Option<serde_json::Value>,
     /// Minimum clearance to the collision model.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub clearance: Option<Quantity>,
@@ -317,6 +322,7 @@ mod tests {
             safety_envelope: Envelope {
                 motion_bounds: MotionBounds::default(),
                 force_profile: None,
+                station_keeping: None,
                 clearance: None,
                 compliance: Some("active".into()),
                 stop_time: Some(Quantity("0.2 s".into())),

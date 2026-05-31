@@ -13,6 +13,8 @@ body:
     - reach.hover:
         target: panel
         standoff: 50 mm
+        station_tolerance: 2 mm
+        settling_time: 1 s
         duration: 5 s
 
     - sense.inspect:

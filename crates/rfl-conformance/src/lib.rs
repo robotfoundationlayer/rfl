@@ -678,6 +678,7 @@ mod tests {
             safety_envelope: Envelope {
                 motion_bounds: MotionBounds::default(),
                 force_profile: None,
+                station_keeping: None,
                 clearance: None,
                 compliance: None,
                 stop_time: None,

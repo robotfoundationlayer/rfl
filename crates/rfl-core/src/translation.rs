@@ -184,6 +184,7 @@ fn lower_sense_locate(p: &crate::skill_isa::SenseLocate, e: &Embodiment) -> Cano
         safety_envelope: Envelope {
             motion_bounds: MotionBounds::default(),
             force_profile: None,
+            station_keeping: None,
             clearance: None,
             compliance: None,
             stop_time: None,
@@ -215,6 +216,7 @@ fn base_envelope(e: &Embodiment) -> Envelope {
             w_max: e.scalar_limit("w_cartesian_max").cloned(),
         },
         force_profile: None,
+        station_keeping: None,
         clearance: None,
         compliance: None,
         stop_time: e.scalar_limit("stop_time").cloned(),
@@ -432,6 +434,25 @@ fn lower_reach_align(p: &ReachAlign, e: &Embodiment) -> CanonicalAction {
 /// checked structurally (interval-invariant, `05` ENV2). The duration is carried in the
 /// skill but not lowered in v0 (the interval check is sample-structural, not timed).
 fn lower_reach_hover(p: &ReachHover, e: &Embodiment) -> CanonicalAction {
+    let mut env = base_envelope(e);
+    // `spec/01` § 1.5 C2: an explicit `settling_time` opts the hover into the ENV3 settling
+    // contract; the disturbance-recovery check samples `station_keeping`. A bare hover
+    // (`settling_time` absent / `auto`) emits nothing and stays ENV2-only.
+    if let Some(settling) = p
+        .settling_time
+        .as_ref()
+        .and_then(serde_yaml::Value::as_str)
+        .filter(|s| *s != "auto")
+    {
+        let tol = p
+            .station_tolerance
+            .clone()
+            .unwrap_or_else(|| crate::quantity::Quantity("2 mm".to_string()));
+        env.station_keeping = Some(serde_json::json!({
+            "station_tolerance": tol.0,
+            "settling_time": settling,
+        }));
+    }
     CanonicalAction {
         target_frame: e.control_frame().to_string(),
         target_pose: PoseExpr::FrameRelative {
@@ -446,7 +467,7 @@ fn lower_reach_hover(p: &ReachHover, e: &Embodiment) -> CanonicalAction {
         },
         tactile_target: None,
         monitors: vec![],
-        safety_envelope: base_envelope(e),
+        safety_envelope: env,
     }
 }
 
@@ -1132,5 +1153,30 @@ mod tests {
         };
         assert_eq!(frame, "panel");
         assert_eq!(offset.get("distance").and_then(|v| v.as_str()), Some("50 mm"));
+    }
+
+    #[test]
+    fn hover_with_settling_time_emits_station_keeping() {
+        // spec/01 § 1.5 C2: an explicit settling_time opts the hover into the ENV3 contract.
+        let yaml = "skill: t\nbody:\n  sequence:\n    - reach.hover: { target: panel, standoff: 50 mm, station_tolerance: 2 mm, settling_time: 1 s }\n";
+        let skill = Skill::parse_yaml(yaml).expect("parse");
+        let emb = load("allegro").1;
+        let out = retarget(&skill, &emb).expect("retarget");
+        let sk = out.actions[0]
+            .safety_envelope
+            .station_keeping
+            .as_ref()
+            .expect("station_keeping emitted");
+        assert_eq!(sk.get("station_tolerance").and_then(|v| v.as_str()), Some("2 mm"));
+        assert_eq!(sk.get("settling_time").and_then(|v| v.as_str()), Some("1 s"));
+    }
+
+    #[test]
+    fn bare_hover_emits_no_station_keeping() {
+        // No settling_time -> ENV2-only, unchanged (no station_keeping).
+        let yaml = "skill: t\nbody:\n  sequence:\n    - reach.hover: { target: panel, standoff: 50 mm }\n";
+        let skill = Skill::parse_yaml(yaml).expect("parse");
+        let out = retarget(&skill, &load("allegro").1).expect("retarget");
+        assert!(out.actions[0].safety_envelope.station_keeping.is_none());
     }
 }
