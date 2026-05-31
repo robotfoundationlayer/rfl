@@ -95,6 +95,11 @@ pub struct Telemetry {
     /// The securing force on the held object (grasp-continuity, GC1).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub securing_force: Option<Quantity>,
+    /// The positional station error vs. the `reach.hover` setpoint (`spec/01` § 1.5
+    /// "externally measured station error"; the interval-invariant settling leg / ENV3
+    /// samples it). Present only for a hover carrying a `station_keeping` contract.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub station_error: Option<Quantity>,
     /// Tactile feature readings (manifold confirmation).
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub tactile: Vec<TactileReading>,
@@ -162,6 +167,7 @@ mod tests {
             realized_pose: Some(RealizedPose::placeholder()),
             wrench: None,
             securing_force: None,
+            station_error: None,
             tactile: vec![],
             events: vec![],
             fidelity_tier: Some("manifold".into()),

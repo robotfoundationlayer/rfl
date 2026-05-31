@@ -108,3 +108,31 @@ fn every_report_message_is_schema_valid() {
         }
     }
 }
+
+#[test]
+fn telemetry_with_station_error_is_schema_valid() {
+    use rfl_core::driver::{RealizedPose, Telemetry};
+    let schema_path = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../schemas/driver-interface.schema.json");
+    let schema: serde_json::Value =
+        serde_json::from_reader(std::fs::File::open(&schema_path).unwrap()).unwrap();
+    let mut schemas = boon::Schemas::new();
+    let mut compiler = boon::Compiler::new();
+    compiler.add_resource("driver-interface.schema.json", schema).unwrap();
+    let idx = compiler.compile("driver-interface.schema.json", &mut schemas).unwrap();
+
+    let t = Telemetry {
+        message: "telemetry",
+        action_id: "s/e/0001-hover".to_string(),
+        t: 1.0,
+        realized_pose: Some(RealizedPose::placeholder()),
+        wrench: None,
+        securing_force: None,
+        station_error: Some(rfl_core::quantity::Quantity("1 mm".to_string())),
+        tactile: vec![],
+        events: vec![],
+        fidelity_tier: None,
+    };
+    let v = serde_json::to_value(&t).unwrap();
+    schemas.validate(&v, idx).expect("telemetry with station_error must be schema-valid");
+}

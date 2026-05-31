@@ -105,6 +105,7 @@
         "realized_pose": { "$ref": "#/$defs/Pose6DFloor" },
         "wrench": { "$ref": "#/$defs/WrenchFloor" },
         "securing_force": { "$ref": "#/$defs/Force" },
+        "station_error": { "$ref": "#/$defs/Length", "description": "Distance from the reach.hover station setpoint (01 § 1.5 'externally measured station error'); sampled by the interval-invariant settling check (05 ENV3)." },
         "tactile": {
           "description": "Manifold feature readings (present only when tactile_sensing is declared). The feature key is checkable against the closed core; its reading representation is owned by 04, floored.",
           "type": "array",
