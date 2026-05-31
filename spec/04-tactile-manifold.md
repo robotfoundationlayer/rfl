@@ -1,6 +1,6 @@
 # TactileManifold — Specification
 
-> **Status**: design-complete (2026-05-31) — all sensing-feature units are specified: the feature-field model, the field-set discipline, the feature taxonomy, the contact-sensor descriptor, the site model, the `TactileTarget` type, the graceful-degradation proxy discipline, the slip discrimination model, the breakaway / detent force-event detection with its temporal-alignment timebase, the crush / bend deformation discrimination, the freed-part disposition contract, and the two sensing-scope contracts. The `04` group of `02-translation-layer.md` § Open issues is closed. Remaining before freeze: the JSON Schema and the formal mathematical specification (white paper Appendix B); this chapter is the implementation-facing version. The formal mathematical specification is in the white paper Appendix B; this chapter is the implementation-facing version.
+> **Status**: design-complete (2026-05-31) — all sensing-feature units are specified: the feature-field model, the field-set discipline, the feature taxonomy, the contact-sensor descriptor, the site model, the `TactileTarget` type, the graceful-degradation proxy discipline, the slip discrimination model, the breakaway / detent force-event detection with its temporal-alignment timebase, the crush / bend deformation discrimination, the freed-part disposition contract, the two sensing-scope contracts, and the per-sensor-class adapter mapping. The `04` group of `02-translation-layer.md` § Open issues is closed. Remaining before freeze: the JSON Schema and the formal mathematical specification (white paper Appendix B); this chapter is the implementation-facing version. The formal mathematical specification is in the white paper Appendix B; this chapter is the implementation-facing version.
 
 ## Scope
 
@@ -105,6 +105,7 @@ Quantity types follow the Skill ISA's conventions (`01` type system): `Force`, `
 
 | Field | Type | Meaning |
 |---|---|---|
+| `sensor_class` | adapter reference token | the per-sensor-class adapter (§ The adapter mapping) whose raw → feature mapping produces this frame's features — a core token (`ft` / `array` / `visuotactile` / `pneumatic`) or an `ext.<ns>.<class>`; binds this entry to the canonical `schemas/tactile-manifold/<sensor_class>` adapter, and the declared `features` MUST be a subset of that adapter's produced features |
 | `sites` | `SiteLayout` | discrete site count + per-site pose, or a dense grid (extent + spacing), in the tactile frame (§ Site model) |
 | `features` | `Set<FeatureType>` | the subset of the closed-core vocabulary this frame reports (extension features carry their namespace prefix) |
 | `resolution` | `Resolution` | `(spatial: Length, temporal: Frequency, value: per-feature least-count)` — the triple's `bits_per_feature` made physical |
@@ -516,6 +517,88 @@ Non-disturbance needs fine force sensing to hold contact below a low threshold; 
 - **The disturb threshold as a target property**, and the per-primitive `sense.probe` / `sense.inspect` / `sense.locate` contracts that invoke these scopes — `01-skill-isa.md`.
 - **The non-contact sensor descriptor fields** (`fov`, `working_range`) the capturability predicate reads — `03-driver-interface.md` § Sensor descriptor.
 - **The verification benches** — target-unchanged-across-measurement (non-disturbance) and occlusion-reported-not-faked (capturability) — `05-conformance.md` (item `I` is explicitly `05`-owned for verification; `04` fixes the contract it verifies).
+
+## The adapter mapping
+
+§ The manifold as a feature field introduced the **adapter** as the per-sensor-class translation from raw sensor output into manifold features, and § The contact-sensor descriptor deferred the *computation* of a feature from raw data to it ("that is the adapter's"). This section defines the adapter's declarative structure — the contract `schemas/tactile-manifold/` encodes and the embodiment descriptor binds to.
+
+An adapter is **per sensor class, not per embodiment**: every embodiment whose contact sensing is of the same class (every two-fingertip-load-cell hand, every dense-skin hand) shares one adapter, and an embodiment's descriptor *references* it (§ The contact-sensor descriptor, `sensor_class`). The adapter is what makes a descriptor's `features` / `sites` / `resolution` declaration *true*: the descriptor declares *what* a frame reports, the adapter defines *how* that report is produced from the raw signal. The split mirrors the capability-manifest discipline — the descriptor declares, the adapter (and `05`) makes the declaration checkable.
+
+**Altitude — contract, not computation.** The adapter declares the *mapping contract*: which raw channels exist, which manifold features they produce, at which sites, at what resolution. It does **not** specify the numeric algorithm (how taxels integrate to a force, how an image deforms into a shear field) — that is the implementation's, below RFL (Principle 4, `00`). RFL fixes the interface the implementation must satisfy, never the implementation.
+
+An adapter mapping is a quadruple (plus an optional resolution envelope):
+
+```
+Adapter := (
+    sensor_class:        ClassToken,                  # the class this adapter serves (§ Sensor class)
+    raw_signal:          Set<RawChannel>,             # the sensor's native output (the input side)
+    feature_production:  Set<FeatureProduction>,      # raw -> manifold feature, by contract
+    site_model:          SiteModel,                   # raw layout -> abstract sites + roles
+    resolution_envelope: Set<FeatureResolution>?,     # per-feature resolution the class achieves (optional)
+)
+```
+
+### Sensor class
+
+`sensor_class` identifies the class an adapter serves. The four classes of § Scope (FT / array / visuotactile / pneumatic) are **illustrative, not normative** (Principle 4): the field is therefore a **token**, not a closed enumeration — a core token (`ft`, `array`, `visuotactile`, `pneumatic`, …) or an `ext.<ns>.<class>` registered class (`06`). A new sensor modality enters by registering a class token and shipping its adapter, with no change to this chapter (Principle 5).
+
+### Raw signal
+
+`raw_signal` is the sensor's native output — the *input* side of the mapping. Each `RawChannel` declares what the sensor physically produces, without committing to how it is processed:
+
+| Field | Type | Meaning |
+|---|---|---|
+| `name` | identifier | the channel name, referenced by `feature_production.sources` |
+| `quantity` | token | the physical quantity the channel carries (e.g. `force_vector`, `pressure`, `deformation_field`, `chamber_pressure`) |
+| `layout` | `{ kind: {discrete, grid, image, chamber}, … }` | the raw spatial arrangement — discrete elements (FT fingertips), a taxel grid (array), an image (visuotactile), per-chamber (pneumatic). The per-kind detail (count / extent / resolution) is the adapter's; this fixes the kind |
+
+The four representative classes' raw signals: FT = discrete `force_vector` channels; array = a `grid` of normal (± shear) taxels; visuotactile = a deformation `image`; pneumatic = per-`chamber` pressure.
+
+### Feature production
+
+`feature_production` is the heart of the adapter — the **raw → feature mapping contract**. Each entry declares one manifold feature the class produces and where it comes from:
+
+| Field | Type | Meaning |
+|---|---|---|
+| `feature` | `FeatureType` | the manifold feature produced — a closed-core feature (§ Feature taxonomy) or a registered `ext.<ns>.<feature>` (`06`); the same closed core every other chapter shares |
+| `sources` | set of `RawChannel.name` | the raw channels this feature is computed from — the dependency, not the formula |
+| `kind` | `{direct, derived, aggregated}` | how the feature relates to its sources: `direct` (the channel *is* the feature, e.g. a load cell's `normal_force`), `derived` (computed from the channel(s), e.g. `shear` from a visuotactile field), `aggregated` (pooled across raw elements, e.g. a chamber's aggregate `normal_force`, or `contact_centroid` over a grid) |
+
+A feature a class cannot produce is simply absent from `feature_production` — the "typically absent" column of § The manifold as a feature field — and an embodiment of that class degrades any `TactileTarget` clause referencing it to the proxy (§ Graceful degradation and the force/position proxy). The `kind` records *that* a feature is aggregated or derived (and so coarser, feeding the fidelity tier), never *how*.
+
+### Site model
+
+`site_model` declares how the class's raw layout resolves into the **abstract sites** a `TactileTarget`'s quantifiers bind to (§ Site model):
+
+| Field | Type | Meaning |
+|---|---|---|
+| `site_kind` | `{per_element, clustered, patch, aggregate}` | how raw elements map to sites — one site per raw element (FT), clustered from a dense grid (array), image patches (visuotactile), one aggregate site per chamber (pneumatic) |
+| `roles` | subset of `{antipodal, enclosure, support, probe}` | the relational site roles (§ Site model) this class can populate; a quantifier referencing a role the class cannot serve is unsatisfiable and degrades |
+| `clustering` | adapter-defined | the deterministic rule a dense class uses to resolve a quantifier into sites (e.g. clustering taxels into opposing antipodal patches). The rule is the adapter's; RFL requires only that it be **deterministic** given identical inputs (§ Site model, binding for `retarget` determinism) |
+
+A dense-skin (`clustered`) adapter resolves `≥ 2 antipodal sites` by clustering taxels into two opposing patches; a two-fingertip (`per_element`) adapter resolves it by its two elements. Both satisfy the identical abstract target — the Principle-1 crux of § Site model.
+
+### Resolution envelope
+
+`resolution_envelope` (optional) declares the per-feature resolution the class achieves — the class-level capability the descriptor's `resolution` instantiates per embodiment. Each entry is `(feature, spatial?: Length, temporal?: Frequency, value?: least-count)`. It is optional because a minimal adapter may leave resolution to the descriptor; when present, it is the upper bound an embodiment of the class may declare.
+
+### Binding to the descriptor
+
+An embodiment binds to an adapter through the `sensor_class` field of its contact-sensor descriptor (§ The contact-sensor descriptor). The binding is checkable: the descriptor's declared `features` for a frame MUST be a subset of the features the referenced adapter's `feature_production` produces — a frame cannot declare a feature its own adapter does not make. This is the descriptor-side completeness rule the adapter enables, analogous to the capability-manifest's limit completeness (`03` M2).
+
+### Conformance obligations (adapter mapping)
+
+- **TM27c — feature-vocabulary closure.** Every `feature` in an adapter's `feature_production` is a closed-core feature (§ Feature taxonomy, unprefixed) or a registered `ext.<ns>.<feature>` (`06`) — the same closure TM1c requires of a `TactileTarget`. No other name validates.
+- **TM28c — production sourcing.** Every `feature_production` entry names `sources` present in the adapter's `raw_signal`, with a `kind ∈ {direct, derived, aggregated}`; a feature sourced from an undeclared channel is malformed.
+- **TM29c — deterministic site resolution.** The `site_model`'s resolution of a quantifier into abstract sites is deterministic given identical inputs (the `auto` site-binding determinism of § Site model, binding for `retarget` determinism).
+- **TM30c — descriptor binding consistency.** An embodiment's `embodiment.tactile[frame].sensor_class` names an adapter, and the frame's declared `features` are a subset of that adapter's produced features.
+- **TM31c — computation out of scope.** The adapter declares the mapping contract (channels, features, sites, resolution); the numeric algorithm that computes a feature from raw data is the implementation's, below RFL, and is never fixed by this chapter (Principle 4).
+
+#### Deferred to other chapters
+
+- **The `sensor_class` field of the contact-sensor descriptor** and the `tactile_sensing` capability that gates it — § The contact-sensor descriptor (this chapter) and `03-driver-interface.md`.
+- **The conformance test material** that exercises an adapter on physical sensors of its class — `05-conformance.md`.
+- **The numeric computation** of a feature from raw data — the implementation, below RFL (`00`).
 
 ## Deferred to other chapters
 
