@@ -65,14 +65,14 @@ rfl/
 ├── examples/             # ✅ Worked examples (skeleton — 01-cable-insertion)
 ├── crates/               # 🚧 Rust workspace (skeleton — rfl-core, rfl-cli, rfl-conformance)
 ├── docs/                 # 🚧 Documentation site skeleton (getting-started.md only)
-├── schemas/              # 🚧 JSON schemas (embodiment-descriptor + skill-isa present; driver-interface / tactile-manifold planned)
+├── schemas/              # ✅ JSON schemas + validator (skill-isa + embodiment-descriptor precisely typed; validate.py = conformance test class 1; driver-interface / tactile-manifold planned)
 ├── bindings/             # ⏳ Python (PyO3) + C (cbindgen) bindings (planned for v1.0)
 └── conformance/          # ⏳ Conformance test suite (planned for v1.0)
 ```
 
 Legend: ✅ populated · 🚧 scaffold present, content pending · ⏳ planned, not yet created
 
-## Status (2026-05-30)
+## Status (2026-05-31)
 
 This repository is **pre-release**. Spec v0.1 has been published in publication-candidate state after four rounds of external review; reference implementation engineering is the next phase.
 
@@ -82,7 +82,7 @@ The three-layer division, the ~50 primitives and their categorization, the compo
 
 ### Open through the v0.1 review period
 
-Schema details, error codes, the extension registry, and the per-skill ε-tolerance table for Class 2-loose conformance remain open.
+The two core schemas (`skill-isa.schema.json` and `embodiment-descriptor.schema.json`) are now precisely typed against their `spec/` parameter tables and backed by a committed conformance-test-class-1 validator (`schemas/validate.py`, run via `uv run --with jsonschema --with pyyaml python schemas/validate.py`). The `driver-interface` and `tactile-manifold` schemas, error codes, the extension registry, and the per-skill ε-tolerance table for Class 2-loose conformance remain open.
 
 ### Targeted milestones
 
