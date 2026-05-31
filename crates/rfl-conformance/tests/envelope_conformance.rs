@@ -172,3 +172,36 @@ fn over_torque_driver_fails_screw_force_trajectory() {
         CheckOutcome::Fail(_)
     ));
 }
+
+#[test]
+fn nominal_unscrew_passes_force_trajectory() {
+    let dir = screw_dir();
+    let pairs = drive(
+        ReferenceDriver::default(),
+        &dir.join("skill-unscrew.yaml"),
+        &dir.join("embodiments/allegro.yaml"),
+    )
+    .expect("drive");
+    // force.unscrew is action index 5.
+    let (goal, report) = &pairs[5];
+    assert_eq!(suffix_of(&goal.action_id), "unscrew");
+    assert_eq!(check_envelope(EnvelopeClass::ForceTrajectory, goal, report), CheckOutcome::Pass);
+}
+
+#[test]
+fn over_torque_driver_fails_unscrew_force_trajectory() {
+    let dir = screw_dir();
+    let pairs = drive(
+        FaultyDriver::new(Fault::OverTorque),
+        &dir.join("skill-unscrew.yaml"),
+        &dir.join("embodiments/allegro.yaml"),
+    )
+    .expect("drive");
+    // force.unscrew (index 5) -> torque-trajectory must reject the over-budget wrench torque.
+    let (goal, report) = &pairs[5];
+    assert_eq!(suffix_of(&goal.action_id), "unscrew");
+    assert!(matches!(
+        check_envelope(EnvelopeClass::ForceTrajectory, goal, report),
+        CheckOutcome::Fail(_)
+    ));
+}

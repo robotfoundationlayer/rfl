@@ -1,0 +1,51 @@
+# Example 03 — Screw fastening (unscrew variant)
+# Extract a threaded fastener with a held driver: reverse coupled rotation + axial
+# retreat (force.unscrew), the reverse of skill.yaml's force.screw. The disengagement
+# completion default (fully out) is emitted at lowering; the freed fastener is retained.
+skill: screw-fasten
+description: >
+  Grasp a screwdriver, bring it to a seated fastener, and loosen it out within a
+  torque budget, retaining the freed fastener.
+
+objects:
+  driver: { ref: driver, estimated_mass: 1.0 N }   # the held screwdriver (force-transmission tool)
+  screw:  { ref: screw }        # the threaded fastener to extract
+
+body:
+  sequence:
+
+    - let: driver_t
+      from:
+        sense.locate:
+          target_ref: driver
+          modality: auto
+
+    - grasp.pinch:
+        target: driver_t
+        force_budget: 6 N
+        tactile_target: auto
+        slip_response: retighten
+
+    - transport.move_to_pose:
+        target_pose: { frame: workpiece, offset: { along: -z, distance: 40 mm } }
+
+    - let: screw_t
+      from:
+        sense.locate:
+          target_ref: screw
+          modality: visual
+    - reach.align:
+        target_frame: screw
+        axes: [z]
+
+    - force.unscrew:
+        grasp_handle: active
+        thread_axis: -z
+        torque_budget: 2 N·m
+        thread_pitch: 0.8 mm
+        tool_mediated: true
+        compliance: active
+        on_disengagement: retain
+
+    - grasp.release: { grasp_handle: active }
+    - reach.retract:  { direction: -tool_axis, distance: 50 mm }

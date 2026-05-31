@@ -262,7 +262,7 @@ pub fn envelope_class_for(suffix: &str) -> Option<EnvelopeClass> {
     match suffix {
         "align" | "retract" | "scan" => Some(EnvelopeClass::TerminalPostcondition),
         "pinch" | "release" | "transport" => Some(EnvelopeClass::GraspContinuity),
-        "insert_fit" | "screw" => Some(EnvelopeClass::ForceTrajectory),
+        "insert_fit" | "screw" | "unscrew" => Some(EnvelopeClass::ForceTrajectory),
         _ => None, // locate / inspect: perception, no envelope
     }
 }
@@ -397,6 +397,7 @@ mod tests {
         assert_eq!(envelope_class_for("pinch"), Some(EnvelopeClass::GraspContinuity));
         assert_eq!(envelope_class_for("transport"), Some(EnvelopeClass::GraspContinuity));
         assert_eq!(envelope_class_for("insert_fit"), Some(EnvelopeClass::ForceTrajectory));
+        assert_eq!(envelope_class_for("unscrew"), Some(EnvelopeClass::ForceTrajectory));
         assert_eq!(envelope_class_for("locate"), None); // sense: perception
         assert_eq!(envelope_class_for("inspect"), None);
     }
