@@ -38,7 +38,7 @@ The terminal-postcondition class checks only the final state — a `reach` that 
 
 ### Disturbance injection for interval classes
 
-An interval-invariant test of a *disturbance-rejecting* primitive must perturb it: `transport.carry` declares a `disturbance_budget`, and the bench injects calibrated disturbances up to that budget during the interval, verifying the invariant holds under perturbation — and that an over-budget disturbance degrades gracefully (halt with object secured) rather than dropping the object. Disturbance injection is the interval-class analogue of the terminal class's "present the object and command"; it is part of the bench, not the primitive.
+An interval-invariant test of a *disturbance-rejecting* primitive must perturb it: `transport.carry` declares a `disturbance_budget`, and the bench injects calibrated disturbances up to that budget during the interval, verifying the invariant holds under perturbation — and that an over-budget disturbance degrades gracefully (halt with object secured) rather than dropping the object. `reach.hover` is perturbed the same way (a calibrated lateral impulse, `01` § 1.5 C2), but with no held object its degradation shape differs: a sub-envelope impulse must recover to within `station_tolerance` within `settling_time` (recover-and-continue), and an over-envelope impulse must abort to a safe state (`station_exceeded`) rather than claim it held station — the no-object analogue of carry's "object secured." Disturbance injection is the interval-class analogue of the terminal class's "present the object and command"; it is part of the bench, not the primitive.
 
 ### The force/torque-trajectory class
 
@@ -48,7 +48,7 @@ The `force` category bounds the force *profile over the whole motion*, not a sin
 
 - **ENV1 — class assignment.** Every primitive is verified against exactly one envelope class, fixed by category: `reach` terminal (except `hover`); `reach.hover` / `transport.carry` interval-invariant; `grasp` / `in_hand` / `transport` / `place` grasp-continuity; `force` force/torque-trajectory.
 - **ENV2 — interval coverage.** An interval class samples the invariant at every step over the whole interval at the declared rate; a mid-interval violation fails the test even when the endpoint conforms.
-- **ENV3 — disturbance injection.** A disturbance-rejecting interval test injects calibrated disturbances up to the primitive's `disturbance_budget`, verifies the invariant under perturbation, and verifies graceful degradation (object secured) above budget.
+- **ENV3 — disturbance injection.** A disturbance-rejecting interval test perturbs the primitive and verifies the invariant under perturbation plus graceful degradation above the envelope: `transport.carry` injects up to its `disturbance_budget` and degrades with the object secured; `reach.hover` injects a calibrated impulse (`01` § 1.5 C2) and either recovers within `settling_time` to `station_tolerance` or aborts to a safe state (`station_exceeded`).
 - **ENV4 — trajectory bounding.** The force/torque-trajectory class bounds the force (or torque) profile interval-sampled against per-axis budgets; the identical discipline applies to linear force and to torque about an axis.
 
 ### Deferred and referenced
