@@ -293,13 +293,18 @@
           "type": "array",
           "minItems": 1,
           "items": {
-            "enum": [
-              "contact", "normal_force", "shear", "pressure", "contact_area",
-              "contact_centroid", "load_distribution", "slip", "force_derivative",
-              "deformation_rate", "bending"
+            "oneOf": [
+              {
+                "enum": [
+                  "contact", "normal_force", "shear", "pressure", "contact_area",
+                  "contact_centroid", "load_distribution", "slip", "force_derivative",
+                  "deformation_rate", "bending"
+                ]
+              },
+              { "type": "string", "pattern": "^ext\\.[a-z_]+\\.[a-z_]+$" }
             ]
           },
-          "description": "Subset of the closed-core feature taxonomy this frame reports (04 § Feature taxonomy). Extension features carry a namespace prefix (handled by the registry, 06)."
+          "description": "The features this frame reports, drawn from the closed-core taxonomy (04 § Feature taxonomy) or, beyond the core, an ext.<vendor>.<feature> extension feature the registry namespaces (06). The core stays fixed so the conformance suite can enumerate it."
         },
         "resolution": {
           "type": "object",
