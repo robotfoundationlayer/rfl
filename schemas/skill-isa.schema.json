@@ -429,6 +429,37 @@
       "description": "SurfaceTarget | auto (the type place target_surface params carry, 01): the literal auto (planner-derived, e.g. the surface directly below along gravity), an inline SurfaceTarget, or a let-reference.",
       "anyOf": [ { "$ref": "#/$defs/Auto" }, { "$ref": "#/$defs/SurfaceTarget" }, { "$ref": "#/$defs/Ref" } ]
     },
+    "Pose6D": {
+      "description": "A rigid pose, position + orientation in a FrameRef (01 § Geometric types). The representation (SE(3) / quat+t / axis-angle) is deferred to 02, so RFL fixes only that it is a pose value: an inline object, a coordinate array, or a let-reference.",
+      "anyOf": [ { "type": "object" }, { "type": "array" }, { "$ref": "#/$defs/Ref" } ]
+    },
+    "GeometryRef": {
+      "description": "A reference to an object's geometric model (01 § Object reference, geometry, and measurement): perception-derived, RFL fixes the queryable aspects (rolling surface, container) not the estimation. An inline object or a let-reference.",
+      "anyOf": [ { "type": "object" }, { "$ref": "#/$defs/Ref" } ]
+    },
+    "FeatureRef": {
+      "description": "A reference to a feature of an object (01 § Target types): parent ObjectTarget + kind {handle, loop, bar, edge, face, ...}, resolving to a SurfaceTarget or sub-geometry. Perception-derived: an inline object or a let-reference.",
+      "anyOf": [ { "type": "object" }, { "$ref": "#/$defs/Ref" } ]
+    },
+    "ObjectTarget": {
+      "description": "A perception-derived object target (01 § Target types): pose + geometry + estimated_mass + center_of_mass + optional max_contact_force (fragility) + features + uncertainty. RFL fixes the field set and each field's type, not the estimation method; pose / center_of_mass (a Pose6D position) stay the deferred-representation floor. Authored inline; the let-reference form (a sense.* result) is accepted wherever an ObjectTarget is expected. Only pose is required at the field level — the rest are perception-supplied as available.",
+      "type": "object",
+      "required": ["pose"],
+      "additionalProperties": false,
+      "properties": {
+        "pose": { "$ref": "#/$defs/Pose6D" },
+        "geometry": { "$ref": "#/$defs/GeometryRef" },
+        "estimated_mass": { "$ref": "#/$defs/Force" },
+        "center_of_mass": { "$ref": "#/$defs/Pose6D" },
+        "max_contact_force": { "$ref": "#/$defs/Force" },
+        "features": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/FeatureRef" },
+          "description": "set<FeatureRef> — the object's referenceable features."
+        },
+        "uncertainty": { "$ref": "#/$defs/UncertaintyBound" }
+      }
+    },
     "SlipResponse": {
       "enum": ["abort", "retighten", "hold"],
       "description": "Reaction to detected slip, shared across grasp primitives (default retighten)."
@@ -916,8 +947,8 @@
           "description": "FrameRef — the observing sensor frame (default embodiment.default_sensor_frame)."
         },
         "target": {
-          "anyOf": [ { "type": "object" }, { "$ref": "#/$defs/Ref" } ],
-          "description": "ObjectTarget | SurfaceTarget | FrameRef — what to observe. Inline object or let-reference."
+          "anyOf": [ { "$ref": "#/$defs/ObjectTarget" }, { "$ref": "#/$defs/SurfaceTarget" }, { "$ref": "#/$defs/Ref" } ],
+          "description": "ObjectTarget | SurfaceTarget | FrameRef — what to observe. Inline ObjectTarget / SurfaceTarget or let-reference (a bare FrameRef name is a reference)."
         },
         "observe": {
           "type": "array",
@@ -1025,7 +1056,7 @@
       "required": ["target", "force_budget"],
       "additionalProperties": false,
       "properties": {
-        "target": { "$ref": "#/$defs/Compound", "description": "ObjectTarget — object to enclose." },
+        "target": { "anyOf": [ { "$ref": "#/$defs/ObjectTarget" }, { "$ref": "#/$defs/Ref" } ], "description": "ObjectTarget — object to enclose (inline ObjectTarget or let-reference)." },
         "force_budget": { "$ref": "#/$defs/Force", "description": "Force > 0; clamped to embodiment.limits.grip_force_max and target.max_contact_force." },
         "grasp_pose": { "$ref": "#/$defs/CompoundOrAuto", "description": "Pose6D | auto — enclosure contact-frame pose (default auto)." },
         "controlled_frame": { "$ref": "#/$defs/FrameRef", "description": "FrameRef — declared grasp frame (default embodiment.default_grasp_frame)." },
@@ -1044,7 +1075,7 @@
       "required": ["target", "load_budget"],
       "additionalProperties": false,
       "properties": {
-        "target": { "$ref": "#/$defs/Compound", "description": "ObjectTarget — must expose a hookable feature." },
+        "target": { "anyOf": [ { "$ref": "#/$defs/ObjectTarget" }, { "$ref": "#/$defs/Ref" } ], "description": "ObjectTarget — must expose a hookable feature (inline ObjectTarget or let-reference)." },
         "hook_feature": { "$ref": "#/$defs/CompoundOrAuto", "description": "FeatureRef | auto — the handle / loop / bar to engage (default auto)." },
         "load_budget": { "$ref": "#/$defs/Force", "description": "Force > 0 — load the engagement must support (replaces force_budget; no opposing squeeze)." },
         "load_direction": {
@@ -1067,7 +1098,7 @@
       "required": ["target", "force_budget"],
       "additionalProperties": false,
       "properties": {
-        "target": { "$ref": "#/$defs/Compound", "description": "ObjectTarget — small object for three-finger opposition." },
+        "target": { "anyOf": [ { "$ref": "#/$defs/ObjectTarget" }, { "$ref": "#/$defs/Ref" } ], "description": "ObjectTarget — small object for three-finger opposition (inline ObjectTarget or let-reference)." },
         "force_budget": { "$ref": "#/$defs/Force", "description": "Force > 0; clamped to grip_force_max and target.max_contact_force." },
         "grasp_pose": { "$ref": "#/$defs/CompoundOrAuto", "description": "Pose6D | auto — tripod contact-frame pose (default auto)." },
         "controlled_frame": { "$ref": "#/$defs/FrameRef", "description": "FrameRef — declared grasp frame (default embodiment.default_grasp_frame)." },
@@ -1082,7 +1113,7 @@
       "required": ["target", "force_budget"],
       "additionalProperties": false,
       "properties": {
-        "target": { "$ref": "#/$defs/Compound", "description": "ObjectTarget — thin / flat object for a side (key-grip) grasp." },
+        "target": { "anyOf": [ { "$ref": "#/$defs/ObjectTarget" }, { "$ref": "#/$defs/Ref" } ], "description": "ObjectTarget — thin / flat object for a side (key-grip) grasp (inline ObjectTarget or let-reference)." },
         "force_budget": { "$ref": "#/$defs/Force", "description": "Force > 0; clamped to limits." },
         "grasp_edge": { "$ref": "#/$defs/CompoundOrAuto", "description": "FeatureRef | auto — the edge to grip against the thumb side (default auto)." },
         "grasp_pose": { "$ref": "#/$defs/CompoundOrAuto", "description": "Pose6D | auto — lateral contact-frame pose (default auto)." },
@@ -1098,7 +1129,7 @@
       "required": ["target", "load_budget"],
       "additionalProperties": false,
       "properties": {
-        "target": { "$ref": "#/$defs/Compound", "description": "ObjectTarget — must carry a center-of-mass estimate." },
+        "target": { "anyOf": [ { "$ref": "#/$defs/ObjectTarget" }, { "$ref": "#/$defs/Ref" } ], "description": "ObjectTarget — must carry a center-of-mass estimate (inline ObjectTarget or let-reference)." },
         "load_budget": { "$ref": "#/$defs/Force", "description": "Force > 0 — max supported weight; clamped to embodiment.limits.payload_support." },
         "support_pose": { "$ref": "#/$defs/CompoundOrAuto", "description": "Pose6D | auto — pose of the support surface under the object (default auto = center CoM)." },
         "support_normal": {
@@ -1116,7 +1147,7 @@
       "required": ["target", "against_surface", "force_budget"],
       "additionalProperties": false,
       "properties": {
-        "target": { "$ref": "#/$defs/Compound", "description": "ObjectTarget — object to pin against an opposing surface." },
+        "target": { "anyOf": [ { "$ref": "#/$defs/ObjectTarget" }, { "$ref": "#/$defs/Ref" } ], "description": "ObjectTarget — object to pin against an opposing surface (inline ObjectTarget or let-reference)." },
         "against_surface": { "anyOf": [ { "$ref": "#/$defs/SurfaceTarget" }, { "$ref": "#/$defs/Ref" } ], "description": "SurfaceTarget — the surface to pin the object against (inline SurfaceTarget or let-reference)." },
         "force_budget": { "$ref": "#/$defs/Force", "description": "Force > 0 — normal force pressing the object onto the surface; clamped to grip_force_max and target.max_contact_force." },
         "pin_pose": { "$ref": "#/$defs/CompoundOrAuto", "description": "Pose6D | auto — effector contact pose on the object's exposed face (default auto = opposite against_surface)." },
@@ -1131,7 +1162,7 @@
       "required": ["target", "force_budget"],
       "additionalProperties": false,
       "properties": {
-        "target": { "$ref": "#/$defs/Compound", "description": "ObjectTarget — object / soft body to enclose." },
+        "target": { "anyOf": [ { "$ref": "#/$defs/ObjectTarget" }, { "$ref": "#/$defs/Ref" } ], "description": "ObjectTarget — object / soft body to enclose (inline ObjectTarget or let-reference)." },
         "force_budget": { "$ref": "#/$defs/Force", "description": "Force > 0 — gentle; clamped to limits + fragility." },
         "mode": {
           "enum": ["conform", "cage"],
@@ -1309,7 +1340,7 @@
       "additionalProperties": false,
       "properties": {
         "grasp_handle": { "$ref": "#/$defs/GraspHandle", "description": "GraspRef | active (default active) — the grasp holding the object to stack." },
-        "support_object": { "$ref": "#/$defs/Compound", "description": "ObjectTarget — the object / stack to place on top of." },
+        "support_object": { "anyOf": [ { "$ref": "#/$defs/ObjectTarget" }, { "$ref": "#/$defs/Ref" } ], "description": "ObjectTarget — the object / stack to place on top of (inline ObjectTarget or let-reference)." },
         "alignment": { "enum": ["centered", "edge_aligned", "pose"], "description": "How to align over support_object's top face (default centered)." },
         "place_pose": { "$ref": "#/$defs/CompoundOrAuto", "description": "Pose6D | auto — (for alignment = pose) explicit placement pose (default auto)." },
         "frame": { "$ref": "#/$defs/FrameRef", "description": "FrameRef — reference frame (default task)." },
@@ -1326,7 +1357,7 @@
       "additionalProperties": false,
       "properties": {
         "grasp_handle": { "$ref": "#/$defs/GraspHandle", "description": "GraspRef | active (default active) — the grasp holding the object." },
-        "container": { "$ref": "#/$defs/Compound", "description": "ObjectTarget — the container / receptacle to insert into (opening + interior)." },
+        "container": { "anyOf": [ { "$ref": "#/$defs/ObjectTarget" }, { "$ref": "#/$defs/Ref" } ], "description": "ObjectTarget — the container / receptacle to insert into (opening + interior); inline ObjectTarget or let-reference." },
         "insertion_pose": { "$ref": "#/$defs/CompoundOrAuto", "description": "Pose6D | auto — object pose for insertion (default auto = aligned with the container opening)." },
         "insertion_depth": { "anyOf": [ { "$ref": "#/$defs/Auto" }, { "$ref": "#/$defs/Length" } ], "description": "Length | auto — how far to insert (default auto = until contained / resting)." },
         "frame": { "$ref": "#/$defs/FrameRef", "description": "FrameRef — reference frame (default task)." },
