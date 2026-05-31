@@ -11,14 +11,14 @@
 //! See `spec/02-translation-layer.md` for the formal definition.
 
 use crate::canonical::{
-    AlignSpec, CanonicalAction, Envelope, MotionBounds, PoseExpr, ProxySpec, TactileTargetOut,
-    TimingHints, TimingMode,
+    AlignSpec, CanonicalAction, Envelope, Monitor, MotionBounds, PoseExpr, ProxySpec,
+    TactileTargetOut, TimingHints, TimingMode,
 };
 use crate::embodiment::Embodiment;
 use crate::quantity::Quantity;
 use crate::skill_isa::{
-    Axes, Axis, GraspPinch, Primitive, ReachAlign, Skill, Statement, TactileTargetArg,
-    TransportMoveToPose,
+    Axes, Axis, Compliance, ForceInsertFit, GraspPinch, GraspRelease, Primitive, ReachAlign,
+    ReachRetract, Skill, Statement, TactileTargetArg, TransportMoveToPose,
 };
 
 /// The retargeting result: the canonical action stream plus the per-action
@@ -47,7 +47,7 @@ pub fn retarget(skill: &Skill, embodiment: &Embodiment) -> crate::Result<Retarge
             Statement::LetBind(b) => &b.from,
         };
         check_capability(prim, embodiment)?;
-        let (action, suffix) = lower(prim, embodiment)?;
+        let (action, suffix) = lower(prim, embodiment);
         actions.push(action);
         suffixes.push(suffix);
     }
@@ -86,31 +86,18 @@ fn check_capability(prim: &Primitive, e: &Embodiment) -> crate::Result<()> {
     }
 }
 
-/// Lower one primitive to a canonical action. Each primitive arm is implemented in
-/// its own task; this skeleton implements sense.locate and routes the rest to a
-/// not-yet-implemented error so the engine compiles incrementally.
-fn lower(prim: &Primitive, e: &Embodiment) -> crate::Result<(CanonicalAction, &'static str)> {
+/// Lower one primitive to a canonical action and its action-id suffix. Every
+/// cable-insertion primitive is handled, so lowering is infallible (capability
+/// errors are raised earlier by `check_capability`).
+fn lower(prim: &Primitive, e: &Embodiment) -> (CanonicalAction, &'static str) {
     match prim {
-        Primitive::SenseLocate(p) => Ok((lower_sense_locate(p, e), "locate")),
-        Primitive::GraspPinch(p) => Ok((lower_grasp_pinch(p, e), "pinch")),
-        Primitive::TransportMoveToPose(p) => Ok((lower_transport_move_to_pose(p, e), "transport")),
-        Primitive::ReachAlign(p) => Ok((lower_reach_align(p, e), "align")),
-        other => Err(crate::Error::Translation(format!(
-            "lowering not yet implemented for {}",
-            primitive_name(other)
-        ))),
-    }
-}
-
-fn primitive_name(p: &Primitive) -> &'static str {
-    match p {
-        Primitive::SenseLocate(_) => "sense.locate",
-        Primitive::GraspPinch(_) => "grasp.pinch",
-        Primitive::TransportMoveToPose(_) => "transport.move_to_pose",
-        Primitive::ReachAlign(_) => "reach.align",
-        Primitive::ForceInsertFit(_) => "force.insert_fit",
-        Primitive::GraspRelease(_) => "grasp.release",
-        Primitive::ReachRetract(_) => "reach.retract",
+        Primitive::SenseLocate(p) => (lower_sense_locate(p, e), "locate"),
+        Primitive::GraspPinch(p) => (lower_grasp_pinch(p, e), "pinch"),
+        Primitive::TransportMoveToPose(p) => (lower_transport_move_to_pose(p, e), "transport"),
+        Primitive::ReachAlign(p) => (lower_reach_align(p, e), "align"),
+        Primitive::ForceInsertFit(p) => (lower_force_insert_fit(p, e), "insert_fit"),
+        Primitive::GraspRelease(p) => (lower_grasp_release(p, e), "release"),
+        Primitive::ReachRetract(p) => (lower_reach_retract(p, e), "retract"),
     }
 }
 
@@ -275,6 +262,80 @@ fn yaml_to_json(v: &serde_yaml::Value) -> serde_json::Value {
     serde_json::to_value(v).unwrap_or(serde_json::Value::Null)
 }
 
+/// Lower `force.insert_fit`: carry the axial force_budget, lower the SeatingSpec
+/// stop_condition into a monitor, set compliance and the axial force_profile. The
+/// reaction-load bound is symbolic in v0 (design § 3).
+fn lower_force_insert_fit(p: &ForceInsertFit, e: &Embodiment) -> CanonicalAction {
+    let force_budget = Some(p.force_budget.clone()); // axial fit force; no grip-mode limit applies
+    let monitors = vec![Monitor { stop_condition: yaml_to_json(&p.stop_condition) }];
+    let mut env = base_envelope(e);
+    env.compliance = p.compliance.map(|c| {
+        match c {
+            Compliance::Passive => "passive",
+            Compliance::Active => "active",
+            Compliance::Auto => "auto",
+        }
+        .to_string()
+    });
+    env.force_profile = Some(serde_json::json!({ "axial": p.force_budget.0.clone() }));
+    CanonicalAction {
+        target_frame: e.grasp_frame().to_string(),
+        target_pose: PoseExpr::Ref { r#ref: p.target_fit.clone() },
+        force_budget,
+        timing: TimingHints {
+            nominal_duration: None,
+            timing_mode: TimingMode::TimeScalable,
+            stop_at_goal: true,
+        },
+        tactile_target: None,
+        monitors,
+        safety_envelope: env,
+    }
+}
+
+/// Lower `grasp.release`: a state change releasing the active grasp; v0 emits a
+/// zero-distance withdraw along the default retract direction. The break-contact
+/// postcondition (`spec/01`) is symbolic in v0.
+fn lower_grasp_release(_p: &GraspRelease, e: &Embodiment) -> CanonicalAction {
+    CanonicalAction {
+        target_frame: e.grasp_frame().to_string(),
+        target_pose: PoseExpr::AxisRelative {
+            direction: serde_json::Value::String("-tool_axis".into()),
+            distance: Quantity("0 mm".into()),
+        },
+        force_budget: None,
+        timing: TimingHints {
+            nominal_duration: None,
+            timing_mode: TimingMode::Strict,
+            stop_at_goal: true,
+        },
+        tactile_target: None,
+        monitors: vec![],
+        safety_envelope: base_envelope(e),
+    }
+}
+
+/// Lower `reach.retract`: an axis-relative withdraw (direction + distance). The
+/// force-monotonicity abort is symbolic in v0.
+fn lower_reach_retract(p: &ReachRetract, e: &Embodiment) -> CanonicalAction {
+    CanonicalAction {
+        target_frame: e.control_frame().to_string(),
+        target_pose: PoseExpr::AxisRelative {
+            direction: yaml_to_json(&p.direction),
+            distance: p.distance.clone(),
+        },
+        force_budget: None,
+        timing: TimingHints {
+            nominal_duration: None,
+            timing_mode: TimingMode::Strict,
+            stop_at_goal: true,
+        },
+        tactile_target: None,
+        monitors: vec![],
+        safety_envelope: base_envelope(e),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -294,11 +355,17 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "un-ignored in Task 10 once all primitives lower"]
-    fn retarget_emits_one_action_per_motion_statement() {
+    fn full_skill_retargets_to_eight_actions() {
         let (skill, emb) = load("allegro");
         let out = retarget(&skill, &emb).expect("retarget");
         assert_eq!(out.actions.len(), 8);
+        assert_eq!(
+            out.suffixes,
+            vec![
+                "locate", "pinch", "transport", "locate", "align", "insert_fit", "release",
+                "retract"
+            ]
+        );
     }
 
     #[test]
@@ -358,5 +425,32 @@ mod tests {
         assert!(json.contains("min_geodesic_rotation"));
         assert!(json.contains("\"target_frame\":\"receptacle\""));
         assert!(json.contains("\"z\""));
+    }
+
+    #[test]
+    fn insert_fit_lowers_stop_condition_into_monitors() {
+        let (skill, emb) = load("allegro");
+        let Statement::Primitive(Primitive::ForceInsertFit(p)) = &skill.body.sequence[5] else {
+            panic!("expected force.insert_fit at index 5");
+        };
+        let a = super::lower_force_insert_fit(p, &emb);
+        assert_eq!(a.force_budget.as_ref().unwrap().0, "15 N");
+        assert_eq!(a.safety_envelope.compliance.as_deref(), Some("active"));
+        let monitors = serde_json::to_string(&a.monitors).unwrap();
+        assert!(monitors.contains("all_of"));
+        assert!(monitors.contains("effort_rise"));
+        assert!(monitors.contains("depth"));
+    }
+
+    #[test]
+    fn retract_is_axis_relative() {
+        let (skill, emb) = load("allegro");
+        let Statement::Primitive(Primitive::ReachRetract(p)) = &skill.body.sequence[7] else {
+            panic!("expected reach.retract at index 7");
+        };
+        let a = super::lower_reach_retract(p, &emb);
+        let json = serde_json::to_string(&a.target_pose).unwrap();
+        assert!(json.contains("-tool_axis"));
+        assert!(json.contains("50 mm"));
     }
 }
