@@ -533,13 +533,19 @@ fn lower_reach_scan(p: &ReachScan, e: &Embodiment) -> CanonicalAction {
                 poses.iter().map(|w| (w.position, w.orientation)).collect();
             crate::sigma::waypoints(&wps)
         }
-        // Surface region: raster (spiral/arc fall back to raster in v0).
+        // Surface region: the pattern selects the generator. arc / waypoints-on-a-
+        // surface still fall back to raster in v0 (arc needs a pivot + variable
+        // orientation; the waypoints pattern is driven by a Waypoints region).
         crate::region::ScanRegion::Surface { size_u, size_v, .. } => {
             let (h, v) = e
                 .sensor_fov(&sensor_frame)
                 .map(|f| (angle_rad(&f.h_angle), angle_rad(&f.v_angle)))
                 .unwrap_or((0.0, 0.0));
-            crate::sigma::raster(length_m(size_u), length_m(size_v), standoff, overlap, h, v)
+            let (u, vv) = (length_m(size_u), length_m(size_v));
+            match pattern {
+                ScanPattern::Spiral => crate::sigma::spiral(u, vv, standoff, overlap, h, v),
+                _ => crate::sigma::raster(u, vv, standoff, overlap, h, v),
+            }
         }
     };
 
@@ -723,6 +729,27 @@ mod tests {
         assert_eq!(pattern.as_str(), "raster");
         assert_eq!(poses.len(), 9); // allegro palm_cam 60x45 -> 9 sweep poses
         assert_eq!(out.suffixes, vec!["scan", "inspect"]);
+    }
+
+    #[test]
+    fn scan_pattern_spiral_lowers_to_spiral_sweep() {
+        let yaml = "skill: surface-scan\nbody:\n  sequence:\n    - reach.scan:\n        region: { kind: surface, frame: panel, size_u: 200 mm, size_v: 150 mm }\n        standoff: 100 mm\n        pattern: spiral\n        coverage_overlap: 0.2\n    - sense.inspect: { target: panel, observe: [defect] }\n";
+        let skill = Skill::parse_yaml(yaml).unwrap();
+        let mut allegro = Embodiment::parse_yaml(&std::fs::read_to_string(
+            Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("../../examples/01-cable-insertion/embodiments/allegro.yaml"),
+        ).unwrap()).unwrap();
+        // The surface-scan skill declares sense.inspect; the 01 allegro does not.
+        allegro.capabilities.skills.push("sense.inspect".to_string());
+        let out = retarget(&skill, &allegro).expect("retarget");
+        let crate::canonical::PoseExpr::SweepPath { poses, pattern } = &out.actions[0].target_pose
+        else {
+            panic!("expected SweepPath");
+        };
+        assert_eq!(pattern.as_str(), "spiral");
+        assert_eq!(poses.len(), 12); // allegro 60x45 spiral -> 12 stations (raster was 9)
+        // The first station is the centroid (U/2, V/2, standoff), round6-emitted.
+        assert_eq!(poses[0].position, [0.1, 0.075, 0.1]);
     }
 
     #[test]
