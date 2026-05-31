@@ -97,6 +97,64 @@ impl Driver for ReferenceDriver {
     }
 }
 
+/// A fault a `FaultyDriver` injects into the nominal report — schema-valid but
+/// envelope-violating, to verify the checkers reject violations (the non-circular
+/// proof of Test Class 3).
+#[derive(Debug, Clone, Copy)]
+pub enum Fault {
+    /// `securing_force` below any derived floor (violates grasp-continuity GC1).
+    UnderSecure,
+    /// `wrench.force` above any budget (violates the force-trajectory bound, ENV4).
+    OverForce,
+    /// `outcome = indeterminate`, no `final_pose` (violates terminal-postcondition).
+    NeverSettle,
+}
+
+/// Wraps the nominal `ReferenceDriver` and injects one `Fault` into every report it
+/// returns. The report still validates against the driver-interface schema; the
+/// violation is semantic (caught by `check_envelope`, not the schema).
+#[derive(Debug)]
+pub struct FaultyDriver {
+    inner: ReferenceDriver,
+    fault: Fault,
+}
+
+impl FaultyDriver {
+    /// A faulty driver injecting `fault`.
+    #[must_use]
+    pub fn new(fault: Fault) -> Self {
+        FaultyDriver { inner: ReferenceDriver::default(), fault }
+    }
+}
+
+impl Driver for FaultyDriver {
+    fn execute(&mut self, goal: &ExecuteGoal) -> DriverReport {
+        let mut report = self.inner.execute(goal);
+        match self.fault {
+            Fault::UnderSecure => {
+                for t in &mut report.telemetry {
+                    if t.securing_force.is_some() {
+                        t.securing_force =
+                            Some(rfl_core::quantity::Quantity("0.1 N".to_string()));
+                    }
+                }
+            }
+            Fault::OverForce => {
+                for t in &mut report.telemetry {
+                    if let Some(w) = t.wrench.as_mut() {
+                        w.force = [0.0, 0.0, 999.0];
+                    }
+                }
+            }
+            Fault::NeverSettle => {
+                report.status.outcome = Outcome::Indeterminate;
+                report.status.final_pose = None;
+            }
+        }
+        report
+    }
+}
+
 /// Retarget the skill onto the embodiment and drive every `execute` message through
 /// `driver`, returning the `(goal, report)` pair per action. Generic over any
 /// `Driver` (the nominal `ReferenceDriver` or a `FaultyDriver`). Action ids match the
@@ -357,5 +415,18 @@ mod tests {
             check_envelope(EnvelopeClass::TerminalPostcondition, goal, &bad),
             CheckOutcome::Fail(_)
         ));
+    }
+
+    #[test]
+    fn faulty_under_secure_lowers_securing_force() {
+        let dir = example_dir();
+        let pairs = drive(
+            FaultyDriver::new(Fault::UnderSecure),
+            &dir.join("skill.yaml"),
+            &dir.join("embodiments/allegro.yaml"),
+        )
+        .unwrap();
+        // grasp.pinch (index 1) has a securing_force -> lowered to the violating value.
+        assert_eq!(pairs[1].1.telemetry[0].securing_force.as_ref().unwrap().0, "0.1 N");
     }
 }
