@@ -18,7 +18,7 @@ use crate::embodiment::Embodiment;
 use crate::quantity::Quantity;
 use crate::skill_isa::{
     Axes, Axis, Compliance, ForceInsertFit, ForceScrew, ForceUnscrew, GraspPinch, GraspRelease, Primitive, ReachAlign,
-    ReachRetract, ReachScan, ScanPattern, SenseInspect, Skill, Statement, TactileTargetArg,
+    ReachHover, ReachRetract, ReachScan, ScanPattern, SenseInspect, Skill, Statement, TactileTargetArg,
     TransportMoveToPose,
 };
 use crate::grasp_force::{self, GraspMode};
@@ -105,7 +105,10 @@ pub fn retarget(skill: &Skill, embodiment: &Embodiment) -> crate::Result<Retarge
 fn check_capability(prim: &Primitive, e: &Embodiment) -> crate::Result<()> {
     let key: &str = match prim {
         // reach.* is the unkeyed mandatory baseline: no gate.
-        Primitive::ReachAlign(_) | Primitive::ReachRetract(_) | Primitive::ReachScan(_) => {
+        Primitive::ReachAlign(_)
+        | Primitive::ReachRetract(_)
+        | Primitive::ReachScan(_)
+        | Primitive::ReachHover(_) => {
             return Ok(())
         }
         // grasp.release is presupposed by any declared grasp capability (spec/03
@@ -154,6 +157,7 @@ fn lower(
         Primitive::GraspRelease(p) => (lower_grasp_release(p, e, ctx), "release"),
         Primitive::ReachRetract(p) => (lower_reach_retract(p, e), "retract"),
         Primitive::ReachScan(p) => (lower_reach_scan(p, e), "scan"),
+        Primitive::ReachHover(p) => (lower_reach_hover(p, e), "hover"),
         Primitive::SenseInspect(p) => (lower_sense_inspect(p, e), "inspect"),
     }
 }
@@ -343,6 +347,30 @@ fn lower_reach_align(p: &ReachAlign, e: &Embodiment) -> CanonicalAction {
                 axes,
                 residual: "min_geodesic_rotation",
             },
+        },
+        force_budget: None,
+        timing: TimingHints {
+            nominal_duration: None,
+            timing_mode: TimingMode::Strict,
+            stop_at_goal: true,
+        },
+        tactile_target: None,
+        monitors: vec![],
+        safety_envelope: base_envelope(e),
+    }
+}
+
+/// Lower `reach.hover` (`spec/01` § 1.5): a sustained station-keeping action holding
+/// the controlled frame at a standoff setpoint over a bounded interval. v0 emits a
+/// symbolic standoff pose (`S = p + standoff·n`); the geometric station invariant is
+/// checked structurally (interval-invariant, `05` ENV2). The duration is carried in the
+/// skill but not lowered in v0 (the interval check is sample-structural, not timed).
+fn lower_reach_hover(p: &ReachHover, e: &Embodiment) -> CanonicalAction {
+    CanonicalAction {
+        target_frame: e.control_frame().to_string(),
+        target_pose: PoseExpr::FrameRelative {
+            frame: p.target.clone(),
+            offset: serde_json::json!({ "along": "outward_normal", "distance": p.standoff.0.clone() }),
         },
         force_budget: None,
         timing: TimingHints {
@@ -970,5 +998,22 @@ mod tests {
         let emb = load("allegro").1; // cable allegro lacks force.unscrew
         let err = retarget(&skill, &emb).unwrap_err();
         assert!(err.to_string().contains("capability_absent: force.unscrew"), "got {err}");
+    }
+
+    #[test]
+    fn hover_lowers_to_a_standoff_setpoint() {
+        // reach.* is baseline (no capability gate). The hover lowers to a symbolic
+        // standoff setpoint in the control frame.
+        let yaml = "skill: t\nbody:\n  sequence:\n    - reach.hover: { target: panel, standoff: 50 mm, duration: 5 s }\n";
+        let skill = Skill::parse_yaml(yaml).expect("parse");
+        let emb = load("allegro").1;
+        let out = retarget(&skill, &emb).expect("retarget");
+        assert_eq!(out.suffixes, vec!["hover"]);
+        let crate::canonical::PoseExpr::FrameRelative { frame, offset } = &out.actions[0].target_pose
+        else {
+            panic!("expected FrameRelative");
+        };
+        assert_eq!(frame, "panel");
+        assert_eq!(offset.get("distance").and_then(|v| v.as_str()), Some("50 mm"));
     }
 }

@@ -128,6 +128,9 @@ pub enum Primitive {
     /// `reach.scan`.
     #[serde(rename = "reach.scan")]
     ReachScan(ReachScan),
+    /// `reach.hover`.
+    #[serde(rename = "reach.hover")]
+    ReachHover(ReachHover),
     /// `sense.inspect`.
     #[serde(rename = "sense.inspect")]
     SenseInspect(SenseInspect),
@@ -370,6 +373,21 @@ pub struct ReachScan {
     /// Overlap between passes (v0 requires an explicit ratio; auto is deferred).
     #[serde(default)]
     pub coverage_overlap: Option<f64>,
+}
+
+/// `reach.hover` parameters (v0 subset of `$defs/ReachHoverParams`). Sustained
+/// station-keeping at a standoff over a bounded interval (`spec/01` § 1.5). v0 models
+/// the target frame, the standoff, and the duration (carried, not lowered); the § 1.5
+/// tolerances / tracking carry spec defaults and are not emitted.
+#[derive(Debug, Clone, serde::Deserialize)]
+pub struct ReachHover {
+    /// The surface / frame to hover over (v0: a frame name).
+    pub target: FrameRef,
+    /// Maintained distance from `target` along its outward normal.
+    pub standoff: Quantity,
+    /// Hold duration (`Duration | until`; carried, symbolic in v0).
+    #[serde(default)]
+    pub duration: Option<serde_yaml::Value>,
 }
 
 /// `sense.inspect` parameters (v0 subset of `$defs/SenseInspectParams`).
