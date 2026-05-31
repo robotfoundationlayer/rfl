@@ -1,186 +1,210 @@
 # Design: reach.hover settling ENV3 — the disturbance-rejection twin for the no-object interval primitive
 
-Status: approved design, pre-implementation (2026-06-01)
+Status: approved design, pre-implementation (2026-06-01; reconciled to the existing
+`spec/01` § 1.5 contract before planning — see § 0).
 
 This is the fifteenth reference-implementation increment. It closes the deferred twin that
 the fourteenth (`2026-06-01-env3-disturbance-injection-design.md`, lines 46-49 / 151)
 explicitly parked: ENV3 for `reach.hover`. ENV3 (`spec/05` § Conformance obligations,
-§ Disturbance injection) requires that a disturbance-rejecting interval-invariant primitive
-be *perturbed* — the bench injects calibrated disturbances up to the primitive's budget,
-verifies the invariant holds under perturbation, and verifies graceful degradation above
-budget. `transport.carry` got this in increment 14; `reach.hover` is the **other**
-interval-invariant primitive (ENV1, `spec/05`:31,49) and currently has **no perturbation
-test at all** — its `check_envelope` arm is structural only (every sample carries a
-`realized_pose`), never checking the pose is *correct*. So "conformance complete" silently
-covers 1 of 2 interval-invariant primitives. This increment makes hover's station-keeping
-falsifiable. The specification under `spec/` is authoritative; this document describes how
-the reference implementation realizes it (and the small spec additions it requires).
+§ Disturbance injection) requires a disturbance-rejecting interval-invariant primitive be
+*perturbed* — the bench injects a calibrated disturbance, verifies the invariant holds under
+perturbation, and verifies graceful degradation above the envelope. `transport.carry` got
+this in increment 14; `reach.hover` is the **other** interval-invariant primitive (ENV1,
+`spec/05`:31,49) and currently has **no perturbation test at all** — its `check_envelope` arm
+is structural only (every sample carries a `realized_pose`), never checking the pose is
+*correct*. So "conformance complete" silently covers 1 of 2 interval-invariant primitives.
+This increment makes hover's station-keeping falsifiable. **The contract is already fully
+written in `spec/01` § 1.5; this increment implements it** — the spec is authoritative.
 
-## 1. Why this increment, and what hover's ENV3 adds (and why it is NOT carry's)
+## 0. Reconciliation to the existing spec (the stop-gate that reshaped this design)
 
-Carry's ENV3 contract is "halt with the **object secured**, do not drop it" — its danger
-under excess disturbance is losing the payload. Hover holds **no object**; its danger is the
-controlled frame drifting off its station uncontrolled. So hover's ENV3 is a genuinely
-*different* contract, not a copy:
+`spec/01` § 1.5 (lines 630-685) and `schemas/skill-isa.schema.json` `ReachHoverParams`
+(lines 781-836) **already specify hover's settling contract in full** — the implementation
+just hasn't realized it (rfl-core's `ReachHover` parses only the v0 subset
+target/standoff/duration). The pre-reconciliation draft of this doc invented names that are
+wrong; the real spec is:
+- **`station_tolerance`** (`Length`, default `2 mm`) — "allowed positional excursion from the
+  hover setpoint" (§ 1.5 table line 642). *Not* a new `settling_tolerance`.
+- **`settling_time`** (`Duration | auto`, default `auto`) — "max time to return within
+  `station_tolerance` after a disturbance" (line 646). Already the right name.
+- **No `disturbance_budget` on hover.** The § 1.5 table is "the twelve parameters … no more"
+  (schema `additionalProperties: false`) and does *not* include one. Carry declares
+  `disturbance_budget` because it is a *control* input (it feeds `carry_a_max`); hover has no
+  such reservation — the bench applies "a calibrated lateral impulse" (C2, line 685) and the
+  envelope it may exceed is the hover's own control authority, not a declared budget.
+- The recovery rule is **verbatim** the leg this increment adds (line 668): "after a bounded
+  disturbance, station error returns ≤ `station_tolerance` within `settling_time`; failure to
+  recover is an envelope violation."
+- The failure token is **`station_exceeded`** (line 679: "error > `station_tolerance` beyond
+  `settling_time` → abort + safe state"). *Not* `settling_exceeded`.
+- The bench checks are already written: **C1 — sustained hold** (line 684, already covered by
+  the existing ENV2 structural check) and **C2 — disturbance rejection** (line 685): "apply a
+  calibrated lateral impulse. PASS iff station error returns ≤ `station_tolerance` within
+  `settling_time` (recover-and-continue), OR — if the impulse exceeds the envelope — the
+  primitive aborts within `stop_time` to a safe state."
 
-- **Recovery, not securing.** Under a sub-budget perturbation the hover must *return* to its
-  station within a bounded window and hold it — a settling property the carry has no analogue
-  of (carry's invariant is "stay secured at every sample," with no recover-from-excursion
-  notion).
-- **Honest non-claim, not object-secured.** Over budget, the hover's conformant degradation
-  is to fail honestly (not pretend it held station). There is no payload to secure, so the
-  "object secured" leg of carry's `check_graceful_degradation` is replaced by *failure-shape
-  correctness* (the right halt reason, no false success).
+**Consequences:** (i) **no skill-isa schema change** — the params already exist; (ii) **no
+`spec/01` change** — the contract is already complete; (iii) the only schema change is the
+telemetry `station_error` signal (§ 2); (iv) the only spec prose change is generalizing the
+`spec/05` ENV3 clause, currently carry-only, to name hover's degradation shape.
+
+## 1. Why hover's ENV3 is NOT carry's
+
+Carry's danger under excess disturbance is dropping the payload → its contract is "halt with
+the **object secured**." Hover holds **no object**; its danger is the controlled frame
+drifting off-station → its contract is **recover-to-station or abort-to-safe-state**. So:
+- **Recovery, not securing.** Under a sub-envelope impulse the hover must *return* to within
+  `station_tolerance` within `settling_time` and hold — a settling property carry has no
+  analogue of (carry's invariant is static "stay secured at every sample").
+- **Honest abort, not object-secured.** Over the envelope, the conformant degradation is to
+  abort to a safe state and report `station_exceeded` (no payload to secure).
 
 ## 2. The real gap: there is no station-keeping signal
 
-The reason hover's interval check is vacuous is concrete: the protocol has **no scalar for
-how far the controlled frame drifted from its station**. `Telemetry` (`03`,
-`rfl-core/src/driver.rs`) carries `realized_pose`, `wrench`, `securing_force`, an open
-`events` array (`ForceEventFloor`: breakaway / detent), and tactile readings — none of which
-expresses positional station error. Carry's ENV3 was "no schema change" only because
-`securing_force` already existed (from the held-transport GC1 increment) and carried its
-invariant. Hover has no equivalent, so:
+Hover's interval check is vacuous because the protocol has **no scalar for how far the frame
+drifted from its station**. `Telemetry` (`rfl-core/src/driver.rs`) carries `realized_pose`,
+`wrench`, `securing_force`, an open `events` array (`ForceEventFloor`: breakaway / detent),
+and tactile readings — none expresses positional station error. Carry's ENV3 was "no schema
+change" only because `securing_force` already existed. Hover has no equivalent:
 
 > Closing the gap honestly requires introducing the station-keeping signal — a `station_error`
-> scalar — which is an additive, backward-compatible schema change. That schema change *is*
-> the gap-closure, not incidental breadth.
+> scalar (a **Length**, the "externally measured station error" of § 1.5 C1) — an additive,
+> backward-compatible field on `TelemetryFeedback`. That schema change *is* the gap-closure.
 
-`station_error` is a **Length** (distance from the standoff setpoint), not a Force — the
-hover excursion is positional. It is geometry-free at the conformance layer: the bench/driver
-reports the scalar (exactly as it self-reports `securing_force`), so no concrete pose
-comparison is needed and the deferred concrete-geometry work (`spec/02`) is not pulled in.
+It is geometry-free at the conformance layer: the driver self-reports the scalar exactly as
+it self-reports `securing_force`, so no concrete-pose comparison is needed and the deferred
+`spec/02` concrete-geometry work is not pulled in.
 
-## 3. The contract
+## 3. The contract (as realized)
 
-Authored on `reach.hover` (three new optional args; all symbolic-free quantities):
-- `disturbance_budget: Force | auto` — the perturbation the hover must reject. Reuses carry's
-  `DisturbanceArg` enum; `auto` resolves to `0` in v0 (deferred derivation), the same
-  convention as carry, so an un-perturbed hover is unaffected.
-- `settling_time: Duration` — the recovery window: after a perturbation, the station must be
-  re-established within this long.
-- `settling_tolerance: Length` — the station-error threshold defining "recovered."
+Lowered from the **existing** `reach.hover` params when an explicit `settling_time` is given
+(the ENV3 opt-in marker, mirroring carry's explicit `disturbance_budget`); a bare hover
+(`settling_time` absent / `auto`) emits nothing and stays ENV2-only:
+- `station_tolerance` — `Length`, default `2 mm` if omitted.
+- `settling_time` — explicit `Duration` (an `auto`/absent value → no `station_keeping`, no
+  ENV3, v0; `auto` derivation deferred).
 
-`settling_tolerance` is **authored**, not `auto`-derived: embodiment descriptors carry
-`stability_margin` but **no** position/settling tolerance limit, so an `auto` form would
-require an embodiment-descriptor schema change — deferred (§ 7).
+**Under-envelope (the interval property, strengthened — § 1.5 line 668).** PASS iff the hover
+Succeeded, every sample carries `realized_pose` (existing structural leg), **and the settled
+tail holds**: every telemetry sample with `t ≥ telemetry[0].t + settling_time` has
+`station_error` present and ≤ `station_tolerance` (samples inside the leading `settling_time`
+grace window are exempt — recovery in progress), with ≥ 1 such tail sample (non-vacuous). A
+driver that drifts and *claims success* fails here.
 
-**Under-budget (the interval property, strengthened).** Bench injects ≤ `disturbance_budget`.
-PASS iff the hover Succeeded, every sample carries `realized_pose` (existing structural leg),
-**and the settled tail holds**: every telemetry sample with `t ≥ first_t + settling_time` has
-`station_error ≤ settling_tolerance` (samples inside the leading `settling_time` grace window
-are exempt — recovery in progress), with at least one such tail sample present (non-vacuous).
-A driver that drifts and *claims success* fails here.
-
-**Over-budget (graceful degradation, hover flavor).** Bench injects > `disturbance_budget`.
-This splits one report into two opposite verdicts, exactly as carry's does:
-- `check_envelope(IntervalInvariant)` → **Fail** (the hover did not hold its station — it
-  correctly did not claim success).
+**Over-envelope (graceful degradation — § 1.5 C2, line 685 / failure mode line 679).** Splits
+one report into two opposite verdicts, exactly as carry's does:
+- `check_envelope(IntervalInvariant)` → **Fail** (outcome not Succeeded → the first arm
+  check fails; the hover correctly did not claim success).
 - a new `check_settling` → **Pass** iff `outcome != Succeeded` ∧ `failure_detail ==
-  "settling_exceeded"` (honest non-claim with the right halt reason).
+  "station_exceeded"` (abort to a safe state with the right halt reason). v0 realizes "safe
+  state within `stop_time`" as the honest non-claim; the timing/geometry of the safe state is
+  deferred (§ 7).
 
-The bounded-excursion / "did-not-run-away" leg (a `max_excursion` cap, the positional
-analogue of carry's "object secured") is **deferred** to avoid a fourth arg this increment
-(§ 7); the over-budget contract here is honest-non-claim only.
-
-## 4. Surface
+## 4. Surface (files)
 
 **Schema (the one additive change — breaks the prior "no schema change" streak, by design):**
-- `schemas/driver-interface.schema.json` — add optional `station_error` to
-  `TelemetryFeedback.properties`, referencing a Length floor (mirror the existing `Force`
-  `$def`; add a `Length`/`Distance` floor `$def` if none exists). Backward-compatible
-  (optional; `TelemetryFeedback` is `additionalProperties: false`, so it MUST be declared).
-  C1–C7-neutral (those check capability enum / tactile closed-core / extension patterns, not
-  telemetry properties). `validate.py` and the driver-protocol round-trip re-validate; the
-  existing examples omit the field and stay valid.
+- `schemas/driver-interface.schema.json` — add optional `station_error` (referencing the
+  existing `Length` `$def`, pattern `m|mm|cm`) to `TelemetryFeedback.properties`.
+  Backward-compatible (optional; the block is `additionalProperties: false`, so it MUST be
+  declared). C1–C7-neutral (those check capability enum / tactile closed-core / extension
+  patterns, not telemetry properties). The hover golden's execute lines and the existing
+  example telemetry stay schema-valid (the field is absent there).
 
 **rfl-core:**
 - `src/driver.rs` — `Telemetry.station_error: Option<Quantity>` (`skip_serializing_if =
-  Option::is_none`), `None` in the placeholder sample.
-- `src/skill_isa.rs` — `ReachHover` gains the three `#[serde(default)]` args.
+  Option::is_none`), `None` in the placeholder sample and the existing serialization test.
+- `src/skill_isa.rs` — `ReachHover` gains `station_tolerance: Option<Quantity>` and
+  `settling_time: Option<serde_yaml::Value>` (parse the `Duration | auto` form; treat a
+  non-string/`auto` as "no ENV3"), both `#[serde(default)]`. No new schema (already declared).
 - `src/canonical.rs` — `Envelope.station_keeping: Option<serde_json::Value>` (parallel to
-  `force_profile`; `None` by default). A Duration + a Length do not fit `force_profile`
-  (force/torque) semantically, so a parallel field is clean. Verify the driver-interface
-  CanonicalAction floor permits the extra envelope key (it is `02`-owned / floored); add to
-  the schema only if the execute-goal validation rejects it.
-- `src/translation.rs` — `lower_reach_hover` emits `station_keeping{disturbance_budget,
-  settling_time, settling_tolerance}` when the args are present (parse `auto → 0`, same as
-  `lower_transport_carry`); emits nothing when absent (a bare hover is unchanged → no golden
-  churn for skills that omit the args).
+  `force_profile`; `None` by default). A `Length` + a `Duration` do not fit `force_profile`
+  (force/torque) semantically. Add `station_keeping: None` to the three `Envelope` literal
+  sites (`canonical.rs` test `sample()`, `translation.rs:184`, `base_envelope`).
+- `src/translation.rs` — `lower_reach_hover` emits `station_keeping{station_tolerance,
+  settling_time}` when `settling_time` is an explicit `Duration` string; `station_tolerance`
+  defaults to `"2 mm"`. Emits nothing otherwise (a bare hover is unchanged → the existing
+  `hover_lowers_to_a_standoff_setpoint` unit test is untouched).
 
 **rfl-conformance (`src/lib.rs`):**
-- Strengthen the `IntervalInvariant` arm with a **settled-tail leg**, *vacuous when
-  `station_keeping` is absent* — the same pattern the held-secured floor uses
-  (`securing_floor_violation` returns `None` with no floor). Carry and bare hover are
-  unaffected because they emit no `station_keeping`.
-- Add `check_settling(goal, report) -> CheckOutcome`, the over-budget honest-halt check,
-  parallel to `check_graceful_degradation`.
-- Add `HoverSettlingDriver { inner, injected_n, response }` reading
-  `station_keeping.disturbance_budget` + `settling_tolerance`, with a `HoverResponse` enum:
-  `Recovers` (sub-budget conformant: settled tail ≤ tolerance, Succeeded), `FailsToRecover`
-  (sub-budget adversarial: tail `station_error` > tolerance yet claims Succeeded),
-  `GracefulHalt` (over-budget conformant: Failed + `settling_exceeded`), `ClaimsSuccess`
-  (over-budget adversarial: Succeeded).
+- `ReferenceDriver::execute` — echo `station_error = Some("0 mm")` on every sample when the
+  action carries `station_keeping` (the nominal hover holds station perfectly), `None`
+  otherwise — exactly the pattern that echoes `securing_force` from `min_holding_force`.
+- Add `station_keeping_violation(goal, report) -> Option<String>` (parallel to
+  `securing_floor_violation`): reads `station_tolerance` + `settling_time` from
+  `station_keeping`; returns a reason if any settled-tail sample is missing `station_error` or
+  exceeds tolerance, else `None`. Returns `None` when `station_keeping` is absent → carry /
+  bare hover unaffected (the vacuous-leg pattern).
+- Strengthen the `IntervalInvariant` arm of `check_envelope` with a call to
+  `station_keeping_violation` (after the existing `securing_floor_violation` call).
+- Add `check_settling(goal, report) -> CheckOutcome` (over-envelope honest-abort, parallel to
+  `check_graceful_degradation`).
+- Add `HoverSettlingDriver { inner, response }` with `HoverResponse`: `Recovers` (sample[0]
+  `station_error` above tolerance during the grace window, settled tail ≤ tolerance,
+  Succeeded — recover-and-continue), `FailsToRecover` (all samples above tolerance yet claims
+  Succeeded — adversarial), `Aborts` (over-envelope conformant: Failed + `blocked` +
+  `station_exceeded`), `ClaimsSuccess` (over-envelope adversarial: Succeeded).
 
 **spec (this repo's lane):**
-- `spec/01-skill-isa.md` § 1.5 — document the three `reach.hover` args + the settling
-  contract.
-- `spec/05-conformance.md` — extend the ENV3 / Disturbance-injection clause to spell out
-  hover's recovery/degradation contract (the spec already lists hover as interval-invariant
-  and frames ENV3 generically; this fills in hover's previously-unstated degradation shape).
+- `spec/05-conformance.md` — generalize the § Disturbance-injection clause / ENV3 bullet
+  (currently carry-only: "object secured") to name hover's degradation shape: recover within
+  `settling_time` or abort to a safe state (`station_exceeded`), per `spec/01` § 1.5 C2. No
+  `spec/01` change (already complete).
 
 **examples + goldens:**
-- `examples/02-surface-scan/skill-hover.yaml` — add the three args to the hover action.
-- Regenerate the `surface_scan_hover` golden (hover now emits `station_keeping`).
-- Tests: settled-tail pass + `FailsToRecover` fail + over-budget `check_settling` pass +
-  `ClaimsSuccess` fail, plus a lib unit test for `check_settling` on a hand-built report
-  (covering the check independently of the driver). Co-located in
-  `tests/envelope_conformance.rs` (the carry ENV3 tests live there too).
+- `examples/02-surface-scan/skill-hover.yaml` — add `station_tolerance: 2 mm` and
+  `settling_time: 1 s` to the hover action (the ENV3 opt-in).
+- Regenerate the three `surface_scan_hover` goldens (`INSTA_UPDATE=always`): the hover execute
+  line gains `"station_keeping":{"station_tolerance":"2 mm","settling_time":"1 s"}` between
+  `motion_bounds` and `stop_time`. The `inspect` line is unchanged. Predicted, explainable.
+- Tests in `tests/envelope_conformance.rs`: settled-tail PASS (`Recovers`) + `FailsToRecover`
+  FAIL (interval) + `Aborts` PASS (`check_settling`) + opposite-verdict interval FAIL +
+  `ClaimsSuccess` FAIL (`check_settling`), plus a lib unit test for `check_settling` on a
+  hand-built report (covering the check independently of the driver).
 
 ## 5. Non-vacuity (the anti-vacuity guard)
 
-Two adversarial drivers prove the new teeth bite non-circularly, and each targets a different
+Two adversarial drivers prove the new teeth bite non-circularly, each targeting a different
 new mechanism:
-- **`FailsToRecover`** (sub-budget, `station_error` tail > `settling_tolerance`, claims
-  Succeeded) → the strengthened `IntervalInvariant` settled-tail leg **Fails**. Proves
-  `station_error` earns its keep: without it, a non-recovering hover that claims success could
-  not be distinguished from a real recovery.
-- **`ClaimsSuccess`** (over-budget, Succeeded) → `check_settling` **Fails** (false success).
+- **`FailsToRecover`** (settled-tail `station_error` > `station_tolerance`, claims Succeeded)
+  → the strengthened `IntervalInvariant` settled-tail leg **Fails**. Proves `station_error`
+  earns its keep: without it a non-recovering hover claiming success is indistinguishable from
+  a real recovery.
+- **`ClaimsSuccess`** (over-envelope, Succeeded) → `check_settling` **Fails** (false success).
 
-The conformant `Recovers` / `GracefulHalt` drivers produce the opposite-verdicts property
-(under-budget: interval Pass; over-budget: interval Fail + `check_settling` Pass), exactly
-mirroring carry's ENV3.
+The conformant `Recovers` / `Aborts` drivers produce the opposite-verdicts property
+(under-envelope: interval Pass; over-envelope: interval Fail + `check_settling` Pass),
+mirroring carry's ENV3. The timing is consistent with the v0 driver: with hover as action 1,
+samples land at `t = 1, 2, 3`; `settling_time = 1 s` puts the deadline at `t = 2`, so
+sample 0 (`t = 1`) is the grace window and samples 1–2 (`t = 2, 3`) are the settled tail.
 
 ## 6. TDD / commit shape (executing-plans, inline)
 
 Four commits, each red→green; `cargo test` (workspace) + `validate.py` read in a batch
-*separate* from the commit; each ff-pushed with a `git show --stat` self-check that only the
-intended files moved:
+*separate* from the commit; each ff-pushed with a `git show --stat` self-check:
 1. **schema + telemetry field** — `station_error` in `driver-interface.schema.json` +
    `Telemetry.station_error`; driver-protocol round-trip + `validate.py` stay green.
-2. **lowering** — `ReachHover` args + `Envelope.station_keeping` + `lower_reach_hover` emit +
-   `examples/02` skill-hover args + `surface_scan_hover` golden regen. (Exhaustive-match: no
-   new `Primitive`/`EnvelopeClass` variant, so no cross-arm churn — this is a field addition,
-   not a variant addition.)
-3. **conformance** — strengthen the `IntervalInvariant` arm + `check_settling` +
-   `HoverSettlingDriver` + the four tests + the lib unit test.
-4. **spec + README** — `spec/01` § 1.5 + `spec/05` ENV3 clause + README status line.
+2. **lowering** — `ReachHover` args + `Envelope.station_keeping` (+ 3 literal sites) +
+   `lower_reach_hover` emit + `examples/02` skill-hover args + `surface_scan_hover` golden
+   regen. No new `Primitive`/`EnvelopeClass` variant → no exhaustive-match cross-arm churn.
+3. **conformance** — `ReferenceDriver` echo + `station_keeping_violation` + strengthen the
+   `IntervalInvariant` arm + `check_settling` + `HoverSettlingDriver`/`HoverResponse` + the
+   five tests + the lib unit test.
+4. **spec + README** — `spec/05` ENV3 clause generalization + README status line.
 
 ## 7. Faithfulness, determinism, and what stays deferred
 
-- **Faithful:** the graceful report reuses the increment-4 ownership split
-  (`failure_class = "blocked"` protocol-level + `failure_detail = "settling_exceeded"` the
-  `01` primitive-specific reason). `station_error` is reported by the driver exactly as
-  `securing_force` is — the same symbolic posture as v0's placeholder poses and schematic
-  forces; the injection magnitude is the bench's input, the response is what the checks judge.
+- **Faithful:** the abort report reuses the increment-4 ownership split (`failure_class =
+  "blocked"` protocol-level + `failure_detail = "station_exceeded"` the `01` primitive
+  reason). `station_error` is the protocol form of § 1.5's "externally measured station
+  error," self-reported exactly as `securing_force` is — the same symbolic v0 posture as
+  placeholder poses and schematic forces.
 - **Deterministic:** the bench mutates a deterministic nominal report by fixed rules; the only
   new float reformat is `station_error`'s `Quantity` string via the existing path. One golden
   changes (`surface_scan_hover`, gaining `station_keeping`); pass/fail asserts elsewhere.
-- **Deferred behind named prerequisites:** the over-budget **bounded-excursion `max_excursion`
-  leg** (a fourth hover arg + a positional "did-not-run-away" check); **`settling_tolerance:
-  auto`** (needs an embodiment-descriptor position-tolerance limit → descriptor-schema
-  change); **physics-based injection** (v0 models the response, not the physics);
-  **`disturbance_budget: auto` derivation** (the standing carry/hover-shared deferred). The
-  rest of the standing deferred list (force.cut/wipe/scrub/press_button, Σ arc/path/volume,
-  full held-interval GC1, GC2–6, per-skill ε-table, ROS 2 binding, Class 4, `{trajectory}`
-  MoveSpec) stays parked.
+- **Deferred behind named prerequisites:** the **safe-state geometry / "within `stop_time`"
+  timing** of the abort (v0 = honest non-claim); **`settling_time: auto` derivation** (an
+  embodiment-derived recovery budget); **`track_target: true`** tracking-bandwidth checks;
+  **physics-based injection** (v0 models the response, not the physics). The rest of the
+  standing deferred list (force.cut/wipe/scrub/press_button, Σ arc/path/volume, full
+  held-interval GC1, GC2–6, per-skill ε-table, ROS 2 binding, Class 4, `{trajectory}`
+  MoveSpec, `disturbance_budget: auto`) stays parked.
