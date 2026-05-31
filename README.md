@@ -62,8 +62,8 @@ The whitepaper PDFs above are the authoritative reference at v0.1; the in-repo `
 rfl/
 ├── whitepaper/           # ✅ Whitepaper PDFs + figures (60 + 73 pages)
 ├── spec/                 # ✅ Specification documents (Markdown, work in progress)
-├── examples/             # ✅ Worked examples (skeleton — 01-cable-insertion)
-├── crates/               # 🚧 Rust workspace (skeleton — rfl-core, rfl-cli, rfl-conformance)
+├── examples/             # ✅ Worked examples (01-cable-insertion, 02-surface-scan)
+├── crates/               # 🚧 Rust workspace (rfl-core / rfl-cli / rfl-conformance): rfl-cli retarget engine implemented (cable-insertion, surface-scan Σ, grasp-force GF1c–GF3c), Class 2 conformance green; full 50-primitive coverage + bindings → v1.0
 ├── docs/                 # 🚧 Documentation site skeleton (getting-started.md only)
 ├── schemas/              # ✅ Four JSON schemas + validator (skill-isa, embodiment-descriptor, driver-interface, tactile-manifold/adapter — all precisely typed; validate.py = conformance test class 1 with anti-drift invariants C1–C7)
 ├── bindings/             # ⏳ Python (PyO3) + C (cbindgen) bindings (planned for v1.0)
@@ -74,7 +74,7 @@ Legend: ✅ populated · 🚧 scaffold present, content pending · ⏳ planned, 
 
 ## Status (2026-05-31)
 
-This repository is **pre-release**. Spec v0.1 has been published in publication-candidate state after four rounds of external review; reference implementation engineering is the next phase.
+This repository is **pre-release**. Spec v0.1 has been published in publication-candidate state after four rounds of external review; reference-implementation engineering is now underway (the `rfl-cli retarget` engine is implemented for the worked-example paths).
 
 ### Stable architectural commitments
 
@@ -82,7 +82,7 @@ The three-layer division, the ~50 primitives and their categorization, the compo
 
 ### Open through the v0.1 review period
 
-All four machine-readable schemas (`skill-isa`, `embodiment-descriptor`, `driver-interface`, and `tactile-manifold/adapter`) are now precisely typed against their `spec/` parameter tables and backed by a committed conformance-test-class-1 validator (`schemas/validate.py`, with seven cross-schema anti-drift invariants C1–C7, run via `uv run --with jsonschema --with pyyaml python schemas/validate.py`). What remains open through the review period: the extension registry (`spec/06`) and the per-skill ε-tolerance table for Class 2-loose conformance (data-dependent, pending reference-implementation measurements). Reference-implementation engineering (`crates/rfl-cli` — the `retarget` engine) is the next phase.
+All four machine-readable schemas (`skill-isa`, `embodiment-descriptor`, `driver-interface`, and `tactile-manifold/adapter`) are now precisely typed against their `spec/` parameter tables and backed by a committed conformance-test-class-1 validator (`schemas/validate.py`, with seven cross-schema anti-drift invariants C1–C7, run via `uv run --with jsonschema --with pyyaml python schemas/validate.py`). What remains open through the review period: the extension registry (`spec/06`) and the per-skill ε-tolerance table for Class 2-loose conformance (data-dependent, pending reference-implementation measurements). Reference-implementation engineering has begun: the `rfl-cli retarget` engine deterministically retargets the worked-example skills onto three embodiment descriptors, including the mass-dependent grasp-force derivations (GF1c–GF3c), and is backed by conformance test class 2 (byte-deterministic golden snapshots validated against the driver-interface schema). Full 50-primitive coverage and the language bindings remain v1.0 targets.
 
 ### Targeted milestones
 
