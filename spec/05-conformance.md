@@ -178,7 +178,7 @@ The spectrum is open at both ends for extensions (`06`): a `weld` or an `adhesiv
 - **Pre-execution confirmation of the path and the material beyond it.** Before any irreversible action, the path *and what lies beyond the cut plane* are confirmed — so the operation does not sever something behind the intended target.
 - **Precise partial-state reporting on failure.** If an irreversible operation is interrupted, it reports exactly how far it progressed (a partially-cut state), never a binary success / failure — downstream recovery and the audit loop need the precise irreversible state.
 
-This sets the precedent for every future irreversible extension (`weld`, `adhesive`): each must declare a bounded action path, confirm before acting, and report precise partial state on failure. A hazardous tool wielded by an irreversible operation additionally requires the `tool_safety` regime (§ Hazardous-operation benches, next unit).
+This sets the precedent for every future irreversible extension (`weld`, `adhesive`): each must declare a bounded action path, confirm before acting, and report precise partial state on failure. A hazardous tool wielded by an irreversible operation additionally requires the `tool_safety` regime (§ Hazardous-operation conformance benches, next unit).
 
 ### Conformance obligations (reversibility)
 
@@ -189,7 +189,7 @@ This sets the precedent for every future irreversible extension (`weld`, `adhesi
 ### Deferred and referenced
 
 - **The engagement-confirmation parameter (`confirm_held`)** and the `snap_engage` / `snap_disengage` / `cut` primitive definitions — `01-skill-isa.md`.
-- **The `tool_safety` regime** an irreversible hazardous-tool operation also requires — § Hazardous-operation benches (next unit) and `03` § Safety capabilities.
+- **The `tool_safety` regime** an irreversible hazardous-tool operation also requires — § Hazardous-operation conformance benches (next unit) and `03` § Safety capabilities.
 - **Future irreversible extensions** (`weld`, `adhesive`) and the reverse `snap_disengage` — `06-extension-registry.md`.
 
 ## Hazardous-operation conformance benches
