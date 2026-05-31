@@ -1508,7 +1508,7 @@
       "additionalProperties": false,
       "properties": {
         "controlled_frame": { "$ref": "#/$defs/FrameRef", "description": "FrameRef — the frame / tool applying the force (default the embodiment.default_tool_axis frame)." },
-        "target": { "$ref": "#/$defs/Compound", "description": "SurfaceTarget — surface to push against (point + inward direction)." },
+        "target": { "anyOf": [ { "$ref": "#/$defs/SurfaceTarget" }, { "$ref": "#/$defs/Ref" } ], "description": "SurfaceTarget — surface to push against (point + inward direction); inline SurfaceTarget or let-reference." },
         "push_direction": { "anyOf": [ { "$ref": "#/$defs/Auto" }, { "$ref": "#/$defs/Direction" } ], "description": "Direction | auto — direction to apply force (default auto = -target.normal)." },
         "target_force": { "$ref": "#/$defs/Force", "description": "Force — the contact force to establish and hold." },
         "max_displacement": { "anyOf": [ { "$ref": "#/$defs/Auto" }, { "$ref": "#/$defs/Length" } ], "description": "Length | auto — max allowed target displacement (default auto = small; push, do not move)." },
@@ -1577,7 +1577,7 @@
       "additionalProperties": false,
       "properties": {
         "controlled_frame": { "$ref": "#/$defs/FrameRef", "description": "FrameRef — the frame pressing (fingertip, held stylus, etc.) (default effector / held tool)." },
-        "target": { "$ref": "#/$defs/Compound", "description": "SurfaceTarget — the button surface (point + press direction)." },
+        "target": { "anyOf": [ { "$ref": "#/$defs/SurfaceTarget" }, { "$ref": "#/$defs/Ref" } ], "description": "SurfaceTarget — the button surface (point + press direction); inline SurfaceTarget or let-reference." },
         "press_direction": { "anyOf": [ { "$ref": "#/$defs/Auto" }, { "$ref": "#/$defs/Direction" } ], "description": "Direction | auto — default auto = -target.normal (into the button)." },
         "actuation": { "$ref": "#/$defs/ActuationSpec", "description": "ActuationSpec (01 § 319) — detent (rise-then-drop / click) | effort_rise(force_threshold)." },
         "force_budget": { "$ref": "#/$defs/Force", "description": "Force — max press force (over-travel / mechanism-damage limit)." },
@@ -1613,7 +1613,7 @@
       "additionalProperties": false,
       "properties": {
         "controlled_frame": { "$ref": "#/$defs/FrameRef", "description": "FrameRef — the frame in contact (fingertip, held cloth / tool) (default effector / held tool)." },
-        "surface": { "$ref": "#/$defs/Compound", "description": "SurfaceTarget — the surface to wipe over." },
+        "surface": { "anyOf": [ { "$ref": "#/$defs/SurfaceTarget" }, { "$ref": "#/$defs/Ref" } ], "description": "SurfaceTarget — the surface to wipe over; inline SurfaceTarget or let-reference." },
         "wipe_path": { "$ref": "#/$defs/Compound", "description": "Trajectory — the tangential path along the surface, in frame." },
         "normal_force": { "$ref": "#/$defs/Force", "description": "Force — the contact force to maintain normal to the surface." },
         "normal_force_tolerance": { "anyOf": [ { "$ref": "#/$defs/Auto" }, { "$ref": "#/$defs/Force" } ], "description": "Force | auto — allowed deviation of the maintained normal force." },
@@ -1631,7 +1631,7 @@
       "additionalProperties": false,
       "properties": {
         "controlled_frame": { "$ref": "#/$defs/FrameRef", "description": "FrameRef — the frame in contact (held pad / abrasive / fingertip) (default effector / held tool)." },
-        "surface": { "$ref": "#/$defs/Compound", "description": "SurfaceTarget — the surface to scrub." },
+        "surface": { "anyOf": [ { "$ref": "#/$defs/SurfaceTarget" }, { "$ref": "#/$defs/Ref" } ], "description": "SurfaceTarget — the surface to scrub; inline SurfaceTarget or let-reference." },
         "region": { "$ref": "#/$defs/CompoundOrAuto", "description": "ScanRegion | auto — the area to cover (default auto = the local contact region)." },
         "normal_force": { "$ref": "#/$defs/Force", "description": "Force — regulated contact force normal to the surface." },
         "amplitude": { "$ref": "#/$defs/Length", "description": "Length — tangential oscillation amplitude." },
