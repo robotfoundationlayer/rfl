@@ -34,8 +34,9 @@ enum is exactly `skill-isa`'s `PrimitiveId` set minus `reach.*` plus the four
 category gates; the extension-key pattern is shared; the closed-core tactile
 feature set is identical across `skill-isa`, the descriptor, the
 `driver-interface` telemetry feature, and the `tactile-manifold` adapter
-feature; and each reference embodiment's declared tactile features are a subset
-of its bound adapter's produced features). It exits non-zero on any failure.
+feature, with the extension-feature pattern identical across all four; and each
+reference embodiment's declared tactile features are a subset of its bound
+adapter's produced features). It exits non-zero on any failure.
 
 ```bash
 # Ephemeral environment, no project pollution:

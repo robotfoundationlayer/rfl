@@ -154,6 +154,20 @@ def main() -> int:
                       else f"{sorted(declared - produced)} not produced by {sc}")
             check(f"C6 {emb.name}:{frame} features subset of adapter {sc}", ok, detail)
 
+    # C7 — the TactileFeature extension-feature pattern is identical across every
+    # schema that carries it, so the ext seam cannot drift while the closed core
+    # (C3/C4/C5) stays pinned. Complements C2 (which pins the skills ext pattern).
+    sk_ext = skill["$defs"]["TactileFeature"]["oneOf"][1]["pattern"]
+    ext_locs = {
+        "descriptor": next(b["pattern"] for b in
+            descriptor["$defs"]["TactileEntry"]["properties"]["features"]["items"]["oneOf"] if "pattern" in b),
+        "driver-interface": driver["$defs"]["TactileFeature"]["oneOf"][1]["pattern"],
+        "tactile-manifold": adapter["$defs"]["TactileFeature"]["oneOf"][1]["pattern"],
+    }
+    ext_drift = sorted(k for k, v in ext_locs.items() if v != sk_ext)
+    check("C7 TactileFeature ext-pattern identical across schemas", not ext_drift,
+          f"differ from skill-isa: {ext_drift}")
+
     print()
     if failures:
         print(f"FAILED — {len(failures)} check(s):")
