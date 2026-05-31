@@ -22,6 +22,7 @@
 
 pub mod driver;
 pub mod embodiment;
+pub mod pose;
 pub mod quantity;
 pub mod skill_isa;
 pub mod translation;
