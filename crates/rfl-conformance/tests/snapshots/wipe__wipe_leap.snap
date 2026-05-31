@@ -1,0 +1,5 @@
+---
+source: crates/rfl-conformance/tests/wipe.rs
+expression: "jsonl_for(\"leap\")"
+---
+{"message":"execute","action_id":"surface-wipe/cmu-leap-v1/0001-wipe","canonical_action":{"target_frame":"tcp_index","target_pose":{"ref":"panel"},"timing":{"timing_mode":"time_scalable","stop_at_goal":true},"safety_envelope":{"motion_bounds":{"v_max":"0.5 m/s","a_max":"2.0 m/s^2","w_max":"2.5 rad/s"},"force_profile":{"normal_force":"5 N","normal_force_tolerance":"1 N"},"compliance":"active","stop_time":"0.08 s"}}}

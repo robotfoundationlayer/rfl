@@ -1,0 +1,19 @@
+# Example 03 — Surface wipe (force.wipe variant)
+# Maintain a controlled normal contact force against a surface while moving tangentially
+# along a path. Exercises the hybrid force/position interval invariant (spec/05 § 6.8): the
+# normal force must stay within a band (normal_force ± tolerance) throughout — loss of
+# contact (force -> 0) is a violation, not just excess force.
+skill: surface-wipe
+description: >
+  Wipe a controlled normal force across a panel along a stroke path, holding the contact
+  force within a band (no loss of contact, no excess).
+
+body:
+  sequence:
+
+    - force.wipe:
+        surface: panel
+        wipe_path: stroke_path
+        normal_force: 5 N
+        normal_force_tolerance: 1 N
+        compliance: active

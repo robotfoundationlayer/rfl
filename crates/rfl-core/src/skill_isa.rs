@@ -146,6 +146,9 @@ pub enum Primitive {
     /// `force.press_button`.
     #[serde(rename = "force.press_button")]
     ForcePressButton(ForcePressButton),
+    /// `force.wipe`.
+    #[serde(rename = "force.wipe")]
+    ForceWipe(ForceWipe),
 }
 
 /// `sense.locate` modality (`$defs/SenseLocateParams.modality`).
@@ -492,6 +495,26 @@ pub struct ForcePressButton {
     pub actuation: serde_yaml::Value,
     /// Max press force (over-travel / mechanism-damage limit) — the force-trajectory bound.
     pub force_budget: Quantity,
+    /// Required compliance mode.
+    #[serde(default)]
+    pub compliance: Option<Compliance>,
+}
+
+/// `force.wipe` parameters (v0 subset of `$defs/ForceWipeParams`, § 6.8). `surface` +
+/// `wipe_path` + `normal_force` are required. v0 lowers the normal-force band (the
+/// contact-maintenance leg); `wipe_path` is carried symbolic (the tangential position-tracking
+/// leg is deferred). `normal_force_tolerance` auto defers (no band emitted).
+#[derive(Debug, Clone, serde::Deserialize)]
+pub struct ForceWipe {
+    /// The surface / frame to wipe over (v0: a frame ref).
+    pub surface: FrameRef,
+    /// `Trajectory` — the tangential path (carried symbolic in v0; position-tracking deferred).
+    pub wipe_path: serde_yaml::Value,
+    /// The contact force to maintain normal to the surface (the band setpoint).
+    pub normal_force: Quantity,
+    /// Allowed deviation of the maintained normal force (`Force | auto`; explicit → the band).
+    #[serde(default)]
+    pub normal_force_tolerance: Option<serde_yaml::Value>,
     /// Required compliance mode.
     #[serde(default)]
     pub compliance: Option<Compliance>,

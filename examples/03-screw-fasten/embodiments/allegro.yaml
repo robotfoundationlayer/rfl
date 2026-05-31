@@ -20,7 +20,7 @@ embodiment:
 
   # Capability manifest — 03 § Capability manifest.
   capabilities:
-    skills: [grasp.pinch, grasp.lateral, grasp.envelope, transport, force.insert_fit, force.screw, force.unscrew, force.press_button, sense.locate]
+    skills: [grasp.pinch, grasp.lateral, grasp.envelope, transport, force.insert_fit, force.screw, force.unscrew, force.press_button, force.wipe, sense.locate]
     aux:
       tactile_sensing: true        # distributed fingertip tactile → manifold-tier confirmation
       compliance: active

@@ -1,0 +1,5 @@
+---
+source: crates/rfl-conformance/tests/wipe.rs
+expression: "jsonl_for(\"allegro\")"
+---
+{"message":"execute","action_id":"surface-wipe/wonik-allegro-v4/0001-wipe","canonical_action":{"target_frame":"tcp_index","target_pose":{"ref":"panel"},"timing":{"timing_mode":"time_scalable","stop_at_goal":true},"safety_envelope":{"motion_bounds":{"v_max":"0.4 m/s","a_max":"1.5 m/s^2","w_max":"2.0 rad/s"},"force_profile":{"normal_force":"5 N","normal_force_tolerance":"1 N"},"compliance":"active","stop_time":"0.1 s"}}}

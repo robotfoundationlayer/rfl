@@ -17,7 +17,7 @@ use crate::canonical::{
 use crate::embodiment::Embodiment;
 use crate::quantity::Quantity;
 use crate::skill_isa::{
-    Axes, Axis, Compliance, DisturbanceArg, ForceInsertFit, ForcePressButton, ForceScrew, ForceUnscrew, GraspPinch, GraspRelease,
+    Axes, Axis, Compliance, DisturbanceArg, ForceInsertFit, ForcePressButton, ForceScrew, ForceUnscrew, ForceWipe, GraspPinch, GraspRelease,
     Primitive, ReachAlign, ReachHover, ReachRetract, ReachScan, ScanPattern, SenseInspect, Skill, StabilityMarginArg,
     Statement, TactileTargetArg, TransportCarry, TransportMoveToPose,
 };
@@ -132,6 +132,7 @@ fn check_capability(prim: &Primitive, e: &Embodiment) -> crate::Result<()> {
         Primitive::ForceScrew(_) => "force.screw",
         Primitive::ForceUnscrew(_) => "force.unscrew",
         Primitive::ForcePressButton(_) => "force.press_button",
+        Primitive::ForceWipe(_) => "force.wipe",
         Primitive::SenseInspect(_) => "sense.inspect",
     };
     if e.has_skill(key) {
@@ -160,6 +161,7 @@ fn lower(
         Primitive::ForceScrew(p) => (lower_force_screw(p, e, ctx), "screw"),
         Primitive::ForceUnscrew(p) => (lower_force_unscrew(p, e, ctx), "unscrew"),
         Primitive::ForcePressButton(p) => (lower_force_press_button(p, e), "press_button"),
+        Primitive::ForceWipe(p) => (lower_force_wipe(p, e), "wipe"),
         Primitive::GraspRelease(p) => (lower_grasp_release(p, e, ctx), "release"),
         Primitive::ReachRetract(p) => (lower_reach_retract(p, e), "retract"),
         Primitive::ReachScan(p) => (lower_reach_scan(p, e), "scan"),
@@ -505,6 +507,48 @@ fn lower_force_press_button(p: &ForcePressButton, e: &Embodiment) -> CanonicalAc
         },
         tactile_target: None,
         monitors,
+        safety_envelope: env,
+    }
+}
+
+/// Lower `force.wipe` (`spec/01` § 6.8): a hybrid force/position interval invariant. v0 emits
+/// the two-sided normal-force band into `force_profile` (the contact-maintenance leg the
+/// `ForceTrajectory` arm samples) when `normal_force_tolerance` is an explicit Force; an `auto`
+/// tolerance emits no band (deferred). `wipe_path` is carried symbolic; the tangential
+/// position-tracking + contour-following leg is deferred. `force_budget` is None — the band
+/// owns both the upper and lower bounds.
+fn lower_force_wipe(p: &ForceWipe, e: &Embodiment) -> CanonicalAction {
+    let mut env = base_envelope(e);
+    env.compliance = p.compliance.map(|c| {
+        match c {
+            Compliance::Passive => "passive",
+            Compliance::Active => "active",
+            Compliance::Auto => "auto",
+        }
+        .to_string()
+    });
+    if let Some(tol) = p
+        .normal_force_tolerance
+        .as_ref()
+        .and_then(serde_yaml::Value::as_str)
+        .filter(|s| *s != "auto")
+    {
+        env.force_profile = Some(serde_json::json!({
+            "normal_force": p.normal_force.0.clone(),
+            "normal_force_tolerance": tol,
+        }));
+    }
+    CanonicalAction {
+        target_frame: e.control_frame().to_string(),
+        target_pose: PoseExpr::Ref { r#ref: p.surface.clone() },
+        force_budget: None,
+        timing: TimingHints {
+            nominal_duration: None,
+            timing_mode: TimingMode::TimeScalable,
+            stop_at_goal: true,
+        },
+        tactile_target: None,
+        monitors: vec![],
         safety_envelope: env,
     }
 }
@@ -1094,6 +1138,35 @@ mod tests {
         let emb = load("allegro").1; // cable allegro lacks force.press_button
         let err = retarget(&skill, &emb).unwrap_err();
         assert!(err.to_string().contains("capability_absent: force.press_button"), "got {err}");
+    }
+
+    const WIPE_SKILL: &str = "skill: t\nbody:\n  sequence:\n    - force.wipe: { surface: panel, wipe_path: stroke_path, normal_force: 5 N, normal_force_tolerance: 1 N }\n";
+
+    #[test]
+    fn wipe_capability_absent_when_not_declared() {
+        let skill = Skill::parse_yaml(WIPE_SKILL).unwrap();
+        let emb = load("allegro").1; // cable allegro lacks force.wipe
+        let err = retarget(&skill, &emb).unwrap_err();
+        assert!(err.to_string().contains("capability_absent: force.wipe"), "got {err}");
+    }
+
+    #[test]
+    fn wipe_lowers_normal_force_band() {
+        let dir =
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples/03-screw-fasten");
+        let skill =
+            Skill::parse_yaml(&std::fs::read_to_string(dir.join("skill-wipe.yaml")).unwrap()).unwrap();
+        let emb = crate::embodiment::Embodiment::parse_yaml(
+            &std::fs::read_to_string(dir.join("embodiments/allegro.yaml")).unwrap(),
+        )
+        .unwrap();
+        let out = retarget(&skill, &emb).expect("retarget");
+        assert_eq!(out.suffixes, vec!["wipe"]);
+        let a = &out.actions[0];
+        assert!(a.force_budget.is_none()); // the band owns both bounds
+        let fp = serde_json::to_string(&a.safety_envelope.force_profile).unwrap();
+        assert!(fp.contains("\"normal_force\":\"5 N\""), "got {fp}");
+        assert!(fp.contains("\"normal_force_tolerance\":\"1 N\""), "got {fp}");
     }
 
     #[test]
