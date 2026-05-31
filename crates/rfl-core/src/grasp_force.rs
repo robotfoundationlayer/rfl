@@ -69,6 +69,27 @@ pub fn dynamic_a_max(weight_n: f64, payload_n: f64) -> f64 {
     (G0 * (payload_n / weight_n - 1.0)).max(0.0)
 }
 
+/// The transport.carry acceleration clamp (`spec/01` § 4.4, `spec/02` § Dynamic stability,
+/// line 137): the largest acceleration at which the GF2c worst-case collinear
+/// inertial+gravity load `weight·(1 + a/g₀)` **plus** the `disturbance_budget` stays within
+/// the mode's rated holding capacity (`payload_n`, a weight) with `stability_margin`
+/// headroom, from § 4.4's precondition `payload ≥ (1+m)·(inertial_load + D)`:
+///
+/// ```text
+/// a_max = g₀·( ( payload/(1+m) − D ) / weight − 1 ),  clamped ≥ 0.
+/// ```
+///
+/// Reduces to [`dynamic_a_max`] at `m = 0, D = 0`, and is ≤ it for `m, D ≥ 0` — the "clamped
+/// below the plain-transport limit" of `spec/02`:137. The pre-clamp going negative is the
+/// § 4.4 `insufficient_stability_margin` case, surfaced as `a_max = 0` (carry quasi-statically
+/// only), exactly as `dynamic_a_max` surfaces an over-payload weight. A v0 reference choice,
+/// pinned by golden, non-normative (the same posture as `dynamic_a_max` / `k_holding`).
+#[must_use]
+pub fn carry_a_max(weight_n: f64, payload_n: f64, disturbance_n: f64, stability_margin: f64) -> f64 {
+    let effective_payload = payload_n / (1.0 + stability_margin) - disturbance_n;
+    (G0 * (effective_payload / weight_n - 1.0)).max(0.0)
+}
+
 /// GF3c — the reaction-load limit: a force primitive's reaction may not exceed the
 /// grasp's axial capacity, bounded by the grip a `slip_response: retighten` grasp
 /// can muster (`grip_force_max_n`) divided by the mode's reaction factor. Returns the
@@ -143,5 +164,35 @@ mod tests {
     fn reaction_torque_limit_keeps_budget_when_capacity_is_higher() {
         // a tiny 0.05 N·m budget under a 20 N grip (0.2 capacity) -> budget kept.
         assert!((reaction_torque_limit(0.05, 20.0, GraspMode::Pinch) - 0.05).abs() < 1e-9);
+    }
+
+    #[test]
+    fn carry_a_max_reduces_to_dynamic_at_zero_disturbance_and_margin() {
+        // m=0, D=0 -> identical to the plain dynamic-stability clamp.
+        let c = carry_a_max(1.45, 3.0, 0.0, 0.0);
+        let d = dynamic_a_max(1.45, 3.0);
+        assert!((c - d).abs() < 1e-12, "carry {c} != dynamic {d}");
+    }
+
+    #[test]
+    fn carry_a_max_is_below_dynamic_under_disturbance_and_margin() {
+        // D, m > 0 strictly reserves capacity -> below the plain dynamic limit.
+        assert!(carry_a_max(1.45, 3.0, 0.4, 0.5) < dynamic_a_max(1.45, 3.0));
+    }
+
+    #[test]
+    fn carry_a_max_matches_worked_example_on_allegro() {
+        // connector 1.45 N, pinch payload 3 N, D=0.4 N, m=0.5:
+        // (3/1.5 - 0.4)/1.45 - 1 = 0.1034483 ; * g0 = 1.014481 m/s^2.
+        let a = carry_a_max(1.45, 3.0, 0.4, 0.5);
+        assert!((a - 1.014481).abs() < 1e-5, "got {a}");
+    }
+
+    #[test]
+    fn carry_a_max_clamps_to_zero_when_headroom_is_insufficient() {
+        // leap (payload 2) and pneumatic (payload 1.5) have no headroom for a 1.45 N
+        // object + 0.4 N disturbance + 50% margin -> quasi-static (a_max = 0).
+        assert_eq!(carry_a_max(1.45, 2.0, 0.4, 0.5), 0.0);
+        assert_eq!(carry_a_max(1.45, 1.5, 0.4, 0.5), 0.0);
     }
 }
