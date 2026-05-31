@@ -37,9 +37,9 @@ pub struct Embodiment {
     /// Frame model (`spec/03` § Embodiment frame model).
     #[serde(default)]
     pub frames: Frames,
-    /// Non-contact sensor descriptor (`spec/03` § Sensor descriptor).
+    /// Non-contact sensor descriptors keyed by sensor frame (`spec/03` § Sensor descriptor).
     #[serde(default)]
-    pub sensors: Option<serde_yaml::Value>,
+    pub sensors: BTreeMap<String, Sensor>,
 }
 
 /// The capability manifest (`spec/03` § Capability manifest).
@@ -90,6 +90,27 @@ pub struct RoleDefaults {
     /// Default support frame.
     #[serde(default)]
     pub support: Option<String>,
+}
+
+/// A non-contact sensor descriptor (`spec/03` § Sensor descriptor). Only the fields
+/// the Translation Layer reads are typed; the rest are ignored.
+#[derive(Debug, Clone, serde::Deserialize)]
+pub struct Sensor {
+    /// The sensor bore axis (e.g. `+z`).
+    #[serde(default)]
+    pub bore_axis: Option<String>,
+    /// The angular field of view about the bore axis.
+    #[serde(default)]
+    pub fov: Option<Fov>,
+}
+
+/// The angular field of view `{h_angle, v_angle}` about the bore axis.
+#[derive(Debug, Clone, serde::Deserialize)]
+pub struct Fov {
+    /// Horizontal angle (the u direction).
+    pub h_angle: Quantity,
+    /// Vertical angle (the v direction).
+    pub v_angle: Quantity,
 }
 
 /// A value in the flat `embodiment.limits.*` namespace (`spec/03` § Limits): a
@@ -160,6 +181,12 @@ impl Embodiment {
     pub fn control_frame(&self) -> &str {
         self.frames.control_frames.first().map(String::as_str).unwrap_or("control")
     }
+
+    /// The FOV of a named sensor frame, if declared.
+    #[must_use]
+    pub fn sensor_fov(&self, frame: &str) -> Option<&Fov> {
+        self.sensors.get(frame).and_then(|s| s.fov.as_ref())
+    }
 }
 
 #[cfg(test)]
@@ -194,5 +221,13 @@ mod tests {
         assert!(!e.tactile_sensing());
         assert_eq!(e.scalar_limit("grip_force_max").unwrap().0, "12 N");
         assert_eq!(e.grasp_frame(), "palm"); // role_defaults.grasp differs per embodiment
+    }
+
+    #[test]
+    fn reads_sensor_fov() {
+        let e = descriptor("allegro");
+        let fov = e.sensor_fov("palm_cam").expect("palm_cam fov");
+        assert_eq!(fov.h_angle.0, "60 deg");
+        assert_eq!(fov.v_angle.0, "45 deg");
     }
 }
