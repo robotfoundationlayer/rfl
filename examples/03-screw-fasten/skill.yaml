@@ -9,7 +9,7 @@ description: >
   seated state within a torque budget, discriminating a tight seat from a cross-thread.
 
 objects:
-  driver: { ref: driver }       # the held screwdriver (the force-transmission tool)
+  driver: { ref: driver, estimated_mass: 1.0 N }   # the held screwdriver (~102 g; the force-transmission tool)
   screw:  { ref: screw }        # the threaded fastener to drive
 
 body:

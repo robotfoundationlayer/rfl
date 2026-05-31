@@ -148,7 +148,7 @@ fn lower(
         Primitive::TransportMoveToPose(p) => (lower_transport_move_to_pose(p, e, ctx), "transport"),
         Primitive::ReachAlign(p) => (lower_reach_align(p, e), "align"),
         Primitive::ForceInsertFit(p) => (lower_force_insert_fit(p, e, ctx), "insert_fit"),
-        Primitive::ForceScrew(p) => (lower_force_screw(p, e), "screw"),
+        Primitive::ForceScrew(p) => (lower_force_screw(p, e, ctx), "screw"),
         Primitive::GraspRelease(p) => (lower_grasp_release(p, e, ctx), "release"),
         Primitive::ReachRetract(p) => (lower_reach_retract(p, e), "retract"),
         Primitive::ReachScan(p) => (lower_reach_scan(p, e), "scan"),
@@ -394,13 +394,13 @@ fn lower_force_insert_fit(p: &ForceInsertFit, e: &Embodiment, ctx: &GraspContext
     }
 }
 
-/// Lower `force.screw`: carry the torque budget into the force_profile (the
-/// force-trajectory envelope's torque case), lower the `ScrewStop` completion into a
-/// monitor, set compliance, and carry `thread_pitch` / `tool_mediated` as symbolic
-/// markers. The tool-mediated reaction-torque limit and the rotation↔advance coupling
-/// are a later increment (GF4c, E2). The target_pose drives along the thread axis; the
-/// advance is governed by the completion (symbolic distance in v0).
-fn lower_force_screw(p: &ForceScrew, e: &Embodiment) -> CanonicalAction {
+/// Lower `force.screw`: a tool-mediated screw's reaction torque loads the held tool's
+/// grasp (GF4c), so the torque budget is clamped to the grasp's rotational holding
+/// capacity (`grasp_force::reaction_torque_limit`) when a tool is held; otherwise it
+/// passes through. The `ScrewStop` completion lowers into a monitor; `thread_pitch` is
+/// expanded into a structured `force_profile.coupling` (the linked DOF). The runtime
+/// decoupling-as-failure detection is a driver concern (deferred).
+fn lower_force_screw(p: &ForceScrew, e: &Embodiment, ctx: &GraspContext) -> CanonicalAction {
     let monitors = vec![Monitor { stop_condition: yaml_to_json(&p.completion) }];
     let mut env = base_envelope(e);
     env.compliance = p.compliance.map(|c| {
@@ -411,9 +411,23 @@ fn lower_force_screw(p: &ForceScrew, e: &Embodiment) -> CanonicalAction {
         }
         .to_string()
     });
-    let mut fp = serde_json::json!({ "torque": p.torque_budget.0.clone() });
+    // GF4c reaction-torque clamp: tool-mediated + a tool held -> bound the torque to the
+    // tool grasp's rotational capacity (or the driver spins in-grasp).
+    let tool_mediated = matches!(&p.tool_mediated, Some(v) if v.as_bool() != Some(false));
+    let held = if tool_mediated { ctx.held.as_ref() } else { None };
+    let torque = match (
+        held,
+        p.torque_budget.parse(),
+        e.scalar_limit("grip_force_max").and_then(|q| q.parse()),
+    ) {
+        (Some(h), Some((tb, tu)), Some((gm, _))) => {
+            Quantity::from_si(grasp_force::reaction_torque_limit(tb, gm, h.mode), tu)
+        }
+        _ => p.torque_budget.clone(),
+    };
+    let mut fp = serde_json::json!({ "torque": torque.0.clone() });
     if let Some(tp) = &p.thread_pitch {
-        fp["thread_pitch"] = serde_json::Value::String(tp.0.clone());
+        fp["coupling"] = serde_json::json!({ "advance_per_turn": tp.0.clone() });
     }
     if let Some(tm) = &p.tool_mediated {
         fp["tool_mediated"] = yaml_to_json(tm);
@@ -783,8 +797,8 @@ mod tests {
         assert_eq!(out.suffixes, vec!["screw"]);
         let a = &out.actions[0];
         let fp = serde_json::to_string(&a.safety_envelope.force_profile).unwrap();
-        assert!(fp.contains("\"torque\":\"2 N\u{b7}m\""), "got {fp}");
-        assert!(fp.contains("\"thread_pitch\":\"0.8 mm\""), "got {fp}");
+        assert!(fp.contains("\"torque\":\"2 N\u{b7}m\""), "got {fp}"); // no held tool -> no clamp
+        assert!(fp.contains("\"advance_per_turn\":\"0.8 mm\""), "got {fp}");
         assert_eq!(a.safety_envelope.compliance.as_deref(), Some("active"));
         let mon = serde_json::to_string(&a.monitors).unwrap();
         assert!(mon.contains("effort_rise"));
@@ -798,5 +812,24 @@ mod tests {
         let emb = load("allegro").1; // cable allegro lacks force.screw
         let err = retarget(&skill, &emb).unwrap_err();
         assert!(err.to_string().contains("capability_absent: force.screw"), "got {err}");
+    }
+
+    #[test]
+    fn screw_torque_clamped_to_tool_grasp_capacity() {
+        // examples/03: grasp.pinch holds the driver, so the tool-mediated force.screw
+        // clamps the 2 N·m budget to grip_force_max * R_GRIP / k_reaction = 20*0.02/2 = 0.2.
+        let dir =
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples/03-screw-fasten");
+        let skill =
+            Skill::parse_yaml(&std::fs::read_to_string(dir.join("skill.yaml")).unwrap()).unwrap();
+        let emb = crate::embodiment::Embodiment::parse_yaml(
+            &std::fs::read_to_string(dir.join("embodiments/allegro.yaml")).unwrap(),
+        )
+        .unwrap();
+        let out = retarget(&skill, &emb).expect("retarget");
+        // force.screw is action index 5 (locate, pinch, transport, locate, align, screw, ...).
+        let fp = serde_json::to_string(&out.actions[5].safety_envelope.force_profile).unwrap();
+        assert!(fp.contains("\"torque\":\"0.2 N\u{b7}m\""), "got {fp}");
+        assert!(fp.contains("\"advance_per_turn\":\"0.8 mm\""), "got {fp}");
     }
 }
