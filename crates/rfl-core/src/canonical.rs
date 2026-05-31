@@ -14,6 +14,38 @@
 
 use crate::quantity::Quantity;
 
+/// Round a coordinate to 6 decimals for byte-deterministic serialization (RD1c,
+/// numeric form). Six decimals is sub-micron in metres; the rounding absorbs the
+/// last-ULP differences a transcendental can produce across platforms. Negative
+/// zero is normalized to positive zero.
+#[must_use]
+pub fn round6(x: f64) -> f64 {
+    let r = (x * 1e6).round() / 1e6;
+    if r == 0.0 { 0.0 } else { r }
+}
+
+/// A fully-resolved sweep station pose, coordinates already rounded for
+/// deterministic emission. `orientation` is the unit quaternion as `[x, y, z, w]`.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct SweepPose {
+    /// Position in R^3 (metres), in the region frame.
+    pub position: [f64; 3],
+    /// Orientation unit quaternion `[x, y, z, w]`.
+    pub orientation: [f64; 4],
+}
+
+impl SweepPose {
+    /// Build a rounded `SweepPose` from a `Pose6D`.
+    #[must_use]
+    pub fn from_pose(p: &crate::pose::Pose6D) -> Self {
+        let q = p.orientation.coords; // [x, y, z, w]
+        SweepPose {
+            position: [round6(p.position[0]), round6(p.position[1]), round6(p.position[2])],
+            orientation: [round6(q[0]), round6(q[1]), round6(q[2]), round6(q[3])],
+        }
+    }
+}
+
 /// A canonical action (`spec/02` § Canonical action representation). Field order is
 /// fixed so JSON serialization is byte-deterministic (RD1c).
 #[derive(Debug, Clone, serde::Serialize)]
@@ -74,6 +106,14 @@ pub enum PoseExpr {
         position: [f64; 3],
         /// Orientation as a unit quaternion `[x, y, z, w]`.
         orientation: [f64; 4],
+    },
+    /// A generated sweep path (reach.scan): the ordered sensor poses of the sweep
+    /// set Σ (spec/02 Appendix A), numeric and rounded.
+    SweepPath {
+        /// The sweep pattern that generated the path.
+        pattern: String,
+        /// The ordered sweep poses.
+        poses: Vec<SweepPose>,
     },
 }
 
@@ -235,6 +275,32 @@ pub fn to_jsonl(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn round6_normalizes_and_rounds() {
+        assert_eq!(round6(0.0333333333), 0.033333);
+        assert_eq!(round6(0.1), 0.1);
+        assert_eq!(round6(-0.0000001), 0.0); // negative zero normalized to +0.0
+    }
+
+    #[test]
+    fn sweep_path_serializes_rounded_numbers() {
+        let p = crate::pose::Pose6D {
+            position: [0.0333333333, 0.025, 0.1],
+            orientation: nalgebra::UnitQuaternion::from_axis_angle(
+                &nalgebra::Vector3::x_axis(),
+                std::f64::consts::PI,
+            ),
+        };
+        let expr = PoseExpr::SweepPath {
+            pattern: "raster".into(),
+            poses: vec![SweepPose::from_pose(&p)],
+        };
+        let json = serde_json::to_string(&expr).unwrap();
+        assert!(json.contains("\"pattern\":\"raster\""));
+        assert!(json.contains("\"position\":[0.033333,0.025,0.1]"));
+        assert!(json.contains("\"orientation\":[1.0,0.0,0.0,0.0]"));
+    }
 
     fn sample() -> CanonicalAction {
         CanonicalAction {
