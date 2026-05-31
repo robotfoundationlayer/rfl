@@ -26,6 +26,7 @@ pub mod embodiment;
 pub mod pose;
 pub mod quantity;
 pub mod region;
+pub mod sigma;
 pub mod skill_isa;
 pub mod translation;
 
