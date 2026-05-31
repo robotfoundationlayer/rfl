@@ -97,9 +97,34 @@ impl Driver for ReferenceDriver {
     }
 }
 
-/// Retarget the skill onto the embodiment and drive every `execute` message through a
-/// fresh `ReferenceDriver`, returning the per-action reports. Action ids match the
+/// Retarget the skill onto the embodiment and drive every `execute` message through
+/// `driver`, returning the `(goal, report)` pair per action. Generic over any
+/// `Driver` (the nominal `ReferenceDriver` or a `FaultyDriver`). Action ids match the
 /// `{skill}/{embodiment_id}/{NNNN}-{suffix}` form `canonical::to_jsonl` emits.
+///
+/// # Errors
+/// Propagates parse / retarget errors.
+pub fn drive<D: Driver>(
+    mut driver: D,
+    skill_path: &Path,
+    embodiment_path: &Path,
+) -> anyhow::Result<Vec<(ExecuteGoal, DriverReport)>> {
+    let skill = rfl_core::skill_isa::Skill::parse_yaml(&std::fs::read_to_string(skill_path)?)?;
+    let emb =
+        rfl_core::embodiment::Embodiment::parse_yaml(&std::fs::read_to_string(embodiment_path)?)?;
+    let out = rfl_core::translation::retarget(&skill, &emb)?;
+    let mut pairs = Vec::new();
+    for (i, (action, suffix)) in out.actions.iter().zip(&out.suffixes).enumerate() {
+        let action_id = format!("{}/{}/{:04}-{}", skill.skill, emb.id, i + 1, suffix);
+        let goal = ExecuteGoal::wrap(action_id, action.clone());
+        let report = driver.execute(&goal);
+        pairs.push((goal, report));
+    }
+    Ok(pairs)
+}
+
+/// Drive the example with the nominal `ReferenceDriver`, returning the reports
+/// (goals dropped) for golden / JSONL rendering.
 ///
 /// # Errors
 /// Propagates parse / retarget errors.
@@ -107,18 +132,10 @@ pub fn run_reference_driver(
     skill_path: &Path,
     embodiment_path: &Path,
 ) -> anyhow::Result<Vec<DriverReport>> {
-    let skill = rfl_core::skill_isa::Skill::parse_yaml(&std::fs::read_to_string(skill_path)?)?;
-    let emb =
-        rfl_core::embodiment::Embodiment::parse_yaml(&std::fs::read_to_string(embodiment_path)?)?;
-    let out = rfl_core::translation::retarget(&skill, &emb)?;
-    let mut driver = ReferenceDriver::default();
-    let mut reports = Vec::new();
-    for (i, (action, suffix)) in out.actions.iter().zip(&out.suffixes).enumerate() {
-        let action_id = format!("{}/{}/{:04}-{}", skill.skill, emb.id, i + 1, suffix);
-        let goal = ExecuteGoal::wrap(action_id, action.clone());
-        reports.push(driver.execute(&goal));
-    }
-    Ok(reports)
+    Ok(drive(ReferenceDriver::default(), skill_path, embodiment_path)?
+        .into_iter()
+        .map(|(_, report)| report)
+        .collect())
 }
 
 /// Render a report stream as JSON Lines (each telemetry sample, then the status, per
@@ -135,6 +152,109 @@ pub fn reports_to_jsonl(reports: &[DriverReport]) -> String {
         out.push('\n');
     }
     out
+}
+
+/// The conformance envelope class a primitive is verified against (`spec/05` ENV1).
+/// Interval-invariant is omitted in v0 (no cable primitive — `reach.hover` /
+/// `transport.carry` — exercises it).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum EnvelopeClass {
+    /// `reach.*` (except hover): the end state, pose at rest, endpoint only.
+    TerminalPostcondition,
+    /// `grasp.*` / `in_hand.*` / `transport.*` / `place.*`: securing force >= floor.
+    GraspContinuity,
+    /// `force.*`: the force/torque profile against per-axis budgets.
+    ForceTrajectory,
+}
+
+/// Map an action-id suffix to its envelope class (`spec/05` ENV1). `sense.*`
+/// (locate / inspect) has no motion envelope; the interval-invariant primitives
+/// (hover / carry) are not in the v0 worked example.
+#[must_use]
+pub fn envelope_class_for(suffix: &str) -> Option<EnvelopeClass> {
+    match suffix {
+        "align" | "retract" | "scan" => Some(EnvelopeClass::TerminalPostcondition),
+        "pinch" | "release" | "transport" => Some(EnvelopeClass::GraspContinuity),
+        "insert_fit" => Some(EnvelopeClass::ForceTrajectory),
+        _ => None, // locate / inspect: perception, no envelope
+    }
+}
+
+/// The result of an envelope-class check.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum CheckOutcome {
+    /// The report conforms to the envelope.
+    Pass,
+    /// The report violates the envelope, with a human-readable reason.
+    Fail(String),
+}
+
+/// Magnitude of a `"<x> <unit>"` quantity.
+fn quantity_mag(q: &rfl_core::quantity::Quantity) -> Option<f64> {
+    q.parse().map(|(v, _)| v)
+}
+
+/// Verify a driver report against the action's envelope class (`spec/05` ENV1–ENV4,
+/// GC1). A pure function of the commanded `execute` goal and the returned report.
+#[must_use]
+pub fn check_envelope(
+    class: EnvelopeClass,
+    goal: &ExecuteGoal,
+    report: &DriverReport,
+) -> CheckOutcome {
+    match class {
+        EnvelopeClass::TerminalPostcondition => {
+            if !matches!(report.status.outcome, Outcome::Succeeded) {
+                return CheckOutcome::Fail(format!(
+                    "outcome not succeeded: {:?}",
+                    report.status.outcome
+                ));
+            }
+            if report.status.final_pose.is_none() {
+                return CheckOutcome::Fail("no final_pose at rest".to_string());
+            }
+            CheckOutcome::Pass
+        }
+        EnvelopeClass::GraspContinuity => {
+            // GF1c floor from the execute message's force_profile, if present.
+            let floor = goal
+                .canonical_action
+                .safety_envelope
+                .force_profile
+                .as_ref()
+                .and_then(|fp| fp.get("min_holding_force"))
+                .and_then(serde_json::Value::as_str)
+                .and_then(|s| rfl_core::quantity::Quantity(s.to_string()).parse().map(|(v, _)| v));
+            let Some(floor) = floor else {
+                return CheckOutcome::Pass; // transport / release carry no floor in v0
+            };
+            for t in &report.telemetry {
+                if let Some(sf) = t.securing_force.as_ref().and_then(quantity_mag) {
+                    if sf < floor {
+                        return CheckOutcome::Fail(format!(
+                            "securing_force {sf} < min_holding_force {floor}"
+                        ));
+                    }
+                }
+            }
+            CheckOutcome::Pass
+        }
+        EnvelopeClass::ForceTrajectory => {
+            let Some(budget) = goal.canonical_action.force_budget.as_ref().and_then(quantity_mag)
+            else {
+                return CheckOutcome::Pass; // no budget claimed
+            };
+            for t in &report.telemetry {
+                if let Some(w) = &t.wrench {
+                    let mag = w.force.iter().map(|x| x * x).sum::<f64>().sqrt();
+                    if mag > budget {
+                        return CheckOutcome::Fail(format!("|wrench.force| {mag} > budget {budget}"));
+                    }
+                }
+            }
+            CheckOutcome::Pass
+        }
+    }
 }
 
 #[cfg(test)]
@@ -163,5 +283,79 @@ mod tests {
         }
         // pneumatic has no tactile sensing -> grasp.pinch confirmation degrades to proxy
         assert_eq!(reports[1].status.fidelity_tier.as_deref(), Some("proxy"));
+    }
+
+    #[test]
+    fn envelope_class_mapping_follows_env1() {
+        assert_eq!(envelope_class_for("align"), Some(EnvelopeClass::TerminalPostcondition));
+        assert_eq!(envelope_class_for("retract"), Some(EnvelopeClass::TerminalPostcondition));
+        assert_eq!(envelope_class_for("pinch"), Some(EnvelopeClass::GraspContinuity));
+        assert_eq!(envelope_class_for("transport"), Some(EnvelopeClass::GraspContinuity));
+        assert_eq!(envelope_class_for("insert_fit"), Some(EnvelopeClass::ForceTrajectory));
+        assert_eq!(envelope_class_for("locate"), None); // sense: perception
+        assert_eq!(envelope_class_for("inspect"), None);
+    }
+
+    #[test]
+    fn nominal_grasp_continuity_passes_and_under_secure_fails() {
+        let dir = example_dir();
+        let pairs = drive(
+            ReferenceDriver::default(),
+            &dir.join("skill.yaml"),
+            &dir.join("embodiments/allegro.yaml"),
+        )
+        .unwrap();
+        // index 1 is grasp.pinch (force_profile.min_holding_force present).
+        let (goal, report) = &pairs[1];
+        assert_eq!(check_envelope(EnvelopeClass::GraspContinuity, goal, report), CheckOutcome::Pass);
+        let mut bad = report.clone();
+        bad.telemetry[0].securing_force = Some(rfl_core::quantity::Quantity("0.1 N".to_string()));
+        assert!(matches!(
+            check_envelope(EnvelopeClass::GraspContinuity, goal, &bad),
+            CheckOutcome::Fail(_)
+        ));
+    }
+
+    #[test]
+    fn force_trajectory_passes_nominal_and_fails_over_budget() {
+        let dir = example_dir();
+        let pairs = drive(
+            ReferenceDriver::default(),
+            &dir.join("skill.yaml"),
+            &dir.join("embodiments/allegro.yaml"),
+        )
+        .unwrap();
+        // index 5 is force.insert_fit.
+        let (goal, report) = &pairs[5];
+        assert_eq!(check_envelope(EnvelopeClass::ForceTrajectory, goal, report), CheckOutcome::Pass);
+        let mut bad = report.clone();
+        if let Some(w) = bad.telemetry[0].wrench.as_mut() {
+            w.force = [0.0, 0.0, 999.0];
+        }
+        assert!(matches!(
+            check_envelope(EnvelopeClass::ForceTrajectory, goal, &bad),
+            CheckOutcome::Fail(_)
+        ));
+    }
+
+    #[test]
+    fn terminal_postcondition_passes_nominal_and_fails_indeterminate() {
+        let dir = example_dir();
+        let pairs = drive(
+            ReferenceDriver::default(),
+            &dir.join("skill.yaml"),
+            &dir.join("embodiments/allegro.yaml"),
+        )
+        .unwrap();
+        // index 4 is reach.align.
+        let (goal, report) = &pairs[4];
+        assert_eq!(check_envelope(EnvelopeClass::TerminalPostcondition, goal, report), CheckOutcome::Pass);
+        let mut bad = report.clone();
+        bad.status.outcome = rfl_core::driver::Outcome::Indeterminate;
+        bad.status.final_pose = None;
+        assert!(matches!(
+            check_envelope(EnvelopeClass::TerminalPostcondition, goal, &bad),
+            CheckOutcome::Fail(_)
+        ));
     }
 }
