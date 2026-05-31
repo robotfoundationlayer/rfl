@@ -1,0 +1,6 @@
+---
+source: crates/rfl-conformance/tests/surface_scan_spiral.rs
+expression: "jsonl_for(\"leap\")"
+---
+{"message":"execute","action_id":"surface-scan/cmu-leap-v1/0001-scan","canonical_action":{"target_frame":"wrist_cam","target_pose":{"pattern":"spiral","poses":[{"position":[0.1,0.075,0.1],"orientation":[1.0,0.0,0.0,0.0]},{"position":[0.057721,0.072793,0.1],"orientation":[1.0,0.0,0.0,0.0]},{"position":[0.101151,0.012299,0.1],"orientation":[1.0,0.0,0.0,0.0]},{"position":[0.172251,0.045294,0.1],"orientation":[1.0,0.0,0.0,0.0]},{"position":[0.175988,0.1251,0.1],"orientation":[1.0,0.0,0.0,0.0]},{"position":[0.113706,0.176411,0.1],"orientation":[1.0,0.0,0.0,0.0]},{"position":[0.033239,0.16559,0.1],"orientation":[1.0,0.0,0.0,0.0]},{"position":[-0.018694,0.102741,0.1],"orientation":[1.0,0.0,0.0,0.0]}]},"timing":{"timing_mode":"strict","stop_at_goal":true},"safety_envelope":{"motion_bounds":{"v_max":"0.5 m/s","a_max":"2.0 m/s^2","w_max":"2.5 rad/s"},"stop_time":"0.08 s"}}}
+{"message":"execute","action_id":"surface-scan/cmu-leap-v1/0002-inspect","canonical_action":{"target_frame":"wrist_cam","target_pose":{"ref":"panel"},"timing":{"timing_mode":"strict","stop_at_goal":true},"safety_envelope":{"motion_bounds":{"v_max":"0.5 m/s","a_max":"2.0 m/s^2","w_max":"2.5 rad/s"},"stop_time":"0.08 s"}}}

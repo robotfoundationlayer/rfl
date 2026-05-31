@@ -1,0 +1,25 @@
+# Example 02 — Surface scan (spiral variant)
+# The same planar surface as skill.yaml, swept with pattern: spiral instead of
+# raster. Demonstrates that the pattern parameter selects the Σ generator: an
+# Archimedean spiral from the surface centroid whose station count varies with each
+# embodiment's sensor field of view (Principle 1), distinct from the raster Σ.
+skill: surface-scan
+description: >
+  Spiral-scan a rectangular surface region at a fixed standoff, then inspect the
+  covered surface for defects.
+
+body:
+  sequence:
+    - reach.scan:
+        region:
+          kind: surface
+          frame: panel
+          size_u: 200 mm
+          size_v: 150 mm
+        standoff: 100 mm
+        pattern: spiral
+        coverage_overlap: 0.2
+
+    - sense.inspect:
+        target: panel
+        observe: [defect]
