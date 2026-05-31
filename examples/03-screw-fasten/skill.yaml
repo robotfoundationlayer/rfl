@@ -1,0 +1,63 @@
+# Example 03 — Screw fastening
+# Drive a threaded fastener with a held driver. Embodiment-agnostic Skill ISA
+# composition: the driver is held in a precision pinch and force.screw transmits
+# torque through it (tool_mediated). Per-embodiment bounds are resolved by retarget.
+
+skill: screw-fasten
+description: >
+  Grasp a screwdriver, bring it to a threaded fastener, and drive the fastener to a
+  seated state within a torque budget, discriminating a tight seat from a cross-thread.
+
+objects:
+  driver: { ref: driver }       # the held screwdriver (the force-transmission tool)
+  screw:  { ref: screw }        # the threaded fastener to drive
+
+body:
+  sequence:
+
+    # 1 — Locate the driver and bind its measured pose.
+    - let: driver_t
+      from:
+        sense.locate:
+          target_ref: driver
+          modality: auto
+
+    # 2 — Grasp the driver (a precision hold of the tool shank).
+    - grasp.pinch:
+        target: driver_t
+        force_budget: 6 N
+        tactile_target: auto
+        slip_response: retighten
+
+    # 3 — Bring the driver to a standoff above the fastener.
+    - transport.move_to_pose:
+        target_pose: { frame: workpiece, offset: { along: -z, distance: 40 mm } }
+
+    # 4 — Locate the fastener and align the driver's tool axis to the thread axis.
+    - let: screw_t
+      from:
+        sense.locate:
+          target_ref: screw
+          modality: visual
+    - reach.align:
+        target_frame: screw
+        axes: [z]
+
+    # 5 — Drive the fastener: torque rise AT the expected advance = seated (the all_of
+    #     rule, 01 § Force-at-state). tool_mediated: the torque is transmitted through
+    #     the held driver; the tool-grasp reaction limit + thread coupling are E2 (GF4c).
+    - force.screw:
+        grasp_handle: active
+        thread_axis: -z
+        torque_budget: 2 N·m
+        thread_pitch: 0.8 mm
+        tool_mediated: true
+        compliance: active
+        completion:
+          all_of:
+            - effort_rise: 1.5 N·m
+            - reached: { advance: 5 mm }
+
+    # 6 — Release the driver and retract clear.
+    - grasp.release: { grasp_handle: active }
+    - reach.retract:  { direction: -tool_axis, distance: 50 mm }
