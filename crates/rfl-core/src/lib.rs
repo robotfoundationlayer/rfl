@@ -20,6 +20,7 @@
 #![warn(clippy::all)]
 #![warn(clippy::pedantic)]
 
+pub mod canonical;
 pub mod driver;
 pub mod embodiment;
 pub mod pose;
