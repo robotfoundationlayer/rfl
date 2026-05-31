@@ -77,7 +77,17 @@ impl Driver for ReferenceDriver {
         } else {
             None
         };
-        let securing_force = ca.force_budget.clone();
+        // Echo the commanded grip budget, or — on a held carry with no commanded budget
+        // (transport.move_to_pose) — the declared min_holding_force floor, representing the
+        // grip maintained at its securing minimum (GC1 base continuity).
+        let securing_force = ca.force_budget.clone().or_else(|| {
+            ca.safety_envelope
+                .force_profile
+                .as_ref()
+                .and_then(|fp| fp.get("min_holding_force"))
+                .and_then(serde_json::Value::as_str)
+                .map(|s| rfl_core::quantity::Quantity(s.to_string()))
+        });
         let telemetry = Telemetry {
             message: "telemetry",
             action_id: goal.action_id.clone(),

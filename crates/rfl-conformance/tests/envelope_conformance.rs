@@ -98,6 +98,44 @@ fn never_settle_driver_fails_terminal_postcondition() {
     ));
 }
 
+#[test]
+fn nominal_transport_grasp_continuity_is_non_vacuous() {
+    let dir = example_dir();
+    let pairs = drive(
+        ReferenceDriver::default(),
+        &dir.join("skill.yaml"),
+        &dir.join("embodiments/allegro.yaml"),
+    )
+    .expect("drive");
+    // transport.move_to_pose (index 2) carries the propagated min_holding_force.
+    let (goal, report) = &pairs[2];
+    assert_eq!(suffix_of(&goal.action_id), "transport");
+    // The carry must report a maintained securing_force (non-vacuous) that meets the floor.
+    assert!(
+        report.telemetry.iter().any(|t| t.securing_force.is_some()),
+        "transport telemetry must carry securing_force"
+    );
+    assert_eq!(check_envelope(EnvelopeClass::GraspContinuity, goal, report), CheckOutcome::Pass);
+}
+
+#[test]
+fn under_secure_driver_fails_transport_grasp_continuity() {
+    let dir = example_dir();
+    let pairs = drive(
+        FaultyDriver::new(Fault::UnderSecure),
+        &dir.join("skill.yaml"),
+        &dir.join("embodiments/allegro.yaml"),
+    )
+    .expect("drive");
+    // transport (index 2): the held carry's GC1 must reject the lowered securing_force.
+    let (goal, report) = &pairs[2];
+    assert_eq!(suffix_of(&goal.action_id), "transport");
+    assert!(matches!(
+        check_envelope(EnvelopeClass::GraspContinuity, goal, report),
+        CheckOutcome::Fail(_)
+    ));
+}
+
 fn screw_dir() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples/03-screw-fasten")
 }
