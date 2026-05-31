@@ -38,7 +38,6 @@ pub struct RetargetOutput {
 /// so a later `transport` / `force` primitive can derive mass-dependent bounds
 /// (`spec/02` GF2c / GF3c). Set when a grasp closes, cleared when it releases.
 #[derive(Debug, Clone)]
-#[allow(dead_code)] // weight_n / mode are read by the GF2c / GF3c lowerings (next commits)
 struct HeldObject {
     /// Held-object weight in newtons (`target.estimated_mass`).
     weight_n: f64,
@@ -145,7 +144,7 @@ fn lower(
     match prim {
         Primitive::SenseLocate(p) => (lower_sense_locate(p, e), "locate"),
         Primitive::GraspPinch(p) => (lower_grasp_pinch(p, e, ctx, weights), "pinch"),
-        Primitive::TransportMoveToPose(p) => (lower_transport_move_to_pose(p, e), "transport"),
+        Primitive::TransportMoveToPose(p) => (lower_transport_move_to_pose(p, e, ctx), "transport"),
         Primitive::ReachAlign(p) => (lower_reach_align(p, e), "align"),
         Primitive::ForceInsertFit(p) => (lower_force_insert_fit(p, e), "insert_fit"),
         Primitive::GraspRelease(p) => (lower_grasp_release(p, e, ctx), "release"),
@@ -261,11 +260,15 @@ fn lower_grasp_pinch(
     }
 }
 
-/// Lower `transport.move_to_pose`. The target_pose (a frame-relative offset) is
-/// carried through; a_max is clamped to the embodiment kinematic ceiling by
-/// `base_envelope` (the mass-dependent dynamic-stability clamp is a later
-/// increment, design § 3).
-fn lower_transport_move_to_pose(p: &TransportMoveToPose, e: &Embodiment) -> CanonicalAction {
+/// Lower `transport.move_to_pose`. The frame-relative target is carried through;
+/// a_max is clamped to the GF2c dynamic-stability limit when a held object makes it
+/// tighter than the kinematic ceiling `base_envelope` set (otherwise the ceiling's
+/// authored string is kept verbatim — no reformat).
+fn lower_transport_move_to_pose(
+    p: &TransportMoveToPose,
+    e: &Embodiment,
+    ctx: &GraspContext,
+) -> CanonicalAction {
     let target_pose = match yaml_to_json(&p.target_pose) {
         serde_json::Value::Object(map) => {
             let frame = map
@@ -278,6 +281,18 @@ fn lower_transport_move_to_pose(p: &TransportMoveToPose, e: &Embodiment) -> Cano
         }
         other => PoseExpr::FrameRelative { frame: "task".into(), offset: other },
     };
+    let mut env = base_envelope(e);
+    if let Some(held) = &ctx.held {
+        let payload = e.scalar_limit(held.mode.payload_key()).and_then(|q| q.parse());
+        let ceiling = e.scalar_limit("a_cartesian_max").and_then(|q| q.parse());
+        if let (Some((payload_n, _)), Some((ceiling_v, unit))) = (payload, ceiling) {
+            let unit = unit.to_string();
+            let dyn_a = grasp_force::dynamic_a_max(held.weight_n, payload_n);
+            if dyn_a < ceiling_v {
+                env.motion_bounds.a_max = Some(Quantity::from_si(dyn_a, &unit));
+            }
+        }
+    }
     CanonicalAction {
         target_frame: e.grasp_frame().to_string(),
         target_pose,
@@ -289,7 +304,7 @@ fn lower_transport_move_to_pose(p: &TransportMoveToPose, e: &Embodiment) -> Cano
         },
         tactile_target: None,
         monitors: vec![],
-        safety_envelope: base_envelope(e),
+        safety_envelope: env,
     }
 }
 
@@ -571,10 +586,11 @@ mod tests {
         let Statement::Primitive(Primitive::TransportMoveToPose(p)) = &skill.body.sequence[2] else {
             panic!("expected transport.move_to_pose at index 2");
         };
-        let a = super::lower_transport_move_to_pose(p, &emb);
+        let ctx = super::GraspContext::default();
+        let a = super::lower_transport_move_to_pose(p, &emb, &ctx);
         let json = serde_json::to_string(&a.target_pose).unwrap();
         assert!(json.contains("\"frame\":\"receptacle\""));
-        // a_max clamped to the embodiment kinematic ceiling.
+        // no held object in this isolated call -> kinematic ceiling kept.
         assert_eq!(a.safety_envelope.motion_bounds.a_max.as_ref().unwrap().0, "1.5 m/s^2");
     }
 
@@ -664,5 +680,28 @@ mod tests {
         };
         super::lower_grasp_release(r, &emb, &mut ctx);
         assert!(ctx.held.is_none());
+    }
+
+    #[test]
+    fn transport_a_max_clamps_dynamically_on_weakest_hand() {
+        // pneumatic: payload 1.5 N, held 1.45 N -> 9.80665/29 ≈ 0.33816 < 0.8 ceiling.
+        let (skill, emb) = load("pneumatic-6f");
+        let out = retarget(&skill, &emb).expect("retarget");
+        // transport is action index 2 (locate, pinch, transport).
+        assert_eq!(
+            out.actions[2].safety_envelope.motion_bounds.a_max.as_ref().unwrap().0,
+            "0.33816 m/s^2"
+        );
+    }
+
+    #[test]
+    fn transport_a_max_keeps_kinematic_ceiling_on_strong_hand() {
+        // allegro: payload 3 N, held 1.45 N -> dynamic ≈ 10.5 > 1.5 ceiling (kept verbatim).
+        let (skill, emb) = load("allegro");
+        let out = retarget(&skill, &emb).expect("retarget");
+        assert_eq!(
+            out.actions[2].safety_envelope.motion_bounds.a_max.as_ref().unwrap().0,
+            "1.5 m/s^2"
+        );
     }
 }
