@@ -140,6 +140,10 @@ fn screw_dir() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples/03-screw-fasten")
 }
 
+fn surface_dir() -> PathBuf {
+    Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples/02-surface-scan")
+}
+
 #[test]
 fn nominal_screw_passes_force_trajectory() {
     let dir = screw_dir();
@@ -204,4 +208,43 @@ fn over_torque_driver_fails_unscrew_force_trajectory() {
         check_envelope(EnvelopeClass::ForceTrajectory, goal, report),
         CheckOutcome::Fail(_)
     ));
+}
+
+#[test]
+fn nominal_hover_passes_interval_invariant() {
+    let dir = surface_dir();
+    let pairs = drive(
+        ReferenceDriver::default(),
+        &dir.join("skill-hover.yaml"),
+        &dir.join("embodiments/allegro.yaml"),
+    )
+    .expect("drive");
+    // reach.hover is action index 0; the driver samples the interval (3 samples).
+    let (goal, report) = &pairs[0];
+    assert_eq!(suffix_of(&goal.action_id), "hover");
+    assert_eq!(report.telemetry.len(), 3, "the interval must be sampled (non-vacuous)");
+    assert_eq!(check_envelope(EnvelopeClass::IntervalInvariant, goal, report), CheckOutcome::Pass);
+}
+
+#[test]
+fn mid_interval_drop_fails_interval_but_passes_terminal() {
+    // The ENV2 property, made executable: a mid-interval violation fails the interval
+    // check even though the endpoint (terminal) conforms.
+    let dir = surface_dir();
+    let pairs = drive(
+        FaultyDriver::new(Fault::MidIntervalDrop),
+        &dir.join("skill-hover.yaml"),
+        &dir.join("embodiments/allegro.yaml"),
+    )
+    .expect("drive");
+    let (goal, report) = &pairs[0];
+    assert_eq!(suffix_of(&goal.action_id), "hover");
+    assert!(matches!(
+        check_envelope(EnvelopeClass::IntervalInvariant, goal, report),
+        CheckOutcome::Fail(_)
+    ));
+    assert_eq!(
+        check_envelope(EnvelopeClass::TerminalPostcondition, goal, report),
+        CheckOutcome::Pass
+    );
 }

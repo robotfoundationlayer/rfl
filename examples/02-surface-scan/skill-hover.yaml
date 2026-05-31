@@ -1,0 +1,20 @@
+# Example 02 — Surface scan (hover variant)
+# Sustained station-keeping (reach.hover) over the panel at a standoff, then inspect.
+# Demonstrates the interval-invariant envelope class (spec/05 ENV2): the station
+# invariant is sampled over the whole hold interval, not just the endpoint.
+skill: surface-hover
+description: >
+  Hold a fixed standoff over a rectangular panel for a bounded interval, then inspect
+  the observed surface for defects.
+
+body:
+  sequence:
+
+    - reach.hover:
+        target: panel
+        standoff: 50 mm
+        duration: 5 s
+
+    - sense.inspect:
+        target: panel
+        observe: [defect]

@@ -1,0 +1,6 @@
+---
+source: crates/rfl-conformance/tests/surface_scan_hover.rs
+expression: "jsonl_for(\"allegro\")"
+---
+{"message":"execute","action_id":"surface-hover/wonik-allegro-v4/0001-hover","canonical_action":{"target_frame":"tcp_index","target_pose":{"frame":"panel","offset":{"along":"outward_normal","distance":"50 mm"}},"timing":{"timing_mode":"strict","stop_at_goal":true},"safety_envelope":{"motion_bounds":{"v_max":"0.4 m/s","a_max":"1.5 m/s^2","w_max":"2.0 rad/s"},"stop_time":"0.1 s"}}}
+{"message":"execute","action_id":"surface-hover/wonik-allegro-v4/0002-inspect","canonical_action":{"target_frame":"palm_cam","target_pose":{"ref":"panel"},"timing":{"timing_mode":"strict","stop_at_goal":true},"safety_envelope":{"motion_bounds":{"v_max":"0.4 m/s","a_max":"1.5 m/s^2","w_max":"2.0 rad/s"},"stop_time":"0.1 s"}}}
