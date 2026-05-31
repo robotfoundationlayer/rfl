@@ -87,6 +87,14 @@ impl Driver for ReferenceDriver {
                 .and_then(serde_json::Value::as_str)
                 .map(|s| rfl_core::quantity::Quantity(s.to_string()))
         });
+        // Echo a zero station error for an action carrying a station_keeping contract
+        // (reach.hover settling, spec/01 § 1.5): the nominal hover holds station perfectly,
+        // so the settled-tail leg passes. Absent for every other action.
+        let station_error = ca
+            .safety_envelope
+            .station_keeping
+            .as_ref()
+            .map(|_| rfl_core::quantity::Quantity("0 mm".to_string()));
         // Interval-invariant actions (reach.hover) are sampled over the interval (ENV2,
         // spec/05); every other action emits a single terminal-ish sample. N is decided
         // by the envelope class so future interval-invariant primitives inherit it.
@@ -107,7 +115,7 @@ impl Driver for ReferenceDriver {
                     realized_pose: Some(RealizedPose::placeholder()),
                     wrench: wrench.clone(),
                     securing_force: securing_force.clone(),
-                    station_error: None,
+                    station_error: station_error.clone(),
                     tactile: vec![],
                     events: vec![],
                     fidelity_tier: fidelity_tier.clone(),
@@ -281,6 +289,84 @@ impl Driver for DisturbanceDriver {
     }
 }
 
+/// How a driver responds to a bench-injected lateral impulse on a `reach.hover` (`spec/01`
+/// § 1.5 C2). `Recovers` / `Aborts` are the two conformant outcomes (recover-and-continue vs
+/// abort-to-safe-state); `FailsToRecover` / `ClaimsSuccess` are adversarial.
+#[derive(Debug, Clone, Copy)]
+pub enum HoverResponse {
+    /// Conformant: a transient excursion in the grace window, recovered in the settled tail.
+    Recovers,
+    /// Adversarial: drifts past `station_tolerance` throughout yet claims success.
+    FailsToRecover,
+    /// Conformant (over-envelope): abort to a safe state (Failed + `station_exceeded`).
+    Aborts,
+    /// Adversarial (over-envelope): claim success despite the station-exceeding impulse.
+    ClaimsSuccess,
+}
+
+/// The `reach.hover` ENV3 bench (`spec/05` § Disturbance injection; `spec/01` § 1.5 C2):
+/// models a driver's response to a calibrated lateral impulse. Reads `station_tolerance` from
+/// the action's `station_keeping`; mutates the nominal report's `station_error` / outcome per
+/// `response`. Non-hover actions (no `station_keeping`) pass through unchanged.
+#[derive(Debug)]
+pub struct HoverSettlingDriver {
+    inner: ReferenceDriver,
+    response: HoverResponse,
+}
+
+impl HoverSettlingDriver {
+    /// A hover settling driver with the given response policy.
+    #[must_use]
+    pub fn new(response: HoverResponse) -> Self {
+        HoverSettlingDriver { inner: ReferenceDriver::default(), response }
+    }
+}
+
+impl Driver for HoverSettlingDriver {
+    fn execute(&mut self, goal: &ExecuteGoal) -> DriverReport {
+        let mut report = self.inner.execute(goal);
+        let tol = goal
+            .canonical_action
+            .safety_envelope
+            .station_keeping
+            .as_ref()
+            .and_then(|sk| sk.get("station_tolerance"))
+            .and_then(serde_json::Value::as_str)
+            .and_then(|s| rfl_core::quantity::Quantity(s.to_string()).parse().map(|(v, _)| v));
+        let Some(tol) = tol else { return report }; // non-hover: passthrough
+        let over = tol + 3.0; // above tolerance (the impulse / failed recovery)
+        let under = tol / 2.0; // within tolerance (recovered)
+        let q = |v: f64| Some(rfl_core::quantity::Quantity::from_si(v, "mm"));
+        match self.response {
+            HoverResponse::Recovers => {
+                // sample 0 = transient excursion (grace window); tail = recovered.
+                for (i, t) in report.telemetry.iter_mut().enumerate() {
+                    t.station_error = q(if i == 0 { over } else { under });
+                }
+            }
+            HoverResponse::FailsToRecover => {
+                for t in &mut report.telemetry {
+                    t.station_error = q(over);
+                }
+            }
+            HoverResponse::Aborts => {
+                report.status.outcome = Outcome::Failed;
+                report.status.failure_class = Some("blocked".to_string());
+                report.status.failure_detail = Some("station_exceeded".to_string());
+                if let Some(v) = report.status.verdict.as_mut() {
+                    v.value = false; // honest: the station was not held
+                }
+            }
+            HoverResponse::ClaimsSuccess => {
+                for t in &mut report.telemetry {
+                    t.station_error = q(over); // ignored the impulse, still claims success
+                }
+            }
+        }
+        report
+    }
+}
+
 /// Retarget the skill onto the embodiment and drive every `execute` message through
 /// `driver`, returning the `(goal, report)` pair per action. Generic over any
 /// `Driver` (the nominal `ReferenceDriver` or a `FaultyDriver`). Action ids match the
@@ -408,6 +494,42 @@ fn securing_floor_violation(goal: &ExecuteGoal, report: &DriverReport) -> Option
     None
 }
 
+/// If the action carries a `station_keeping` contract (`reach.hover` settling, `spec/01`
+/// § 1.5) and any settled-tail sample — one stamped at `t >= first_t + settling_time`, after
+/// the recovery grace window — is missing `station_error` or exceeds `station_tolerance`, the
+/// failure reason; else `None`. Vacuous when `station_keeping` is absent (carry / bare hover
+/// unaffected — the held-floor pattern). Requires >= 1 tail sample (non-vacuous).
+fn station_keeping_violation(goal: &ExecuteGoal, report: &DriverReport) -> Option<String> {
+    let sk = goal.canonical_action.safety_envelope.station_keeping.as_ref()?;
+    let tol = sk
+        .get("station_tolerance")
+        .and_then(serde_json::Value::as_str)
+        .and_then(|s| rfl_core::quantity::Quantity(s.to_string()).parse().map(|(v, _)| v))?;
+    let settle = sk
+        .get("settling_time")
+        .and_then(serde_json::Value::as_str)
+        .and_then(|s| rfl_core::quantity::Quantity(s.to_string()).parse().map(|(v, _)| v))?;
+    let deadline = report.telemetry.first()?.t + settle;
+    let mut tail_seen = false;
+    for t in &report.telemetry {
+        if t.t < deadline {
+            continue; // recovery grace window — excursion permitted here
+        }
+        tail_seen = true;
+        match t.station_error.as_ref().and_then(quantity_mag) {
+            None => return Some(format!("settled-tail sample at t={} missing station_error", t.t)),
+            Some(err) if err > tol => {
+                return Some(format!("station_error {err} > station_tolerance {tol} at t={}", t.t));
+            }
+            _ => {}
+        }
+    }
+    if !tail_seen {
+        return Some(format!("no settled-tail sample at t >= {deadline}"));
+    }
+    None
+}
+
 /// Verify a driver report against the action's envelope class (`spec/05` ENV1–ENV4,
 /// GC1). A pure function of the commanded `execute` goal and the returned report.
 #[must_use]
@@ -492,6 +614,11 @@ pub fn check_envelope(
             if let Some(reason) = securing_floor_violation(goal, report) {
                 return CheckOutcome::Fail(reason);
             }
+            // Station-keeping recovery (reach.hover settling, spec/01 § 1.5 line 668): the
+            // settled tail must be within station_tolerance. Vacuous for transport.carry.
+            if let Some(reason) = station_keeping_violation(goal, report) {
+                return CheckOutcome::Fail(reason);
+            }
             CheckOutcome::Pass
         }
     }
@@ -515,6 +642,27 @@ pub fn check_graceful_degradation(goal: &ExecuteGoal, report: &DriverReport) -> 
     }
     if let Some(reason) = securing_floor_violation(goal, report) {
         return CheckOutcome::Fail(format!("object not secured during halt: {reason}"));
+    }
+    CheckOutcome::Pass
+}
+
+/// Verify the § 1.5 C2 over-envelope contract for `reach.hover`: the hover must NOT claim
+/// success and must report the `station_exceeded` halt reason (abort to a safe state). There
+/// is no held object to secure, so failure-shape correctness IS the contract. Distinct from
+/// `check_envelope`: this judges the failure shape of an over-envelope impulse (`05` ENV3),
+/// not correct recovery.
+#[must_use]
+pub fn check_settling(report: &DriverReport) -> CheckOutcome {
+    if matches!(report.status.outcome, Outcome::Succeeded) {
+        return CheckOutcome::Fail(
+            "claimed success under a station-exceeding disturbance".to_string(),
+        );
+    }
+    if report.status.failure_detail.as_deref() != Some("station_exceeded") {
+        return CheckOutcome::Fail(format!(
+            "expected failure_detail station_exceeded, got {:?}",
+            report.status.failure_detail
+        ));
     }
     CheckOutcome::Pass
 }
@@ -775,5 +923,27 @@ mod tests {
             check_graceful_degradation(&goal, &report(Outcome::Failed, Some("blocked"))),
             CheckOutcome::Fail(_)
         ));
+    }
+
+    #[test]
+    fn check_settling_accepts_station_exceeded_abort_rejects_pretended_success() {
+        use rfl_core::driver::{Outcome, RealizedPose, Status, Verdict};
+        let status = |outcome: Outcome, detail: Option<&str>| Status {
+            message: "status",
+            action_id: "s/e/0001-hover".to_string(),
+            outcome,
+            verdict: Some(Verdict { value: false, confidence: 1.0, evidence: vec![] }),
+            fidelity_tier: None,
+            final_pose: Some(RealizedPose::placeholder()),
+            failure_class: detail.map(|_| "blocked".to_string()),
+            failure_detail: detail.map(str::to_string),
+        };
+        let report = |o, d| DriverReport { telemetry: vec![], status: status(o, d) };
+        // abort to safe state: Failed + station_exceeded -> Pass.
+        assert_eq!(check_settling(&report(Outcome::Failed, Some("station_exceeded"))), CheckOutcome::Pass);
+        // pretended success -> Fail.
+        assert!(matches!(check_settling(&report(Outcome::Succeeded, None)), CheckOutcome::Fail(_)));
+        // wrong halt reason -> Fail.
+        assert!(matches!(check_settling(&report(Outcome::Failed, Some("blocked"))), CheckOutcome::Fail(_)));
     }
 }

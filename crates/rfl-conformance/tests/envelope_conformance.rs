@@ -7,8 +7,9 @@
 //! REJECTED by the matching checker — the non-circular proof that the suite bites.
 
 use rfl_conformance::{
-    check_envelope, check_graceful_degradation, drive, envelope_class_for, CheckOutcome,
-    DisturbanceDriver, DisturbanceResponse, EnvelopeClass, Fault, FaultyDriver, ReferenceDriver,
+    check_envelope, check_graceful_degradation, check_settling, drive, envelope_class_for,
+    CheckOutcome, DisturbanceDriver, DisturbanceResponse, EnvelopeClass, Fault, FaultyDriver,
+    HoverResponse, HoverSettlingDriver, ReferenceDriver,
 };
 use std::path::{Path, PathBuf};
 
@@ -375,4 +376,73 @@ fn mid_interval_drop_fails_carry_interval_but_passes_terminal() {
         check_envelope(EnvelopeClass::TerminalPostcondition, goal, report),
         CheckOutcome::Pass
     );
+}
+
+// --- ENV3 disturbance injection (reach.hover C2, spec/01 § 1.5) -----------------------------
+// The hover emits station_keeping{station_tolerance: 2 mm, settling_time: 1 s}; with hover as
+// action 1 the samples land at t = 1, 2, 3, so the settling deadline (t0 + 1 s = 2) leaves
+// the tail {t = 2, 3} and the grace window {t = 1}.
+
+#[test]
+fn hover_recovers_within_settling_passes_interval() {
+    let dir = surface_dir();
+    let pairs = drive(
+        HoverSettlingDriver::new(HoverResponse::Recovers),
+        &dir.join("skill-hover.yaml"),
+        &dir.join("embodiments/allegro.yaml"),
+    )
+    .expect("drive");
+    let (goal, report) = &pairs[0];
+    assert_eq!(suffix_of(&goal.action_id), "hover");
+    assert_eq!(report.telemetry.len(), 3, "interval-sampled under perturbation");
+    // sample 0 exceeds tolerance (grace window) but the settled tail recovered.
+    assert_eq!(check_envelope(EnvelopeClass::IntervalInvariant, goal, report), CheckOutcome::Pass);
+}
+
+#[test]
+fn hover_fails_to_recover_fails_interval() {
+    let dir = surface_dir();
+    let pairs = drive(
+        HoverSettlingDriver::new(HoverResponse::FailsToRecover),
+        &dir.join("skill-hover.yaml"),
+        &dir.join("embodiments/allegro.yaml"),
+    )
+    .expect("drive");
+    let (goal, report) = &pairs[0];
+    // drifts past station_tolerance throughout yet claims success -> the settled-tail leg bites.
+    assert!(matches!(
+        check_envelope(EnvelopeClass::IntervalInvariant, goal, report),
+        CheckOutcome::Fail(_)
+    ));
+}
+
+#[test]
+fn hover_over_envelope_aborts_gracefully() {
+    let dir = surface_dir();
+    let pairs = drive(
+        HoverSettlingDriver::new(HoverResponse::Aborts),
+        &dir.join("skill-hover.yaml"),
+        &dir.join("embodiments/allegro.yaml"),
+    )
+    .expect("drive");
+    let (goal, report) = &pairs[0];
+    // opposite-verdicts: aborts (Failed + station_exceeded) -> settling Pass, interval Fail.
+    assert_eq!(check_settling(report), CheckOutcome::Pass);
+    assert!(matches!(
+        check_envelope(EnvelopeClass::IntervalInvariant, goal, report),
+        CheckOutcome::Fail(_)
+    ));
+}
+
+#[test]
+fn hover_over_envelope_false_success_fails_settling() {
+    let dir = surface_dir();
+    let pairs = drive(
+        HoverSettlingDriver::new(HoverResponse::ClaimsSuccess),
+        &dir.join("skill-hover.yaml"),
+        &dir.join("embodiments/allegro.yaml"),
+    )
+    .expect("drive");
+    let (_, report) = &pairs[0];
+    assert!(matches!(check_settling(report), CheckOutcome::Fail(_)));
 }
