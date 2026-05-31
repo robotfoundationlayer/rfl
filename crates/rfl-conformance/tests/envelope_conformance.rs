@@ -1,0 +1,99 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 RFL Contributors
+
+//! Conformance test class 3, part 2 (`spec/05` § The envelope-class taxonomy): the
+//! envelope-class checkers JUDGE a driver report against each primitive's envelope.
+//! The nominal driver conforms to every check; the adversarial `FaultyDriver`s are
+//! REJECTED by the matching checker — the non-circular proof that the suite bites.
+
+use rfl_conformance::{
+    check_envelope, drive, envelope_class_for, CheckOutcome, EnvelopeClass, Fault, FaultyDriver,
+    ReferenceDriver,
+};
+use std::path::{Path, PathBuf};
+
+fn example_dir() -> PathBuf {
+    Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples/01-cable-insertion")
+}
+
+/// The primitive suffix of an action id (`.../NNNN-<suffix>`; suffixes contain no `-`).
+fn suffix_of(action_id: &str) -> &str {
+    action_id.rsplit('-').next().unwrap_or(action_id)
+}
+
+#[test]
+fn nominal_driver_passes_every_envelope_check() {
+    let dir = example_dir();
+    for stem in ["allegro", "leap", "pneumatic-6f"] {
+        let pairs = drive(
+            ReferenceDriver::default(),
+            &dir.join("skill.yaml"),
+            &dir.join(format!("embodiments/{stem}.yaml")),
+        )
+        .expect("drive");
+        for (goal, report) in &pairs {
+            if let Some(class) = envelope_class_for(suffix_of(&goal.action_id)) {
+                assert_eq!(
+                    check_envelope(class, goal, report),
+                    CheckOutcome::Pass,
+                    "{stem} {}",
+                    goal.action_id
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn under_secure_driver_fails_grasp_continuity() {
+    let dir = example_dir();
+    let pairs = drive(
+        FaultyDriver::new(Fault::UnderSecure),
+        &dir.join("skill.yaml"),
+        &dir.join("embodiments/allegro.yaml"),
+    )
+    .expect("drive");
+    // grasp.pinch (index 1) carries min_holding_force -> GC1 must reject the lowered securing_force.
+    let (goal, report) = &pairs[1];
+    assert_eq!(suffix_of(&goal.action_id), "pinch");
+    assert!(matches!(
+        check_envelope(EnvelopeClass::GraspContinuity, goal, report),
+        CheckOutcome::Fail(_)
+    ));
+}
+
+#[test]
+fn over_force_driver_fails_force_trajectory() {
+    let dir = example_dir();
+    let pairs = drive(
+        FaultyDriver::new(Fault::OverForce),
+        &dir.join("skill.yaml"),
+        &dir.join("embodiments/allegro.yaml"),
+    )
+    .expect("drive");
+    // force.insert_fit (index 5) -> force-trajectory must reject the over-budget wrench.
+    let (goal, report) = &pairs[5];
+    assert_eq!(suffix_of(&goal.action_id), "insert_fit");
+    assert!(matches!(
+        check_envelope(EnvelopeClass::ForceTrajectory, goal, report),
+        CheckOutcome::Fail(_)
+    ));
+}
+
+#[test]
+fn never_settle_driver_fails_terminal_postcondition() {
+    let dir = example_dir();
+    let pairs = drive(
+        FaultyDriver::new(Fault::NeverSettle),
+        &dir.join("skill.yaml"),
+        &dir.join("embodiments/allegro.yaml"),
+    )
+    .expect("drive");
+    // reach.align (index 4) -> terminal-postcondition must reject indeterminate / no final pose.
+    let (goal, report) = &pairs[4];
+    assert_eq!(suffix_of(&goal.action_id), "align");
+    assert!(matches!(
+        check_envelope(EnvelopeClass::TerminalPostcondition, goal, report),
+        CheckOutcome::Fail(_)
+    ));
+}
