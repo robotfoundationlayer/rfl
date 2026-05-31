@@ -17,7 +17,7 @@ use crate::canonical::{
 use crate::embodiment::Embodiment;
 use crate::quantity::Quantity;
 use crate::skill_isa::{
-    Axes, Axis, Compliance, ForceInsertFit, GraspPinch, GraspRelease, Primitive, ReachAlign,
+    Axes, Axis, Compliance, ForceInsertFit, ForceScrew, GraspPinch, GraspRelease, Primitive, ReachAlign,
     ReachRetract, ReachScan, ScanPattern, SenseInspect, Skill, Statement, TactileTargetArg,
     TransportMoveToPose,
 };
@@ -123,6 +123,7 @@ fn check_capability(prim: &Primitive, e: &Embodiment) -> crate::Result<()> {
         // A category key implies the base primitive: `transport` = transport.move_to_pose.
         Primitive::TransportMoveToPose(_) => "transport",
         Primitive::ForceInsertFit(_) => "force.insert_fit",
+        Primitive::ForceScrew(_) => "force.screw",
         Primitive::SenseInspect(_) => "sense.inspect",
     };
     if e.has_skill(key) {
@@ -147,6 +148,7 @@ fn lower(
         Primitive::TransportMoveToPose(p) => (lower_transport_move_to_pose(p, e, ctx), "transport"),
         Primitive::ReachAlign(p) => (lower_reach_align(p, e), "align"),
         Primitive::ForceInsertFit(p) => (lower_force_insert_fit(p, e, ctx), "insert_fit"),
+        Primitive::ForceScrew(p) => (lower_force_screw(p, e), "screw"),
         Primitive::GraspRelease(p) => (lower_grasp_release(p, e, ctx), "release"),
         Primitive::ReachRetract(p) => (lower_reach_retract(p, e), "retract"),
         Primitive::ReachScan(p) => (lower_reach_scan(p, e), "scan"),
@@ -381,6 +383,49 @@ fn lower_force_insert_fit(p: &ForceInsertFit, e: &Embodiment, ctx: &GraspContext
         target_frame: e.grasp_frame().to_string(),
         target_pose: PoseExpr::Ref { r#ref: p.target_fit.clone() },
         force_budget: Some(force_budget),
+        timing: TimingHints {
+            nominal_duration: None,
+            timing_mode: TimingMode::TimeScalable,
+            stop_at_goal: true,
+        },
+        tactile_target: None,
+        monitors,
+        safety_envelope: env,
+    }
+}
+
+/// Lower `force.screw`: carry the torque budget into the force_profile (the
+/// force-trajectory envelope's torque case), lower the `ScrewStop` completion into a
+/// monitor, set compliance, and carry `thread_pitch` / `tool_mediated` as symbolic
+/// markers. The tool-mediated reaction-torque limit and the rotation↔advance coupling
+/// are a later increment (GF4c, E2). The target_pose drives along the thread axis; the
+/// advance is governed by the completion (symbolic distance in v0).
+fn lower_force_screw(p: &ForceScrew, e: &Embodiment) -> CanonicalAction {
+    let monitors = vec![Monitor { stop_condition: yaml_to_json(&p.completion) }];
+    let mut env = base_envelope(e);
+    env.compliance = p.compliance.map(|c| {
+        match c {
+            Compliance::Passive => "passive",
+            Compliance::Active => "active",
+            Compliance::Auto => "auto",
+        }
+        .to_string()
+    });
+    let mut fp = serde_json::json!({ "torque": p.torque_budget.0.clone() });
+    if let Some(tp) = &p.thread_pitch {
+        fp["thread_pitch"] = serde_json::Value::String(tp.0.clone());
+    }
+    if let Some(tm) = &p.tool_mediated {
+        fp["tool_mediated"] = yaml_to_json(tm);
+    }
+    env.force_profile = Some(fp);
+    CanonicalAction {
+        target_frame: e.grasp_frame().to_string(),
+        target_pose: PoseExpr::AxisRelative {
+            direction: yaml_to_json(&p.thread_axis),
+            distance: Quantity("0 mm".to_string()),
+        },
+        force_budget: None,
         timing: TimingHints {
             nominal_duration: None,
             timing_mode: TimingMode::TimeScalable,
@@ -725,5 +770,33 @@ mod tests {
             // insert_fit is action index 5.
             assert_eq!(out.actions[5].force_budget.as_ref().unwrap().0, expected, "stem {stem}");
         }
+    }
+
+    const SCREW_SKILL: &str = "skill: t\nbody:\n  sequence:\n    - force.screw:\n        grasp_handle: active\n        thread_axis: -z\n        torque_budget: 2 N\u{b7}m\n        thread_pitch: 0.8 mm\n        tool_mediated: true\n        compliance: active\n        completion:\n          all_of:\n            - effort_rise: 1.5 N\u{b7}m\n            - reached: { advance: 5 mm }\n";
+
+    #[test]
+    fn screw_lowers_torque_and_completion() {
+        let skill = Skill::parse_yaml(SCREW_SKILL).unwrap();
+        let mut emb = load("allegro").1; // cable allegro descriptor
+        emb.capabilities.skills.push("force.screw".to_string());
+        let out = retarget(&skill, &emb).expect("retarget");
+        assert_eq!(out.suffixes, vec!["screw"]);
+        let a = &out.actions[0];
+        let fp = serde_json::to_string(&a.safety_envelope.force_profile).unwrap();
+        assert!(fp.contains("\"torque\":\"2 N\u{b7}m\""), "got {fp}");
+        assert!(fp.contains("\"thread_pitch\":\"0.8 mm\""), "got {fp}");
+        assert_eq!(a.safety_envelope.compliance.as_deref(), Some("active"));
+        let mon = serde_json::to_string(&a.monitors).unwrap();
+        assert!(mon.contains("effort_rise"));
+        assert!(mon.contains("advance"));
+        assert!(a.force_budget.is_none()); // the budget is a torque, in force_profile
+    }
+
+    #[test]
+    fn screw_capability_absent_when_not_declared() {
+        let skill = Skill::parse_yaml(SCREW_SKILL).unwrap();
+        let emb = load("allegro").1; // cable allegro lacks force.screw
+        let err = retarget(&skill, &emb).unwrap_err();
+        assert!(err.to_string().contains("capability_absent: force.screw"), "got {err}");
     }
 }

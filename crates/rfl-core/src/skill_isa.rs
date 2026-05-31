@@ -131,6 +131,9 @@ pub enum Primitive {
     /// `sense.inspect`.
     #[serde(rename = "sense.inspect")]
     SenseInspect(SenseInspect),
+    /// `force.screw`.
+    #[serde(rename = "force.screw")]
+    ForceScrew(ForceScrew),
 }
 
 /// `sense.locate` modality (`$defs/SenseLocateParams.modality`).
@@ -376,6 +379,31 @@ pub struct SenseInspect {
     pub observe: Option<Vec<String>>,
 }
 
+/// `force.screw` parameters (v0 subset of `$defs/ForceScrewParams`). `completion`
+/// (a `ScrewStop`) and `tool_mediated` / `thread_pitch` are carried structurally;
+/// the tool-mediated reaction + rotation↔advance coupling are a later increment (GF4c).
+#[derive(Debug, Clone, serde::Deserialize)]
+pub struct ForceScrew {
+    /// The screw / thread axis (in `frame`).
+    pub thread_axis: Direction,
+    /// Max torque about `thread_axis`.
+    pub torque_budget: Quantity,
+    /// `ScrewStop` completion, lowered into `monitors` by the Translation Layer.
+    pub completion: serde_yaml::Value,
+    /// Rotation→advance coupling pitch (carried; symbolic in v0).
+    #[serde(default)]
+    pub thread_pitch: Option<Quantity>,
+    /// Whether a held tool transmits the torque (carried; reaction is a later increment).
+    #[serde(default)]
+    pub tool_mediated: Option<serde_yaml::Value>,
+    /// Required compliance mode.
+    #[serde(default)]
+    pub compliance: Option<Compliance>,
+    /// The grasp on the fastener or the driving tool.
+    #[serde(default)]
+    pub grasp_handle: Option<GraspHandle>,
+}
+
 impl Skill {
     /// Parse a Skill ISA composition from YAML text.
     ///
@@ -458,5 +486,17 @@ mod parse_tests {
         };
         assert_eq!(p.force_budget.0, "15 N");
         assert_eq!(p.compliance, Some(Compliance::Active));
+    }
+
+    #[test]
+    fn force_screw_parses() {
+        let yaml = "skill: t\nbody:\n  sequence:\n    - force.screw:\n        grasp_handle: active\n        thread_axis: -z\n        torque_budget: 2 N\u{b7}m\n        thread_pitch: 0.8 mm\n        tool_mediated: true\n        compliance: active\n        completion:\n          all_of:\n            - effort_rise: 1.5 N\u{b7}m\n            - reached: { advance: 5 mm }\n";
+        let s = Skill::parse_yaml(yaml).expect("parse");
+        let Statement::Primitive(Primitive::ForceScrew(p)) = &s.body.sequence[0] else {
+            panic!("expected force.screw");
+        };
+        assert_eq!(p.torque_budget.0, "2 N\u{b7}m");
+        assert_eq!(p.thread_pitch.as_ref().unwrap().0, "0.8 mm");
+        assert!(matches!(p.compliance, Some(Compliance::Active)));
     }
 }
