@@ -11,12 +11,15 @@
 //! See `spec/02-translation-layer.md` for the formal definition.
 
 use crate::canonical::{
-    CanonicalAction, Envelope, MotionBounds, PoseExpr, ProxySpec, TactileTargetOut, TimingHints,
-    TimingMode,
+    AlignSpec, CanonicalAction, Envelope, MotionBounds, PoseExpr, ProxySpec, TactileTargetOut,
+    TimingHints, TimingMode,
 };
 use crate::embodiment::Embodiment;
 use crate::quantity::Quantity;
-use crate::skill_isa::{GraspPinch, Primitive, Skill, Statement, TactileTargetArg};
+use crate::skill_isa::{
+    Axes, Axis, GraspPinch, Primitive, ReachAlign, Skill, Statement, TactileTargetArg,
+    TransportMoveToPose,
+};
 
 /// The retargeting result: the canonical action stream plus the per-action
 /// primitive suffix used to build deterministic action ids.
@@ -90,6 +93,8 @@ fn lower(prim: &Primitive, e: &Embodiment) -> crate::Result<(CanonicalAction, &'
     match prim {
         Primitive::SenseLocate(p) => Ok((lower_sense_locate(p, e), "locate")),
         Primitive::GraspPinch(p) => Ok((lower_grasp_pinch(p, e), "pinch")),
+        Primitive::TransportMoveToPose(p) => Ok((lower_transport_move_to_pose(p, e), "transport")),
+        Primitive::ReachAlign(p) => Ok((lower_reach_align(p, e), "align")),
         other => Err(crate::Error::Translation(format!(
             "lowering not yet implemented for {}",
             primitive_name(other)
@@ -195,6 +200,81 @@ fn lower_grasp_pinch(p: &GraspPinch, e: &Embodiment) -> CanonicalAction {
     }
 }
 
+/// Lower `transport.move_to_pose`. The target_pose (a frame-relative offset) is
+/// carried through; a_max is clamped to the embodiment kinematic ceiling by
+/// `base_envelope` (the mass-dependent dynamic-stability clamp is a later
+/// increment, design § 3).
+fn lower_transport_move_to_pose(p: &TransportMoveToPose, e: &Embodiment) -> CanonicalAction {
+    let target_pose = match yaml_to_json(&p.target_pose) {
+        serde_json::Value::Object(map) => {
+            let frame = map
+                .get("frame")
+                .and_then(serde_json::Value::as_str)
+                .unwrap_or("task")
+                .to_string();
+            let offset = map.get("offset").cloned().unwrap_or(serde_json::Value::Null);
+            PoseExpr::FrameRelative { frame, offset }
+        }
+        other => PoseExpr::FrameRelative { frame: "task".into(), offset: other },
+    };
+    CanonicalAction {
+        target_frame: e.grasp_frame().to_string(),
+        target_pose,
+        force_budget: None,
+        timing: TimingHints {
+            nominal_duration: None,
+            timing_mode: TimingMode::TimeScalable,
+            stop_at_goal: true,
+        },
+        tactile_target: None,
+        monitors: vec![],
+        safety_envelope: base_envelope(e),
+    }
+}
+
+/// Lower `reach.align`: orientation-only; the residual is the minimum geodesic
+/// rotation from the current orientation (`spec/02` CA2c), emitted as a directive.
+fn lower_reach_align(p: &ReachAlign, e: &Embodiment) -> CanonicalAction {
+    let axes = match &p.axes {
+        Axes::All(_) => vec!["x".into(), "y".into(), "z".into()],
+        Axes::Set(v) => v
+            .iter()
+            .map(|a| {
+                match a {
+                    Axis::X => "x",
+                    Axis::Y => "y",
+                    Axis::Z => "z",
+                }
+                .to_string()
+            })
+            .collect(),
+    };
+    CanonicalAction {
+        target_frame: e.control_frame().to_string(),
+        target_pose: PoseExpr::OrientationAlign {
+            align: AlignSpec {
+                target_frame: p.target_frame.clone(),
+                axes,
+                residual: "min_geodesic_rotation",
+            },
+        },
+        force_budget: None,
+        timing: TimingHints {
+            nominal_duration: None,
+            timing_mode: TimingMode::Strict,
+            stop_at_goal: true,
+        },
+        tactile_target: None,
+        monitors: vec![],
+        safety_envelope: base_envelope(e),
+    }
+}
+
+/// Convert a `serde_yaml::Value` to a `serde_json::Value` deterministically.
+fn yaml_to_json(v: &serde_yaml::Value) -> serde_json::Value {
+    serde_json::to_value(v).unwrap_or(serde_json::Value::Null)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -252,5 +332,31 @@ mod tests {
         let out = retarget_pinch_only(&skill, &emb);
         assert_eq!(out.force_budget.as_ref().unwrap().0, "8 N"); // 8 <= grip_force_max 12
         assert!(matches!(out.tactile_target, Some(TactileTargetOut::Proxy { .. })));
+    }
+
+    #[test]
+    fn transport_carries_frame_relative_pose() {
+        let (skill, emb) = load("allegro");
+        let Statement::Primitive(Primitive::TransportMoveToPose(p)) = &skill.body.sequence[2] else {
+            panic!("expected transport.move_to_pose at index 2");
+        };
+        let a = super::lower_transport_move_to_pose(p, &emb);
+        let json = serde_json::to_string(&a.target_pose).unwrap();
+        assert!(json.contains("\"frame\":\"receptacle\""));
+        // a_max clamped to the embodiment kinematic ceiling.
+        assert_eq!(a.safety_envelope.motion_bounds.a_max.as_ref().unwrap().0, "1.5 m/s^2");
+    }
+
+    #[test]
+    fn align_emits_residual_directive() {
+        let (skill, emb) = load("allegro");
+        let Statement::Primitive(Primitive::ReachAlign(p)) = &skill.body.sequence[4] else {
+            panic!("expected reach.align at index 4");
+        };
+        let a = super::lower_reach_align(p, &emb);
+        let json = serde_json::to_string(&a.target_pose).unwrap();
+        assert!(json.contains("min_geodesic_rotation"));
+        assert!(json.contains("\"target_frame\":\"receptacle\""));
+        assert!(json.contains("\"z\""));
     }
 }
