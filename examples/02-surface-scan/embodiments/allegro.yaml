@@ -1,0 +1,55 @@
+# Wonik Allegro Hand — tendon-driven 4-finger anthropomorphic.
+# Reference instance of schemas/embodiment-descriptor.schema.json (forthcoming);
+# structure per 03-driver-interface.md (frame model + capability manifest + limits)
+# and 04-tactile-manifold.md (contact-sensor descriptor). Vendor named only as a
+# concrete illustration (Principle 4): a structurally distinct hand follows below.
+
+embodiment:
+  id: wonik-allegro-v4
+  class: tendon-driven-4finger-anthropomorphic
+
+  # Frame model — 03 § Embodiment frame model. Roles, never body parts.
+  frames:
+    control_frames: [tcp_index, tcp_middle, tcp_ring, tcp_thumb, palm]
+    role_defaults:
+      grasp:   tcp_thumb           # opposable thumb is the default grasp frame
+      sensor:  palm_cam
+      tactile: tcp_thumb
+      support: palm
+    tool_axis: { tcp_thumb: +z }
+
+  # Capability manifest — 03 § Capability manifest.
+  capabilities:
+    skills: [grasp.pinch, grasp.lateral, grasp.envelope, transport, force.insert_fit, sense.locate, sense.inspect]
+    aux:
+      tactile_sensing: true        # distributed fingertip tactile → manifold-tier confirmation
+      compliance: active
+
+  # Limits — flat embodiment.limits.* (03 § Limits). M2 limit-completeness: every limit an
+  # asserted capability references is declared (03 § Capability manifest, M2).
+  limits:
+    # reach baseline — mandatory for every embodiment (03 § Reach baseline limits)
+    v_cartesian_max:             0.4 m/s
+    w_cartesian_max:             2.0 rad/s
+    a_cartesian_max:             1.5 m/s^2
+    joint_velocity_ceiling:      3.0 rad/s
+    stop_time:                   0.1 s
+    tracking_bandwidth:          5 Hz
+    # shared force-closure grasp limits (grasp.pinch / lateral / envelope)
+    grip_force_max:              20 N
+    v_grasp:                     0.05 m/s
+    # per grasp mode
+    payload_grasp_pinch:         3 N
+    payload_grasp_lateral:       2 N
+    lateral_grasp_max_thickness: 15 mm
+    payload_grasp_envelope:      4 N
+    enclosure_range:             [10 mm, 80 mm]
+
+  # Contact-sensor descriptor — 04 § The contact-sensor descriptor.
+  tactile:
+    tcp_thumb: { sensor_class: array, sites: 1, features: [contact, normal_force, shear], resolution: { spatial: 2 mm, temporal: 100 Hz, value: 0.05 N } }
+    tcp_index: { sensor_class: array, sites: 1, features: [contact, normal_force, shear], resolution: { spatial: 2 mm, temporal: 100 Hz, value: 0.05 N } }
+
+  # Non-contact sensor descriptor — 03 § Sensor descriptor.
+  sensors:
+    palm_cam: { bore_axis: +z, fov: { h_angle: 60 deg, v_angle: 45 deg }, working_range: [0.05 m, 1.0 m], modalities: [presence, pose] }

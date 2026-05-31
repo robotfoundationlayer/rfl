@@ -1,0 +1,24 @@
+# Example 02 — Surface scan
+# A pure perception skill: raster-scan a planar surface, then inspect it. Demonstrates
+# the generative retarget path — reach.scan compiles the region into a sweep set Σ
+# whose pose count varies with each embodiment's sensor field of view (Principle 1).
+skill: surface-scan
+description: >
+  Raster-scan a rectangular surface region at a fixed standoff, then inspect the
+  covered surface for defects.
+
+body:
+  sequence:
+    - reach.scan:
+        region:
+          kind: surface
+          frame: panel
+          size_u: 200 mm
+          size_v: 150 mm
+        standoff: 100 mm
+        pattern: raster
+        coverage_overlap: 0.2
+
+    - sense.inspect:
+        target: panel
+        observe: [defect]
