@@ -17,7 +17,7 @@ use crate::canonical::{
 use crate::embodiment::Embodiment;
 use crate::quantity::Quantity;
 use crate::skill_isa::{
-    Axes, Axis, Compliance, ForceInsertFit, ForceScrew, GraspPinch, GraspRelease, Primitive, ReachAlign,
+    Axes, Axis, Compliance, ForceInsertFit, ForceScrew, ForceUnscrew, GraspPinch, GraspRelease, Primitive, ReachAlign,
     ReachRetract, ReachScan, ScanPattern, SenseInspect, Skill, Statement, TactileTargetArg,
     TransportMoveToPose,
 };
@@ -124,6 +124,7 @@ fn check_capability(prim: &Primitive, e: &Embodiment) -> crate::Result<()> {
         Primitive::TransportMoveToPose(_) => "transport",
         Primitive::ForceInsertFit(_) => "force.insert_fit",
         Primitive::ForceScrew(_) => "force.screw",
+        Primitive::ForceUnscrew(_) => "force.unscrew",
         Primitive::SenseInspect(_) => "sense.inspect",
     };
     if e.has_skill(key) {
@@ -149,6 +150,7 @@ fn lower(
         Primitive::ReachAlign(p) => (lower_reach_align(p, e), "align"),
         Primitive::ForceInsertFit(p) => (lower_force_insert_fit(p, e, ctx), "insert_fit"),
         Primitive::ForceScrew(p) => (lower_force_screw(p, e, ctx), "screw"),
+        Primitive::ForceUnscrew(p) => (lower_force_unscrew(p, e, ctx), "unscrew"),
         Primitive::GraspRelease(p) => (lower_grasp_release(p, e, ctx), "release"),
         Primitive::ReachRetract(p) => (lower_reach_retract(p, e), "retract"),
         Primitive::ReachScan(p) => (lower_reach_scan(p, e), "scan"),
@@ -432,6 +434,68 @@ fn lower_force_screw(p: &ForceScrew, e: &Embodiment, ctx: &GraspContext) -> Cano
         _ => p.torque_budget.clone(),
     };
     let mut fp = serde_json::json!({ "torque": torque.0.clone() });
+    if let Some(tp) = &p.thread_pitch {
+        fp["coupling"] = serde_json::json!({ "advance_per_turn": tp.0.clone() });
+    }
+    if let Some(tm) = &p.tool_mediated {
+        fp["tool_mediated"] = yaml_to_json(tm);
+    }
+    env.force_profile = Some(fp);
+    CanonicalAction {
+        target_frame: e.grasp_frame().to_string(),
+        target_pose: PoseExpr::AxisRelative {
+            direction: yaml_to_json(&p.thread_axis),
+            distance: Quantity("0 mm".to_string()),
+        },
+        force_budget: None,
+        timing: TimingHints {
+            nominal_duration: None,
+            timing_mode: TimingMode::TimeScalable,
+            stop_at_goal: true,
+        },
+        tactile_target: None,
+        monitors,
+        safety_envelope: env,
+    }
+}
+
+/// Lower `force.unscrew`: reverse coupled rotation + axial retreat (`spec/01` § 6.5).
+/// Mirrors `lower_force_screw` — the loosening torque loads the tool grasp (GF4c
+/// reuse), `completion` defaults to a disengagement monitor when omitted, and
+/// `rotation_sense: loosen` marks the reverse sense (symbolic, v0).
+fn lower_force_unscrew(p: &ForceUnscrew, e: &Embodiment, ctx: &GraspContext) -> CanonicalAction {
+    let stop_condition = match &p.completion {
+        Some(c) => yaml_to_json(c),
+        None => serde_json::json!({ "disengagement": true }),
+    };
+    let monitors = vec![Monitor { stop_condition }];
+    let mut env = base_envelope(e);
+    env.compliance = p.compliance.map(|c| {
+        match c {
+            Compliance::Passive => "passive",
+            Compliance::Active => "active",
+            Compliance::Auto => "auto",
+        }
+        .to_string()
+    });
+    // GF4c reuse: a tool-mediated loosening torque loads the held tool's grasp.
+    let tool_mediated = matches!(&p.tool_mediated, Some(v) if v.as_bool() != Some(false));
+    let held = if tool_mediated { ctx.held.as_ref() } else { None };
+    let torque = match (
+        held,
+        p.torque_budget.parse(),
+        e.scalar_limit("grip_force_max").and_then(|q| q.parse()),
+    ) {
+        (Some(h), Some((tb, tu)), Some((gm, _))) => {
+            Quantity::from_si(grasp_force::reaction_torque_limit(tb, gm, h.mode), tu)
+        }
+        _ => p.torque_budget.clone(),
+    };
+    let mut fp = serde_json::json!({ "torque": torque.0.clone(), "rotation_sense": "loosen" });
+    fp["on_disengagement"] = match &p.on_disengagement {
+        Some(v) => yaml_to_json(v),
+        None => serde_json::json!("retain"),
+    };
     if let Some(tp) = &p.thread_pitch {
         fp["coupling"] = serde_json::json!({ "advance_per_turn": tp.0.clone() });
     }
@@ -879,5 +943,32 @@ mod tests {
         let fp = serde_json::to_string(&out.actions[5].safety_envelope.force_profile).unwrap();
         assert!(fp.contains("\"torque\":\"0.2 N\u{b7}m\""), "got {fp}");
         assert!(fp.contains("\"advance_per_turn\":\"0.8 mm\""), "got {fp}");
+    }
+
+    #[test]
+    fn unscrew_lowers_to_torque_trajectory_with_disengagement_default() {
+        // Standalone (no pinch) -> ctx.held is None -> torque unclamped; completion
+        // omitted -> the disengagement default monitor; rotation_sense marks the reverse.
+        let yaml = "skill: t\nbody:\n  sequence:\n    - force.unscrew:\n        grasp_handle: active\n        thread_axis: -z\n        torque_budget: 2 N\u{b7}m\n        thread_pitch: 0.8 mm\n        tool_mediated: true\n        compliance: active\n        on_disengagement: retain\n";
+        let skill = Skill::parse_yaml(yaml).expect("parse");
+        let mut emb = load("allegro").1;
+        emb.capabilities.skills.push("force.unscrew".to_string());
+        let out = retarget(&skill, &emb).expect("retarget");
+        assert_eq!(out.suffixes, vec!["unscrew"]);
+        let fp = out.actions[0].safety_envelope.force_profile.as_ref().expect("force_profile");
+        assert_eq!(fp.get("torque").and_then(|v| v.as_str()), Some("2 N\u{b7}m")); // unclamped (no tool held)
+        assert_eq!(fp.get("rotation_sense").and_then(|v| v.as_str()), Some("loosen"));
+        assert_eq!(fp.get("on_disengagement").and_then(|v| v.as_str()), Some("retain"));
+        let m = &out.actions[0].monitors[0];
+        assert_eq!(m.stop_condition.get("disengagement").and_then(|v| v.as_bool()), Some(true));
+    }
+
+    #[test]
+    fn unscrew_capability_absent_when_gate_key_missing() {
+        let yaml = "skill: t\nbody:\n  sequence:\n    - force.unscrew: { thread_axis: -z, torque_budget: 2 N\u{b7}m }\n";
+        let skill = Skill::parse_yaml(yaml).expect("parse");
+        let emb = load("allegro").1; // cable allegro lacks force.unscrew
+        let err = retarget(&skill, &emb).unwrap_err();
+        assert!(err.to_string().contains("capability_absent: force.unscrew"), "got {err}");
     }
 }

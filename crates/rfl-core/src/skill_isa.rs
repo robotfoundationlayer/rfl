@@ -134,6 +134,9 @@ pub enum Primitive {
     /// `force.screw`.
     #[serde(rename = "force.screw")]
     ForceScrew(ForceScrew),
+    /// `force.unscrew`.
+    #[serde(rename = "force.unscrew")]
+    ForceUnscrew(ForceUnscrew),
 }
 
 /// `sense.locate` modality (`$defs/SenseLocateParams.modality`).
@@ -402,6 +405,36 @@ pub struct ForceScrew {
     /// The grasp on the fastener or the driving tool.
     #[serde(default)]
     pub grasp_handle: Option<GraspHandle>,
+}
+
+/// `force.unscrew` parameters (v0 subset of `$defs/ForceUnscrewParams`). Mirrors
+/// `ForceScrew` minus `axial_force_budget`; `completion` is optional (defaults to
+/// disengagement, emitted at lowering); `on_disengagement` is the freed-fastener
+/// disposition. The authored effort_drop completion variant is schema-blocked.
+#[derive(Debug, Clone, serde::Deserialize)]
+pub struct ForceUnscrew {
+    /// The thread axis (in `frame`).
+    pub thread_axis: Direction,
+    /// Max loosening torque about `thread_axis`.
+    pub torque_budget: Quantity,
+    /// `ScrewStop` completion (optional; default disengagement, emitted at lowering).
+    #[serde(default)]
+    pub completion: Option<serde_yaml::Value>,
+    /// Reverse rotation->retreat coupling pitch (carried; symbolic in v0).
+    #[serde(default)]
+    pub thread_pitch: Option<Quantity>,
+    /// Whether a held tool transmits the loosening torque.
+    #[serde(default)]
+    pub tool_mediated: Option<serde_yaml::Value>,
+    /// Required compliance mode.
+    #[serde(default)]
+    pub compliance: Option<Compliance>,
+    /// The grasp on the fastener or the driving tool.
+    #[serde(default)]
+    pub grasp_handle: Option<GraspHandle>,
+    /// Freed-fastener disposition `{retain, drop_safe}` (default retain).
+    #[serde(default)]
+    pub on_disengagement: Option<serde_yaml::Value>,
 }
 
 impl Skill {
