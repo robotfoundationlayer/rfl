@@ -401,6 +401,34 @@
       "enum": ["antipodal", "enclosure", "support", "probe"],
       "description": "A site relational role (04 § Site model)."
     },
+    "UncertaintyBound": {
+      "description": "A scalar or covariance bounding the pose / geometry estimate error (01 § Target types); carried by every perception-derived target and gating the *_underdetermined preconditions. RFL fixes that it is present and its magnitude type, not the covariance representation — a non-negative scalar (optionally unit-suffixed), a covariance object, or a let-reference.",
+      "anyOf": [
+        { "type": "number", "minimum": 0 },
+        { "type": "string", "pattern": "^[0-9]+(\\.[0-9]+)?(\\s+\\S+)?$" },
+        { "type": "object" },
+        { "$ref": "#/$defs/Ref" }
+      ]
+    },
+    "SurfaceTarget": {
+      "description": "A perception-derived surface target (01 § Target types): point (a Pose6D position) + outward normal + frame + uncertainty. RFL fixes the field set and each field's type, not the estimation method; point's Pose6D-position representation is deferred to 02, so it is the object/array/reference floor. Authored inline; the auto and let-reference forms are carried by SurfaceTargetOrAuto. A bare FrameRef (a frame name) reaches a SurfaceTarget slot as a let-reference.",
+      "type": "object",
+      "required": ["point", "normal", "frame"],
+      "additionalProperties": false,
+      "properties": {
+        "point": {
+          "description": "A Pose6D position (01) — the surface point. Representation deferred to 02: an inline object, a coordinate array, or a let-reference.",
+          "anyOf": [ { "type": "object" }, { "type": "array" }, { "$ref": "#/$defs/Ref" } ]
+        },
+        "normal": { "$ref": "#/$defs/Direction" },
+        "frame": { "$ref": "#/$defs/FrameRef" },
+        "uncertainty": { "$ref": "#/$defs/UncertaintyBound" }
+      }
+    },
+    "SurfaceTargetOrAuto": {
+      "description": "SurfaceTarget | auto (the type place target_surface params carry, 01): the literal auto (planner-derived, e.g. the surface directly below along gravity), an inline SurfaceTarget, or a let-reference.",
+      "anyOf": [ { "$ref": "#/$defs/Auto" }, { "$ref": "#/$defs/SurfaceTarget" }, { "$ref": "#/$defs/Ref" } ]
+    },
     "SlipResponse": {
       "enum": ["abort", "retighten", "hold"],
       "description": "Reaction to detected slip, shared across grasp primitives (default retighten)."
@@ -674,8 +702,8 @@
       "additionalProperties": false,
       "properties": {
         "target": {
-          "anyOf": [ { "type": "object" }, { "$ref": "#/$defs/Ref" } ],
-          "description": "SurfaceTarget — resolvable point + outward unit normal in a calibrated frame. Inline object or let-reference."
+          "anyOf": [ { "$ref": "#/$defs/SurfaceTarget" }, { "$ref": "#/$defs/Ref" } ],
+          "description": "SurfaceTarget — resolvable point + outward unit normal in a calibrated frame. Inline SurfaceTarget or let-reference."
         },
         "standoff": {
           "$ref": "#/$defs/Length",
@@ -722,8 +750,8 @@
       "additionalProperties": false,
       "properties": {
         "target": {
-          "anyOf": [ { "type": "object" }, { "$ref": "#/$defs/Ref" } ],
-          "description": "SurfaceTarget | FrameRef — reference to hover over; may be time-varying. Inline object or let-reference (a bare FrameRef name is also a reference)."
+          "anyOf": [ { "$ref": "#/$defs/SurfaceTarget" }, { "$ref": "#/$defs/Ref" } ],
+          "description": "SurfaceTarget | FrameRef — reference to hover over; may be time-varying. Inline SurfaceTarget or let-reference (a bare FrameRef name is also a reference)."
         },
         "standoff": {
           "$ref": "#/$defs/Length",
@@ -1089,7 +1117,7 @@
       "additionalProperties": false,
       "properties": {
         "target": { "$ref": "#/$defs/Compound", "description": "ObjectTarget — object to pin against an opposing surface." },
-        "against_surface": { "$ref": "#/$defs/Compound", "description": "SurfaceTarget — the surface to pin the object against." },
+        "against_surface": { "anyOf": [ { "$ref": "#/$defs/SurfaceTarget" }, { "$ref": "#/$defs/Ref" } ], "description": "SurfaceTarget — the surface to pin the object against (inline SurfaceTarget or let-reference)." },
         "force_budget": { "$ref": "#/$defs/Force", "description": "Force > 0 — normal force pressing the object onto the surface; clamped to grip_force_max and target.max_contact_force." },
         "pin_pose": { "$ref": "#/$defs/CompoundOrAuto", "description": "Pose6D | auto — effector contact pose on the object's exposed face (default auto = opposite against_surface)." },
         "controlled_frame": { "$ref": "#/$defs/FrameRef", "description": "FrameRef — declared contact frame (default embodiment.default_grasp_frame)." },
@@ -1264,7 +1292,7 @@
       "additionalProperties": false,
       "properties": {
         "grasp_handle": { "$ref": "#/$defs/GraspHandle", "description": "GraspRef | active (default active) — the grasp holding the object." },
-        "target_surface": { "$ref": "#/$defs/CompoundOrAuto", "description": "SurfaceTarget | auto — where to place (default auto = the surface directly below along gravity)." },
+        "target_surface": { "$ref": "#/$defs/SurfaceTargetOrAuto", "description": "SurfaceTarget | auto — where to place (default auto = the surface directly below along gravity)." },
         "place_pose": { "$ref": "#/$defs/CompoundOrAuto", "description": "Pose6D | auto — object pose at placement (default auto = current orientation, lowered onto the surface)." },
         "frame": { "$ref": "#/$defs/FrameRef", "description": "FrameRef — reference frame (default task)." },
         "position_tolerance": { "$ref": "#/$defs/Length", "description": "Length > 0 (default 2 mm)." },
@@ -1315,7 +1343,7 @@
       "additionalProperties": false,
       "properties": {
         "grasp_handle": { "$ref": "#/$defs/GraspHandle", "description": "GraspRef | active (default active) — the grasp holding the object." },
-        "target_surface": { "$ref": "#/$defs/CompoundOrAuto", "description": "SurfaceTarget | auto — where to place (default auto)." },
+        "target_surface": { "$ref": "#/$defs/SurfaceTargetOrAuto", "description": "SurfaceTarget | auto — where to place (default auto)." },
         "required_orientation": { "$ref": "#/$defs/Compound", "description": "OrientationSpec — the orientation the placed object must have (object axis -> world direction, e.g. label_normal -> up)." },
         "orientation_tolerance": { "$ref": "#/$defs/Angle", "description": "Angle > 0 — on the placed orientation (default 3 deg)." },
         "frame": { "$ref": "#/$defs/FrameRef", "description": "FrameRef — reference frame (default task)." },
