@@ -49,7 +49,6 @@ pub struct ReferenceDriver {
 
 impl Driver for ReferenceDriver {
     fn execute(&mut self, goal: &ExecuteGoal) -> DriverReport {
-        self.step += 1;
         let ca = &goal.canonical_action;
         let fidelity_tier = match &ca.tactile_target {
             Some(TactileTargetOut::Auto) => Some("manifold".to_string()),
@@ -88,17 +87,32 @@ impl Driver for ReferenceDriver {
                 .and_then(serde_json::Value::as_str)
                 .map(|s| rfl_core::quantity::Quantity(s.to_string()))
         });
-        let telemetry = Telemetry {
-            message: "telemetry",
-            action_id: goal.action_id.clone(),
-            t: f64::from(self.step),
-            realized_pose: Some(RealizedPose::placeholder()),
-            wrench,
-            securing_force,
-            tactile: vec![],
-            events: vec![],
-            fidelity_tier: fidelity_tier.clone(),
+        // Interval-invariant actions (reach.hover) are sampled over the interval (ENV2,
+        // spec/05); every other action emits a single terminal-ish sample. N is decided
+        // by the envelope class so future interval-invariant primitives inherit it.
+        let n_samples = if envelope_class_for(suffix_of(&goal.action_id))
+            == Some(EnvelopeClass::IntervalInvariant)
+        {
+            3
+        } else {
+            1
         };
+        let telemetry: Vec<Telemetry> = (0..n_samples)
+            .map(|_| {
+                self.step += 1;
+                Telemetry {
+                    message: "telemetry",
+                    action_id: goal.action_id.clone(),
+                    t: f64::from(self.step),
+                    realized_pose: Some(RealizedPose::placeholder()),
+                    wrench: wrench.clone(),
+                    securing_force: securing_force.clone(),
+                    tactile: vec![],
+                    events: vec![],
+                    fidelity_tier: fidelity_tier.clone(),
+                }
+            })
+            .collect();
         let status = Status {
             message: "status",
             action_id: goal.action_id.clone(),
@@ -113,7 +127,7 @@ impl Driver for ReferenceDriver {
             failure_class: None,
             failure_detail: None,
         };
-        DriverReport { telemetry: vec![telemetry], status }
+        DriverReport { telemetry, status }
     }
 }
 
@@ -130,6 +144,9 @@ pub enum Fault {
     OverTorque,
     /// `outcome = indeterminate`, no `final_pose` (violates terminal-postcondition).
     NeverSettle,
+    /// Drop the middle telemetry sample's `realized_pose` (violates interval-invariant,
+    /// ENV2 — a mid-interval gap while the endpoint still conforms).
+    MidIntervalDrop,
 }
 
 /// Wraps the nominal `ReferenceDriver` and injects one `Fault` into every report it
@@ -178,6 +195,12 @@ impl Driver for FaultyDriver {
             Fault::NeverSettle => {
                 report.status.outcome = Outcome::Indeterminate;
                 report.status.final_pose = None;
+            }
+            Fault::MidIntervalDrop => {
+                let mid = report.telemetry.len() / 2;
+                if let Some(t) = report.telemetry.get_mut(mid) {
+                    t.realized_pose = None;
+                }
             }
         }
         report
@@ -242,8 +265,6 @@ pub fn reports_to_jsonl(reports: &[DriverReport]) -> String {
 }
 
 /// The conformance envelope class a primitive is verified against (`spec/05` ENV1).
-/// Interval-invariant is omitted in v0 (no cable primitive — `reach.hover` /
-/// `transport.carry` — exercises it).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum EnvelopeClass {
     /// `reach.*` (except hover): the end state, pose at rest, endpoint only.
@@ -252,6 +273,9 @@ pub enum EnvelopeClass {
     GraspContinuity,
     /// `force.*`: the force/torque profile against per-axis budgets.
     ForceTrajectory,
+    /// `reach.hover` / `transport.carry`: a maintained invariant sampled over the
+    /// interval (`05` ENV2). A mid-interval violation fails even when the endpoint conforms.
+    IntervalInvariant,
 }
 
 /// Map an action-id suffix to its envelope class (`spec/05` ENV1). `sense.*`
@@ -263,8 +287,14 @@ pub fn envelope_class_for(suffix: &str) -> Option<EnvelopeClass> {
         "align" | "retract" | "scan" => Some(EnvelopeClass::TerminalPostcondition),
         "pinch" | "release" | "transport" => Some(EnvelopeClass::GraspContinuity),
         "insert_fit" | "screw" | "unscrew" => Some(EnvelopeClass::ForceTrajectory),
+        "hover" => Some(EnvelopeClass::IntervalInvariant),
         _ => None, // locate / inspect: perception, no envelope
     }
+}
+
+/// The primitive suffix of an action id (`.../NNNN-<suffix>`; suffixes contain no `-`).
+fn suffix_of(action_id: &str) -> &str {
+    action_id.rsplit('-').next().unwrap_or(action_id)
 }
 
 /// The result of an envelope-class check.
@@ -359,6 +389,25 @@ pub fn check_envelope(
             }
             CheckOutcome::Pass
         }
+        EnvelopeClass::IntervalInvariant => {
+            // v0 structural interval check (concrete poses are spec/02's): the action
+            // settled (Succeeded) and EVERY interval telemetry sample carries a
+            // realized_pose — the station was maintained at each sampled instant. A
+            // mid-interval sample missing its pose fails here even when the endpoint
+            // (TerminalPostcondition) conforms — the ENV2 property.
+            if !matches!(report.status.outcome, Outcome::Succeeded) {
+                return CheckOutcome::Fail(format!(
+                    "outcome not succeeded: {:?}",
+                    report.status.outcome
+                ));
+            }
+            for (i, t) in report.telemetry.iter().enumerate() {
+                if t.realized_pose.is_none() {
+                    return CheckOutcome::Fail(format!("interval sample {i} missing realized_pose"));
+                }
+            }
+            CheckOutcome::Pass
+        }
     }
 }
 
@@ -398,6 +447,7 @@ mod tests {
         assert_eq!(envelope_class_for("transport"), Some(EnvelopeClass::GraspContinuity));
         assert_eq!(envelope_class_for("insert_fit"), Some(EnvelopeClass::ForceTrajectory));
         assert_eq!(envelope_class_for("unscrew"), Some(EnvelopeClass::ForceTrajectory));
+        assert_eq!(envelope_class_for("hover"), Some(EnvelopeClass::IntervalInvariant));
         assert_eq!(envelope_class_for("locate"), None); // sense: perception
         assert_eq!(envelope_class_for("inspect"), None);
     }
@@ -499,5 +549,70 @@ mod tests {
             check_envelope(EnvelopeClass::ForceTrajectory, goal, &bad),
             CheckOutcome::Fail(_)
         ));
+    }
+
+    fn sample_action() -> rfl_core::canonical::CanonicalAction {
+        use rfl_core::canonical::{
+            CanonicalAction, Envelope, MotionBounds, PoseExpr, TimingHints, TimingMode,
+        };
+        CanonicalAction {
+            target_frame: "control".into(),
+            target_pose: PoseExpr::Ref { r#ref: "panel".into() },
+            force_budget: None,
+            timing: TimingHints {
+                nominal_duration: None,
+                timing_mode: TimingMode::Strict,
+                stop_at_goal: true,
+            },
+            tactile_target: None,
+            monitors: vec![],
+            safety_envelope: Envelope {
+                motion_bounds: MotionBounds::default(),
+                force_profile: None,
+                clearance: None,
+                compliance: None,
+                stop_time: None,
+            },
+        }
+    }
+
+    #[test]
+    fn interval_invariant_checks_every_sample() {
+        use rfl_core::driver::{Outcome, RealizedPose, Status, Telemetry, Verdict};
+        let goal = ExecuteGoal::wrap("s/e/0001-hover".to_string(), sample_action());
+        let sample = |pose: Option<RealizedPose>| Telemetry {
+            message: "telemetry",
+            action_id: "s/e/0001-hover".to_string(),
+            t: 1.0,
+            realized_pose: pose,
+            wrench: None,
+            securing_force: None,
+            tactile: vec![],
+            events: vec![],
+            fidelity_tier: None,
+        };
+        let status = Status {
+            message: "status",
+            action_id: "s/e/0001-hover".to_string(),
+            outcome: Outcome::Succeeded,
+            verdict: Some(Verdict { value: true, confidence: 1.0, evidence: vec![] }),
+            fidelity_tier: None,
+            final_pose: Some(RealizedPose::placeholder()),
+            failure_class: None,
+            failure_detail: None,
+        };
+        let ok = DriverReport {
+            telemetry: vec![sample(Some(RealizedPose::placeholder())); 3],
+            status: status.clone(),
+        };
+        assert_eq!(check_envelope(EnvelopeClass::IntervalInvariant, &goal, &ok), CheckOutcome::Pass);
+        // Drop the middle sample's pose: interval fails, but the endpoint (terminal) is fine.
+        let mut bad = ok.clone();
+        bad.telemetry[1].realized_pose = None;
+        assert!(matches!(
+            check_envelope(EnvelopeClass::IntervalInvariant, &goal, &bad),
+            CheckOutcome::Fail(_)
+        ));
+        assert_eq!(check_envelope(EnvelopeClass::TerminalPostcondition, &goal, &bad), CheckOutcome::Pass);
     }
 }
