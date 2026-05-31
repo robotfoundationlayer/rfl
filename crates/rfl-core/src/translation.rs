@@ -17,9 +17,9 @@ use crate::canonical::{
 use crate::embodiment::Embodiment;
 use crate::quantity::Quantity;
 use crate::skill_isa::{
-    Axes, Axis, Compliance, ForceInsertFit, ForceScrew, ForceUnscrew, GraspPinch, GraspRelease, Primitive, ReachAlign,
-    ReachHover, ReachRetract, ReachScan, ScanPattern, SenseInspect, Skill, Statement, TactileTargetArg,
-    TransportMoveToPose,
+    Axes, Axis, Compliance, DisturbanceArg, ForceInsertFit, ForceScrew, ForceUnscrew, GraspPinch, GraspRelease,
+    Primitive, ReachAlign, ReachHover, ReachRetract, ReachScan, ScanPattern, SenseInspect, Skill, StabilityMarginArg,
+    Statement, TactileTargetArg, TransportCarry, TransportMoveToPose,
 };
 use crate::grasp_force::{self, GraspMode};
 use std::collections::BTreeMap;
@@ -125,6 +125,9 @@ fn check_capability(prim: &Primitive, e: &Embodiment) -> crate::Result<()> {
         Primitive::GraspPinch(_) => "grasp.pinch",
         // A category key implies the base primitive: `transport` = transport.move_to_pose.
         Primitive::TransportMoveToPose(_) => "transport",
+        // transport.carry is a DISTINCT capability beyond the base transport gate
+        // (§ 4.4 precondition: "declares transport with carry support").
+        Primitive::TransportCarry(_) => "transport.carry",
         Primitive::ForceInsertFit(_) => "force.insert_fit",
         Primitive::ForceScrew(_) => "force.screw",
         Primitive::ForceUnscrew(_) => "force.unscrew",
@@ -150,6 +153,7 @@ fn lower(
         Primitive::SenseLocate(p) => (lower_sense_locate(p, e), "locate"),
         Primitive::GraspPinch(p) => (lower_grasp_pinch(p, e, ctx, weights), "pinch"),
         Primitive::TransportMoveToPose(p) => (lower_transport_move_to_pose(p, e, ctx), "transport"),
+        Primitive::TransportCarry(p) => (lower_transport_carry(p, e, ctx), "carry"),
         Primitive::ReachAlign(p) => (lower_reach_align(p, e), "align"),
         Primitive::ForceInsertFit(p) => (lower_force_insert_fit(p, e, ctx), "insert_fit"),
         Primitive::ForceScrew(p) => (lower_force_screw(p, e, ctx), "screw"),
@@ -304,6 +308,68 @@ fn lower_transport_move_to_pose(
             let dyn_a = grasp_force::dynamic_a_max(held.weight_n, payload_n);
             if dyn_a < ceiling_v {
                 env.motion_bounds.a_max = Some(Quantity::from_si(dyn_a, &unit));
+            }
+        }
+    }
+    CanonicalAction {
+        target_frame: e.grasp_frame().to_string(),
+        target_pose,
+        force_budget: None,
+        timing: TimingHints {
+            nominal_duration: None,
+            timing_mode: TimingMode::TimeScalable,
+            stop_at_goal: true,
+        },
+        tactile_target: None,
+        monitors: vec![],
+        safety_envelope: env,
+    }
+}
+
+/// Lower `transport.carry` (`spec/01` § 4.4): transport a held object while rejecting
+/// disturbance. The held-secured floor (GC1) and the carry-clamped a_max are emitted from
+/// `ctx.held` (like `lower_transport_move_to_pose`), but the acceleration is clamped *below*
+/// the plain dynamic limit via `grasp_force::carry_a_max`, reserving margin for the
+/// `disturbance_budget` (`spec/02`:137). `disturbance_budget` + `stability_margin` are emitted
+/// for the ENV3 bench (a later increment). v0 lowers the `{to_pose: P}` MoveSpec; `{trajectory}`
+/// is deferred. `stability_margin: auto` reads the descriptor default.
+fn lower_transport_carry(p: &TransportCarry, e: &Embodiment, ctx: &GraspContext) -> CanonicalAction {
+    let target_pose = match p.motion.get("to_pose").map(yaml_to_json) {
+        Some(serde_json::Value::Object(map)) => {
+            let frame = map
+                .get("frame")
+                .and_then(serde_json::Value::as_str)
+                .unwrap_or("task")
+                .to_string();
+            let offset = map.get("offset").cloned().unwrap_or(serde_json::Value::Null);
+            PoseExpr::FrameRelative { frame, offset }
+        }
+        // {trajectory: ...} or any other MoveSpec form is carried opaquely in v0.
+        _ => PoseExpr::FrameRelative { frame: "task".into(), offset: yaml_to_json(&p.motion) },
+    };
+    let mut env = base_envelope(e);
+    if let Some(held) = &ctx.held {
+        let disturbance_n = match &p.disturbance_budget {
+            Some(DisturbanceArg::Force(q)) => q.parse().map_or(0.0, |(v, _)| v),
+            _ => 0.0, // auto deferred -> no extra reserve in v0
+        };
+        let margin = match &p.stability_margin {
+            Some(StabilityMarginArg::Ratio(m)) => *m,
+            _ => e.ratio_limit("stability_margin").unwrap_or(0.0), // auto -> descriptor default
+        };
+        let mhf = grasp_force::min_holding_force(held.weight_n, held.mode);
+        env.force_profile = Some(serde_json::json!({
+            "min_holding_force": Quantity::from_si(mhf, "N").0,
+            "disturbance_budget": Quantity::from_si(disturbance_n, "N").0,
+            "stability_margin": margin,
+        }));
+        let payload = e.scalar_limit(held.mode.payload_key()).and_then(|q| q.parse());
+        let ceiling = e.scalar_limit("a_cartesian_max").and_then(|q| q.parse());
+        if let (Some((payload_n, _)), Some((ceiling_v, unit))) = (payload, ceiling) {
+            let unit = unit.to_string();
+            let carry_a = grasp_force::carry_a_max(held.weight_n, payload_n, disturbance_n, margin);
+            if carry_a < ceiling_v {
+                env.motion_bounds.a_max = Some(Quantity::from_si(carry_a, &unit));
             }
         }
     }
@@ -998,6 +1064,54 @@ mod tests {
         let emb = load("allegro").1; // cable allegro lacks force.unscrew
         let err = retarget(&skill, &emb).unwrap_err();
         assert!(err.to_string().contains("capability_absent: force.unscrew"), "got {err}");
+    }
+
+    const CARRY_SKILL: &str = "skill: cable-carry\nobjects:\n  connector: { ref: connector, estimated_mass: 1.45 N }\nbody:\n  sequence:\n    - let: connector_t\n      from:\n        sense.locate: { target_ref: connector, modality: auto }\n    - grasp.pinch: { target: connector_t, force_budget: 8 N, tactile_target: auto }\n    - transport.carry:\n        motion: { to_pose: { frame: staging, offset: { along: +z, distance: 100 mm } } }\n        disturbance_budget: 0.4 N\n        stability_margin: auto\n";
+
+    fn carry_emb(stem: &str) -> Embodiment {
+        let (_, mut emb) = load(stem);
+        emb.capabilities.skills.push("transport.carry".to_string());
+        emb.limits
+            .insert("stability_margin".to_string(), serde_yaml::from_str("0.5").unwrap());
+        emb
+    }
+
+    #[test]
+    fn carry_emits_floor_disturbance_margin_and_clamps_a_max_on_allegro() {
+        let skill = Skill::parse_yaml(CARRY_SKILL).expect("parse");
+        let emb = carry_emb("allegro");
+        let out = retarget(&skill, &emb).expect("retarget");
+        assert_eq!(out.suffixes, vec!["locate", "pinch", "carry"]);
+        let fp = out.actions[2].safety_envelope.force_profile.as_ref().expect("force_profile");
+        assert_eq!(fp.get("min_holding_force").and_then(|v| v.as_str()), Some("2.9 N"));
+        assert_eq!(fp.get("disturbance_budget").and_then(|v| v.as_str()), Some("0.4 N"));
+        assert_eq!(fp.get("stability_margin").and_then(serde_json::Value::as_f64), Some(0.5));
+        // allegro carry a_max clamps from the 1.5 kinematic ceiling to 1.014481.
+        assert_eq!(
+            out.actions[2].safety_envelope.motion_bounds.a_max.as_ref().unwrap().0,
+            "1.014481 m/s^2"
+        );
+    }
+
+    #[test]
+    fn carry_a_max_clamps_to_zero_on_weaker_hands() {
+        let skill = Skill::parse_yaml(CARRY_SKILL).expect("parse");
+        for stem in ["leap", "pneumatic-6f"] {
+            let out = retarget(&skill, &carry_emb(stem)).expect("retarget");
+            assert_eq!(
+                out.actions[2].safety_envelope.motion_bounds.a_max.as_ref().unwrap().0,
+                "0 m/s^2",
+                "stem {stem}"
+            );
+        }
+    }
+
+    #[test]
+    fn carry_capability_absent_when_not_declared() {
+        let skill = Skill::parse_yaml(CARRY_SKILL).expect("parse");
+        let (_, emb) = load("allegro"); // cable allegro lacks transport.carry
+        let err = retarget(&skill, &emb).unwrap_err();
+        assert!(err.to_string().contains("capability_absent: transport.carry"), "got {err}");
     }
 
     #[test]

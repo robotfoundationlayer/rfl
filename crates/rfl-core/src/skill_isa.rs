@@ -140,6 +140,9 @@ pub enum Primitive {
     /// `force.unscrew`.
     #[serde(rename = "force.unscrew")]
     ForceUnscrew(ForceUnscrew),
+    /// `transport.carry`.
+    #[serde(rename = "transport.carry")]
+    TransportCarry(TransportCarry),
 }
 
 /// `sense.locate` modality (`$defs/SenseLocateParams.modality`).
@@ -230,6 +233,46 @@ fn tactile_auto() -> TactileTargetArg {
 pub struct TransportMoveToPose {
     /// `Pose6D` floored as an inline object (a frame-relative offset) or a ref.
     pub target_pose: serde_yaml::Value,
+}
+
+/// `disturbance_budget` argument (`$defs`, § 4.4): `Force | auto`. v0 lowers the explicit
+/// `Force`; `auto` (derive from the min_holding_force margin) is deferred — no normative
+/// formula exists (same posture as `coverage_overlap: auto`).
+#[derive(Debug, Clone, serde::Deserialize)]
+#[serde(untagged)]
+pub enum DisturbanceArg {
+    /// The literal `auto` (deferred derivation).
+    Auto(AutoLiteral),
+    /// An explicit force budget.
+    Force(Quantity),
+}
+
+/// `stability_margin` argument (§ 4.4): `Ratio | auto`. `auto` resolves to the descriptor's
+/// `limits.stability_margin` (the M2-required embodiment default); an explicit ratio overrides.
+#[derive(Debug, Clone, serde::Deserialize)]
+#[serde(untagged)]
+pub enum StabilityMarginArg {
+    /// The literal `auto` (= the embodiment default limit).
+    Auto(AutoLiteral),
+    /// An explicit headroom ratio.
+    Ratio(f64),
+}
+
+/// `transport.carry` parameters (v0 subset of `$defs/TransportCarryParams`, § 4.4). The
+/// `MoveSpec` `motion` is carried opaquely — v0 lowers the `{to_pose: Pose6D}` form,
+/// `{trajectory: T}` is deferred. The remaining § 4.4 params (grasp_handle / frame /
+/// position_tolerance / max_velocity / max_acceleration / contact_response / timeout) carry
+/// their spec defaults and are not emitted in v0 (serde ignores them).
+#[derive(Debug, Clone, serde::Deserialize)]
+pub struct TransportCarry {
+    /// `MoveSpec`: `{to_pose: Pose6D}` (lowered) or `{trajectory: T}` (deferred).
+    pub motion: serde_yaml::Value,
+    /// External perturbation the carry must reject (`Force | auto`).
+    #[serde(default)]
+    pub disturbance_budget: Option<DisturbanceArg>,
+    /// Required holding-capacity headroom (`Ratio | auto`).
+    #[serde(default)]
+    pub stability_margin: Option<StabilityMarginArg>,
 }
 
 /// `reach.align` axes (`$defs/Axes`): the literal `all` or a set of principal axes.
@@ -549,5 +592,18 @@ mod parse_tests {
         assert_eq!(p.torque_budget.0, "2 N\u{b7}m");
         assert_eq!(p.thread_pitch.as_ref().unwrap().0, "0.8 mm");
         assert!(matches!(p.compliance, Some(Compliance::Active)));
+    }
+
+    #[test]
+    fn transport_carry_parses() {
+        let yaml = "skill: t\nbody:\n  sequence:\n    - transport.carry:\n        motion: { to_pose: { frame: staging, offset: { along: +z, distance: 100 mm } } }\n        disturbance_budget: 0.4 N\n        stability_margin: auto\n";
+        let s = Skill::parse_yaml(yaml).expect("parse");
+        let Statement::Primitive(Primitive::TransportCarry(p)) = &s.body.sequence[0] else {
+            panic!("expected transport.carry");
+        };
+        assert!(p.motion.get("to_pose").is_some());
+        assert!(matches!(p.stability_margin, Some(StabilityMarginArg::Auto(_))));
+        let Some(DisturbanceArg::Force(q)) = &p.disturbance_budget else { panic!("explicit force") };
+        assert_eq!(q.0, "0.4 N");
     }
 }

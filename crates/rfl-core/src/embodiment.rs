@@ -161,6 +161,17 @@ impl Embodiment {
         }
     }
 
+    /// A bare-number ratio limit (e.g. `stability_margin`), if present and numeric. Unlike
+    /// `scalar_limit` (unit-suffixed quantities), a dimensionless ratio deserializes to
+    /// `LimitValue::Other(Number)`.
+    #[must_use]
+    pub fn ratio_limit(&self, key: &str) -> Option<f64> {
+        match self.limits.get(key) {
+            Some(LimitValue::Other(serde_yaml::Value::Number(n))) => n.as_f64(),
+            _ => None,
+        }
+    }
+
     /// The default grasp control frame (`frames.role_defaults.grasp`, e.g. `tcp_thumb`).
     /// Differs per embodiment, realizing the Principle-1 point that only the
     /// descriptor changes between hands.
