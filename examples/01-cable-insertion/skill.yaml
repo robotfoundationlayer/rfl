@@ -13,8 +13,10 @@ description: >
 
 # Task object references; their poses are resolved at runtime by sense.locate.
 objects:
-  connector:  { ref: connector }     # the rigid connector at the cable end
-  receptacle: { ref: receptacle }    # the mating receptacle, fixed in the workcell
+  connector:  { ref: connector, estimated_mass: 1.45 N }   # rigid connector at the cable end;
+                                                            # ~148 g, sized so the dynamic-stability
+                                                            # clamp bites on the lowest-payload hand
+  receptacle: { ref: receptacle }    # the mating receptacle, fixed in the workcell (not grasped)
 
 body:
   sequence:

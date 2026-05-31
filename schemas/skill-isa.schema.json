@@ -34,6 +34,10 @@
         "ref": {
           "type": "string",
           "description": "The object identity (ObjectRef) this local name binds to."
+        },
+        "estimated_mass": {
+          "$ref": "#/$defs/Force",
+          "description": "Optional declared weight (a known prior), mirroring ObjectTarget.estimated_mass; supplied to the grasp-force derivations at retarget time."
         }
       }
     },

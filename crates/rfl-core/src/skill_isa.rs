@@ -64,6 +64,10 @@ pub struct Skill {
 pub struct ObjectDecl {
     /// The object identity this local name binds to.
     pub r#ref: String,
+    /// Optional declared weight (`spec/01` ObjectTarget.estimated_mass: Force), a
+    /// known prior the Translation Layer reads for the grasp-force derivations.
+    #[serde(default)]
+    pub estimated_mass: Option<Quantity>,
 }
 
 /// An ordered composition (`$defs/Sequence`). v0 supports the sequence body only.
@@ -401,6 +405,13 @@ mod parse_tests {
         assert_eq!(s.skill, "cable-insertion");
         assert!(s.objects.contains_key("connector"));
         assert_eq!(s.objects["receptacle"].r#ref, "receptacle");
+    }
+
+    #[test]
+    fn connector_declares_estimated_mass() {
+        let s = cable_skill();
+        assert_eq!(s.objects["connector"].estimated_mass.as_ref().unwrap().0, "1.45 N");
+        assert!(s.objects["receptacle"].estimated_mass.is_none());
     }
 
     #[test]
