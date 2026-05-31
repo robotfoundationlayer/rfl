@@ -248,3 +248,64 @@ fn mid_interval_drop_fails_interval_but_passes_terminal() {
         CheckOutcome::Pass
     );
 }
+
+#[test]
+fn nominal_carry_passes_interval_with_held_floor() {
+    // transport.carry is interval-invariant (spec/05 ENV1), and being held its interval
+    // invariant ALSO requires the securing floor at every sample (§ 4.4 — the held leg).
+    let dir = example_dir();
+    let pairs = drive(
+        ReferenceDriver::default(),
+        &dir.join("skill-carry.yaml"),
+        &dir.join("embodiments/allegro.yaml"),
+    )
+    .expect("drive");
+    // skill-carry: locate (0), pinch (1), carry (2).
+    let (goal, report) = &pairs[2];
+    assert_eq!(suffix_of(&goal.action_id), "carry");
+    assert_eq!(report.telemetry.len(), 3, "carry is interval-sampled");
+    assert_eq!(check_envelope(EnvelopeClass::IntervalInvariant, goal, report), CheckOutcome::Pass);
+    // non-vacuous: the held floor IS present and IS being checked over the interval.
+    assert!(report.telemetry[0].securing_force.is_some());
+}
+
+#[test]
+fn under_secure_fails_carry_interval_held_floor() {
+    // The held leg of the carry interval invariant: a lowered securing_force is rejected.
+    let dir = example_dir();
+    let pairs = drive(
+        FaultyDriver::new(Fault::UnderSecure),
+        &dir.join("skill-carry.yaml"),
+        &dir.join("embodiments/allegro.yaml"),
+    )
+    .expect("drive");
+    let (goal, report) = &pairs[2];
+    assert_eq!(suffix_of(&goal.action_id), "carry");
+    assert!(matches!(
+        check_envelope(EnvelopeClass::IntervalInvariant, goal, report),
+        CheckOutcome::Fail(_)
+    ));
+}
+
+#[test]
+fn mid_interval_drop_fails_carry_interval_but_passes_terminal() {
+    // The station leg: a mid-interval pose gap fails the carry interval invariant even
+    // though the endpoint (terminal) conforms (ENV2).
+    let dir = example_dir();
+    let pairs = drive(
+        FaultyDriver::new(Fault::MidIntervalDrop),
+        &dir.join("skill-carry.yaml"),
+        &dir.join("embodiments/allegro.yaml"),
+    )
+    .expect("drive");
+    let (goal, report) = &pairs[2];
+    assert_eq!(suffix_of(&goal.action_id), "carry");
+    assert!(matches!(
+        check_envelope(EnvelopeClass::IntervalInvariant, goal, report),
+        CheckOutcome::Fail(_)
+    ));
+    assert_eq!(
+        check_envelope(EnvelopeClass::TerminalPostcondition, goal, report),
+        CheckOutcome::Pass
+    );
+}

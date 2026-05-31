@@ -1109,7 +1109,10 @@ mod tests {
     #[test]
     fn carry_capability_absent_when_not_declared() {
         let skill = Skill::parse_yaml(CARRY_SKILL).expect("parse");
-        let (_, emb) = load("allegro"); // cable allegro lacks transport.carry
+        let (_, mut emb) = load("allegro");
+        // The 01 descriptors now declare transport.carry (the skill-carry example); strip it
+        // to exercise the gate. transport.carry is a distinct capability from base transport.
+        emb.capabilities.skills.retain(|s| s != "transport.carry");
         let err = retarget(&skill, &emb).unwrap_err();
         assert!(err.to_string().contains("capability_absent: transport.carry"), "got {err}");
     }

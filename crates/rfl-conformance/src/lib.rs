@@ -278,16 +278,17 @@ pub enum EnvelopeClass {
     IntervalInvariant,
 }
 
-/// Map an action-id suffix to its envelope class (`spec/05` ENV1). `sense.*`
-/// (locate / inspect) has no motion envelope; the interval-invariant primitives
-/// (hover / carry) are not in the v0 worked example.
+/// Map an action-id suffix to its envelope class (`spec/05` ENV1). Every primitive maps
+/// to exactly one class; `sense.*` (locate / inspect) has no motion envelope. `hover` and
+/// `carry` are interval-invariant — a held `carry` additionally checks the securing floor
+/// over the interval (`check_envelope`), but it remains one class (ENV1).
 #[must_use]
 pub fn envelope_class_for(suffix: &str) -> Option<EnvelopeClass> {
     match suffix {
         "align" | "retract" | "scan" => Some(EnvelopeClass::TerminalPostcondition),
         "pinch" | "release" | "transport" => Some(EnvelopeClass::GraspContinuity),
         "insert_fit" | "screw" | "unscrew" => Some(EnvelopeClass::ForceTrajectory),
-        "hover" => Some(EnvelopeClass::IntervalInvariant),
+        "hover" | "carry" => Some(EnvelopeClass::IntervalInvariant),
         _ => None, // locate / inspect: perception, no envelope
     }
 }
@@ -311,6 +312,28 @@ fn quantity_mag(q: &rfl_core::quantity::Quantity) -> Option<f64> {
     q.parse().map(|(v, _)| v)
 }
 
+/// If the action carries a `min_holding_force` floor and any telemetry sample's
+/// `securing_force` is below it, the failure reason; else `None`. Shared by the
+/// grasp-continuity check and the held leg of the interval-invariant check (`05` GC1).
+fn securing_floor_violation(goal: &ExecuteGoal, report: &DriverReport) -> Option<String> {
+    let floor = goal
+        .canonical_action
+        .safety_envelope
+        .force_profile
+        .as_ref()
+        .and_then(|fp| fp.get("min_holding_force"))
+        .and_then(serde_json::Value::as_str)
+        .and_then(|s| rfl_core::quantity::Quantity(s.to_string()).parse().map(|(v, _)| v))?;
+    for t in &report.telemetry {
+        if let Some(sf) = t.securing_force.as_ref().and_then(quantity_mag) {
+            if sf < floor {
+                return Some(format!("securing_force {sf} < min_holding_force {floor}"));
+            }
+        }
+    }
+    None
+}
+
 /// Verify a driver report against the action's envelope class (`spec/05` ENV1–ENV4,
 /// GC1). A pure function of the commanded `execute` goal and the returned report.
 #[must_use]
@@ -332,30 +355,12 @@ pub fn check_envelope(
             }
             CheckOutcome::Pass
         }
-        EnvelopeClass::GraspContinuity => {
-            // GF1c floor from the execute message's force_profile, if present.
-            let floor = goal
-                .canonical_action
-                .safety_envelope
-                .force_profile
-                .as_ref()
-                .and_then(|fp| fp.get("min_holding_force"))
-                .and_then(serde_json::Value::as_str)
-                .and_then(|s| rfl_core::quantity::Quantity(s.to_string()).parse().map(|(v, _)| v));
-            let Some(floor) = floor else {
-                return CheckOutcome::Pass; // transport / release carry no floor in v0
-            };
-            for t in &report.telemetry {
-                if let Some(sf) = t.securing_force.as_ref().and_then(quantity_mag) {
-                    if sf < floor {
-                        return CheckOutcome::Fail(format!(
-                            "securing_force {sf} < min_holding_force {floor}"
-                        ));
-                    }
-                }
-            }
-            CheckOutcome::Pass
-        }
+        EnvelopeClass::GraspContinuity => match securing_floor_violation(goal, report) {
+            // GF1c floor from the execute message's force_profile, when present (transport /
+            // release carry no floor in v0 -> vacuously Pass).
+            Some(reason) => CheckOutcome::Fail(reason),
+            None => CheckOutcome::Pass,
+        },
         EnvelopeClass::ForceTrajectory => {
             // Force budget (linear) — when present (e.g. force.insert_fit).
             if let Some(budget) = goal.canonical_action.force_budget.as_ref().and_then(quantity_mag) {
@@ -406,6 +411,13 @@ pub fn check_envelope(
                     return CheckOutcome::Fail(format!("interval sample {i} missing realized_pose"));
                 }
             }
+            // Held interval (transport.carry, § 4.4): if the action carries a
+            // min_holding_force floor, the grasp must stay secured at >= floor at EVERY
+            // interval sample — the held leg of the interval invariant. Vacuous for
+            // reach.hover (no floor), so hover is unaffected.
+            if let Some(reason) = securing_floor_violation(goal, report) {
+                return CheckOutcome::Fail(reason);
+            }
             CheckOutcome::Pass
         }
     }
@@ -448,6 +460,7 @@ mod tests {
         assert_eq!(envelope_class_for("insert_fit"), Some(EnvelopeClass::ForceTrajectory));
         assert_eq!(envelope_class_for("unscrew"), Some(EnvelopeClass::ForceTrajectory));
         assert_eq!(envelope_class_for("hover"), Some(EnvelopeClass::IntervalInvariant));
+        assert_eq!(envelope_class_for("carry"), Some(EnvelopeClass::IntervalInvariant));
         assert_eq!(envelope_class_for("locate"), None); // sense: perception
         assert_eq!(envelope_class_for("inspect"), None);
     }
