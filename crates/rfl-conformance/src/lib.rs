@@ -233,7 +233,7 @@ pub fn envelope_class_for(suffix: &str) -> Option<EnvelopeClass> {
     match suffix {
         "align" | "retract" | "scan" => Some(EnvelopeClass::TerminalPostcondition),
         "pinch" | "release" | "transport" => Some(EnvelopeClass::GraspContinuity),
-        "insert_fit" => Some(EnvelopeClass::ForceTrajectory),
+        "insert_fit" | "screw" => Some(EnvelopeClass::ForceTrajectory),
         _ => None, // locate / inspect: perception, no envelope
     }
 }
