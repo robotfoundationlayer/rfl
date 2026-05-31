@@ -285,6 +285,12 @@ fn lower_transport_move_to_pose(
     };
     let mut env = base_envelope(e);
     if let Some(held) = &ctx.held {
+        // GC1 static floor: the held carry maintains min_holding_force (the static
+        // counterpart of the dynamic a_max clamp below; spec/05 GC1 base continuity for
+        // transport.move_to_pose, spec/02 § min_holding_force). Mirrors lower_grasp_pinch.
+        let mhf = grasp_force::min_holding_force(held.weight_n, held.mode);
+        env.force_profile =
+            Some(serde_json::json!({ "min_holding_force": Quantity::from_si(mhf, "N").0 }));
         let payload = e.scalar_limit(held.mode.payload_key()).and_then(|q| q.parse());
         let ceiling = e.scalar_limit("a_cartesian_max").and_then(|q| q.parse());
         if let (Some((payload_n, _)), Some((ceiling_v, unit))) = (payload, ceiling) {
@@ -618,6 +624,21 @@ mod tests {
                 "retract"
             ]
         );
+    }
+
+    #[test]
+    fn transport_emits_min_holding_force_on_held_carry() {
+        let (skill, emb) = load("allegro");
+        let out = retarget(&skill, &emb).expect("retarget");
+        // suffixes: locate, pinch, transport(2), locate, align, insert_fit, release, retract
+        assert_eq!(out.suffixes[2], "transport");
+        let fp = out.actions[2]
+            .safety_envelope
+            .force_profile
+            .as_ref()
+            .expect("held transport carries force_profile");
+        // connector estimated_mass 1.45 N, pinch -> min_holding_force = 1.45 * 2.0 = 2.9 N
+        assert_eq!(fp.get("min_holding_force").and_then(|v| v.as_str()), Some("2.9 N"));
     }
 
     #[test]
