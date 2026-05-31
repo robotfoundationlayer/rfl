@@ -78,6 +78,20 @@ pub fn reaction_limit(force_budget_n: f64, grip_force_max_n: f64, mode: GraspMod
     force_budget_n.min(grip_force_max_n / mode.k_reaction())
 }
 
+/// Schematic effective grip radius (m) for the tool-grasp rotational capacity — a v0
+/// reference-implementation constant (pinned by golden, non-normative).
+pub const R_GRIP: f64 = 0.02;
+
+/// GF4c — the reaction-torque limit: a tool-mediated `force` primitive's reaction is a
+/// torque about the tool axis; the held tool's grasp must resist it with rotational
+/// holding capacity (≈ grip force × lever ÷ the reaction factor), or the tool spins
+/// in-grasp. Returns the smaller of the requested torque budget and that capacity
+/// (both N·m). The rotational counterpart of `reaction_limit` (GF3c).
+#[must_use]
+pub fn reaction_torque_limit(torque_budget_nm: f64, grip_force_max_n: f64, mode: GraspMode) -> f64 {
+    torque_budget_nm.min(grip_force_max_n * R_GRIP / mode.k_reaction())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -114,5 +128,20 @@ mod tests {
         assert!((reaction_limit(15.0, 12.0, GraspMode::Pinch) - 6.0).abs() < 1e-9);
         // 5 N budget vs 20/2 = 10 capacity -> 5 (budget lower).
         assert!((reaction_limit(5.0, 20.0, GraspMode::Pinch) - 5.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn reaction_torque_limit_clamps_to_rotational_capacity() {
+        // allegro grip 20 N: 20 * 0.02 / 2.0 = 0.2 N·m; the 2 N·m budget clamps to it.
+        let a = reaction_torque_limit(2.0, 20.0, GraspMode::Pinch);
+        assert!((a - 0.2).abs() < 1e-9, "got {a}");
+        // pneumatic grip 12 N: 12 * 0.02 / 2.0 = 0.12.
+        assert!((reaction_torque_limit(2.0, 12.0, GraspMode::Pinch) - 0.12).abs() < 1e-9);
+    }
+
+    #[test]
+    fn reaction_torque_limit_keeps_budget_when_capacity_is_higher() {
+        // a tiny 0.05 N·m budget under a 20 N grip (0.2 capacity) -> budget kept.
+        assert!((reaction_torque_limit(0.05, 20.0, GraspMode::Pinch) - 0.05).abs() < 1e-9);
     }
 }
