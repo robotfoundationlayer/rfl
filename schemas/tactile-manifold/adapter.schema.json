@@ -1,0 +1,134 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "RFL TactileManifold — per-sensor-class adapter mapping",
+  "description": "A per-sensor-class adapter (04-tactile-manifold.md § The adapter mapping): the declarative raw-signal -> manifold-feature mapping contract a sensor class encodes. An embodiment's contact-sensor descriptor binds to one by `sensor_class`. The adapter declares the contract — which raw channels produce which manifold features, at which sites, at what resolution — and never the numeric algorithm that computes a feature from raw data (that is the implementation's, below RFL; Principle 4). The closed-core feature vocabulary is asserted identical to skill-isa's (validate.py C5).",
+  "type": "object",
+  "required": ["sensor_class", "raw_signal", "feature_production", "site_model"],
+  "additionalProperties": false,
+  "properties": {
+    "sensor_class": { "$ref": "#/$defs/ClassToken" },
+    "description": { "type": "string" },
+    "raw_signal": {
+      "description": "The sensor's native output — the input side of the mapping.",
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/$defs/RawChannel" }
+    },
+    "feature_production": {
+      "description": "The raw -> manifold-feature mapping contract; one entry per feature the class produces.",
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/$defs/FeatureProduction" }
+    },
+    "site_model": { "$ref": "#/$defs/SiteModel" },
+    "resolution_envelope": {
+      "description": "Optional: the per-feature resolution the class achieves; the descriptor's per-embodiment resolution instantiates it.",
+      "type": "array",
+      "items": { "$ref": "#/$defs/FeatureResolution" }
+    }
+  },
+  "$defs": {
+    "ClassToken": {
+      "description": "The sensor class this adapter serves. The four representative classes (ft / array / visuotactile / pneumatic) are illustrative, not normative (Principle 4), so this is a token — a core token or an ext.<ns>.<class> registered class (06) — never a closed enum.",
+      "type": "string",
+      "pattern": "^([a-z][a-z_]*|ext\\.[a-z_]+\\.[a-z_]+)$"
+    },
+    "Identifier": {
+      "description": "A raw-channel name, referenced by feature_production.sources.",
+      "type": "string",
+      "minLength": 1
+    },
+    "Length": {
+      "description": "A length value: a unit-suffixed quantity string (m / mm / cm).",
+      "type": "string",
+      "pattern": "^-?[0-9]+(\\.[0-9]+)?\\s+(m|mm|cm)$"
+    },
+    "Frequency": {
+      "description": "A frequency value: a unit-suffixed quantity string (Hz).",
+      "type": "string",
+      "pattern": "^-?[0-9]+(\\.[0-9]+)?\\s+Hz$"
+    },
+    "TactileFeature": {
+      "description": "A TactileManifold feature (04 § Feature taxonomy): one of the eleven closed-core features, or an ext.<ns>.<name> registered extension feature (06). The closed core is fixed so the conformance suite can enumerate it; asserted identical to skill-isa's TactileFeature core (validate.py C5).",
+      "oneOf": [
+        { "enum": ["contact", "normal_force", "shear", "pressure", "contact_area", "contact_centroid", "load_distribution", "slip", "force_derivative", "deformation_rate", "bending"] },
+        { "type": "string", "pattern": "^ext\\.[a-z_]+\\.[a-z_]+$" }
+      ]
+    },
+    "RawChannel": {
+      "description": "One native sensor output channel. `layout.kind` fixes the raw spatial arrangement; the per-kind detail (count / extent / spacing) is the adapter's and stays floored.",
+      "type": "object",
+      "required": ["name", "quantity", "layout"],
+      "additionalProperties": false,
+      "properties": {
+        "name": { "$ref": "#/$defs/Identifier" },
+        "quantity": {
+          "description": "The physical quantity the channel carries (a token, e.g. force_vector / pressure / deformation_field / chamber_pressure).",
+          "type": "string",
+          "minLength": 1
+        },
+        "layout": {
+          "type": "object",
+          "required": ["kind"],
+          "properties": {
+            "kind": { "enum": ["discrete", "grid", "image", "chamber"] }
+          }
+        }
+      }
+    },
+    "FeatureProduction": {
+      "description": "One manifold feature and where it comes from: `sources` names the raw channels (the dependency, not the formula), `kind` records how the feature relates to them.",
+      "type": "object",
+      "required": ["feature", "sources", "kind"],
+      "additionalProperties": false,
+      "properties": {
+        "feature": { "$ref": "#/$defs/TactileFeature" },
+        "sources": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "#/$defs/Identifier" }
+        },
+        "kind": {
+          "description": "direct (the channel is the feature), derived (computed from the channel(s)), aggregated (pooled across raw elements).",
+          "enum": ["direct", "derived", "aggregated"]
+        }
+      }
+    },
+    "SiteRole": { "enum": ["antipodal", "enclosure", "support", "probe"] },
+    "SiteModel": {
+      "description": "How the class's raw layout resolves into the abstract sites a TactileTarget's quantifiers bind to (04 § Site model).",
+      "type": "object",
+      "required": ["site_kind", "roles"],
+      "additionalProperties": false,
+      "properties": {
+        "site_kind": {
+          "description": "per_element (one site per raw element), clustered (from a dense grid), patch (image regions), aggregate (one site per chamber).",
+          "enum": ["per_element", "clustered", "patch", "aggregate"]
+        },
+        "roles": {
+          "description": "The relational site roles this class can populate; a quantifier referencing a role the class cannot serve is unsatisfiable and degrades.",
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/SiteRole" }
+        },
+        "clustering": {
+          "description": "The deterministic rule a dense class uses to resolve a quantifier into sites; the rule is the adapter's, RFL requires only determinism (04 § Site model). Floored.",
+          "type": ["string", "object"]
+        }
+      }
+    },
+    "FeatureResolution": {
+      "description": "The resolution the class achieves for one feature; `value` (per-feature least-count) is feature-specific and floored.",
+      "type": "object",
+      "required": ["feature"],
+      "additionalProperties": false,
+      "properties": {
+        "feature": { "$ref": "#/$defs/TactileFeature" },
+        "spatial": { "$ref": "#/$defs/Length" },
+        "temporal": { "$ref": "#/$defs/Frequency" },
+        "value": {}
+      }
+    }
+  }
+}

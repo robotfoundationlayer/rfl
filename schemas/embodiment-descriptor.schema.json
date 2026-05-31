@@ -279,9 +279,14 @@
     },
     "TactileEntry": {
       "type": "object",
-      "required": ["sites", "features", "resolution"],
+      "required": ["sensor_class", "sites", "features", "resolution"],
       "additionalProperties": false,
       "properties": {
+        "sensor_class": {
+          "description": "The per-sensor-class adapter (04 § The adapter mapping) whose raw -> feature mapping produces this frame's features; the declared `features` MUST be a subset of that adapter's produced features (validate.py C6). A core token (ft / array / visuotactile / pneumatic) or an ext.<ns>.<class> registered class (06).",
+          "type": "string",
+          "pattern": "^([a-z][a-z_]*|ext\\.[a-z_]+\\.[a-z_]+)$"
+        },
         "sites": {
           "description": "Discrete contact-site count, or a dense-grid layout (extent + spacing). Only the discrete count is exercised in v0.1.",
           "oneOf": [

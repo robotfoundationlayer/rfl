@@ -55,12 +55,14 @@ def main() -> int:
     skill = load_schema("skill-isa.schema.json")
     descriptor = load_schema("embodiment-descriptor.schema.json")
     driver = load_schema("driver-interface.schema.json")
+    adapter = load_schema("tactile-manifold/adapter.schema.json")
 
     print("Schema well-formedness (JSON Schema Draft 2020-12)")
     for label, schema in (
         ("skill-isa", skill),
         ("embodiment-descriptor", descriptor),
         ("driver-interface", driver),
+        ("tactile-manifold adapter", adapter),
     ):
         try:
             Draft202012Validator.check_schema(schema)
@@ -84,6 +86,11 @@ def main() -> int:
     for msg in sorted((EXAMPLES / "driver-messages").glob("*.yaml")):
         errs = list(drv_validator.iter_errors(yaml.safe_load(msg.read_text())))
         check(f"{msg.name} vs driver-interface", not errs, errs[0].message if errs else "")
+
+    adapter_validator = Draft202012Validator(adapter)
+    for ad in sorted((SCHEMAS / "tactile-manifold").glob("*.yaml")):
+        errs = list(adapter_validator.iter_errors(yaml.safe_load(ad.read_text())))
+        check(f"{ad.name} vs tactile-manifold adapter", not errs, errs[0].message if errs else "")
 
     print("\nCross-schema consistency (anti-drift)")
 
@@ -120,6 +127,32 @@ def main() -> int:
     drv_drift = sk_core ^ drv_core
     check("C4 tactile closed-core identical (driver-interface telemetry)", not drv_drift,
           f"symmetric difference {sorted(drv_drift)}")
+
+    # C5 — the tactile-manifold adapter's feature core is identical to skill-isa's,
+    # so an adapter cannot declare it produces a feature outside the shared core.
+    ad_core = set(adapter["$defs"]["TactileFeature"]["oneOf"][0]["enum"])
+    ad_drift = sk_core ^ ad_core
+    check("C5 tactile closed-core identical (tactile-manifold adapter)", not ad_drift,
+          f"symmetric difference {sorted(ad_drift)}")
+
+    # C6 — every reference embodiment's declared tactile features are a subset of
+    # the features its bound adapter produces (the descriptor-binding rule,
+    # 04 § The adapter mapping, TM30c). Instance-level: validates the binding on
+    # the worked example against the canonical adapters.
+    produced_by_class = {}
+    for ad in sorted((SCHEMAS / "tactile-manifold").glob("*.yaml")):
+        a = yaml.safe_load(ad.read_text())
+        produced_by_class[a["sensor_class"]] = {fp["feature"] for fp in a["feature_production"]}
+    for emb in sorted((EXAMPLES / "embodiments").glob("*.yaml")):
+        tactile = (yaml.safe_load(emb.read_text()).get("embodiment", {}) or {}).get("tactile", {}) or {}
+        for frame, entry in tactile.items():
+            sc = entry.get("sensor_class")
+            declared = set(entry.get("features", []))
+            produced = produced_by_class.get(sc)
+            ok = produced is not None and declared <= produced
+            detail = (f"unknown adapter {sc!r}" if produced is None
+                      else f"{sorted(declared - produced)} not produced by {sc}")
+            check(f"C6 {emb.name}:{frame} features subset of adapter {sc}", ok, detail)
 
     print()
     if failures:

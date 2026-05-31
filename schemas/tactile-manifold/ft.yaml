@@ -1,0 +1,19 @@
+# FT-class adapter — discrete force sensors at fingertips (04 § The adapter mapping).
+# A few sites, one force vector per fingertip; contact and normal force only.
+# Bound by the LEAP descriptor (examples/.../leap.yaml, sensor_class: ft).
+sensor_class: ft
+description: >
+  Discrete force sensors at fingertips (FT-class): a few sites, one force vector
+  per fingertip. No shear, pressure distribution, or contact area.
+raw_signal:
+  - name: fingertip_force
+    quantity: force_vector
+    layout: { kind: discrete }
+feature_production:
+  - { feature: contact,      sources: [fingertip_force], kind: derived }   # force above a touch threshold
+  - { feature: normal_force, sources: [fingertip_force], kind: direct }    # the force vector's normal component
+site_model:
+  site_kind: per_element        # one site per fingertip
+  roles: [antipodal]            # opposing fingertips form an antipodal pair
+resolution_envelope:
+  - { feature: normal_force, temporal: 100 Hz, value: 0.05 N }

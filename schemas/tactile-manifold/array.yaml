@@ -1,0 +1,30 @@
+# Array-class adapter — distributed force / pressure arrays (XELA-class)
+# (04 § The adapter mapping). A dense taxel grid; 3-axis taxels add shear.
+# Bound by the Allegro descriptor (examples/.../allegro.yaml, sensor_class: array).
+sensor_class: array
+description: >
+  Distributed force / pressure arrays (XELA-class): a dense taxel grid reporting
+  contact, normal force, pressure, shear (3-axis taxels), contact area, the
+  pressure centroid, and the borne-load distribution.
+raw_signal:
+  - name: taxel_normal
+    quantity: pressure
+    layout: { kind: grid }
+  - name: taxel_shear
+    quantity: shear_vector
+    layout: { kind: grid }
+feature_production:
+  - { feature: contact,           sources: [taxel_normal], kind: aggregated }   # any taxel above threshold
+  - { feature: normal_force,      sources: [taxel_normal], kind: aggregated }   # pressure integrated over area
+  - { feature: pressure,          sources: [taxel_normal], kind: direct }
+  - { feature: shear,             sources: [taxel_shear],  kind: derived }
+  - { feature: contact_area,      sources: [taxel_normal], kind: aggregated }
+  - { feature: contact_centroid,  sources: [taxel_normal], kind: aggregated }
+  - { feature: load_distribution, sources: [taxel_normal], kind: aggregated }
+site_model:
+  site_kind: clustered          # cluster taxels into abstract contact patches
+  roles: [antipodal, enclosure, support]
+  clustering: opposing-patch    # cluster taxels into opposing patches to resolve antipodal quantifiers
+resolution_envelope:
+  - { feature: pressure,     spatial: 2 mm, temporal: 100 Hz }
+  - { feature: normal_force, temporal: 100 Hz, value: 0.05 N }

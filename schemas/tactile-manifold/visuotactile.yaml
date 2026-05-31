@@ -1,0 +1,29 @@
+# Visuotactile adapter — GelSight / DIGIT-class (04 § The adapter mapping).
+# A deformation image from an internal camera; rich shear / deformation / slip,
+# but absolute normal-force calibration is geometry-derived and absent. A
+# class-level library adapter (no example embodiment binds it here); also
+# demonstrates the ext.<ns>.<feature> registry seam (06).
+sensor_class: visuotactile
+description: >
+  Visuotactile sensors (GelSight / DIGIT-class): a deformation image. Reports
+  contact, pressure, shear, contact area, deformation rate, and slip; absolute
+  normal-force calibration is geometry-derived and typically absent.
+raw_signal:
+  - name: deformation_image
+    quantity: deformation_field
+    layout: { kind: image }
+feature_production:
+  - { feature: contact,          sources: [deformation_image], kind: derived }
+  - { feature: pressure,         sources: [deformation_image], kind: derived }
+  - { feature: shear,            sources: [deformation_image], kind: derived }
+  - { feature: contact_area,     sources: [deformation_image], kind: derived }
+  - { feature: deformation_rate, sources: [deformation_image], kind: derived }
+  - { feature: slip,             sources: [deformation_image], kind: derived }
+  - { feature: ext.gelsight.texture_signature, sources: [deformation_image], kind: derived }   # ext seam (06)
+site_model:
+  site_kind: patch              # image regions resolve to contact patches
+  roles: [antipodal, enclosure, probe]
+  clustering: image-region
+resolution_envelope:
+  - { feature: shear,            spatial: 0.5 mm, temporal: 60 Hz }
+  - { feature: deformation_rate, temporal: 60 Hz }

@@ -7,7 +7,7 @@ JSON Schema definitions for the machine-readable RFL artifacts. They formalize t
 | `embodiment-descriptor.schema.json` | the embodiment descriptor (frame model + capability manifest + limits + tactile / sensor descriptors) | `02` (format) · `03` · `04` | present |
 | `skill-isa.schema.json` | a Skill ISA composition file | `01` | present |
 | `driver-interface.schema.json` | the canonical driver messages (execute / telemetry / status / clearance-query) | `03` | present |
-| `tactile-manifold/` | per-sensor-class adapter mappings | `04` | planned |
+| `tactile-manifold/` | per-sensor-class adapter mappings (`adapter.schema.json` + ft / array / visuotactile) | `04` | present |
 
 ## Conventions
 
@@ -23,15 +23,19 @@ JSON Schema definitions for the machine-readable RFL artifacts. They formalize t
 
 `examples/01-cable-insertion/driver-messages/{execute,telemetry,status,clearance-request,clearance-response}.yaml` validate against `driver-interface.schema.json`. They pin the runtime message contract by demonstration on the cable-insertion task. The `execute` goal carries one retargeted `02` `CanonicalAction` (its representation-owned fields — `Pose6D`, `Envelope`, `TactileTarget`, `Monitor` — floored, so the schema does not re-encode a representation it does not own). `telemetry` is stamped on the `04` manifold timebase and carries the realized pose, wrench, securing force, manifold feature readings (closed-core feature keys, anti-drift C4), and fidelity tier the `05` envelope classes interval-sample. `status` carries the three-valued outcome, the ownership-split failure classification (a `03`-owned protocol `failure_class` enum vs. an optional `01`-owned `failure_detail` token whose vocabulary `03` does not re-enumerate), and the `05` audit record (`Verdict`, fidelity tier, `momentary_release` / freed-part disposition). The clearance request / response formalize the `03` § Collision model query as a service. A message is exactly one of the five, discriminated by `message` (top-level `oneOf`).
 
+`schemas/tactile-manifold/{ft,array,visuotactile}.yaml` are the canonical per-sensor-class adapters, validated against `schemas/tactile-manifold/adapter.schema.json`. Each declares the raw → manifold-feature mapping contract for its class — `raw_signal` (the native channels), `feature_production` (which closed-core features each channel produces, by `direct` / `derived` / `aggregated` kind, never the numeric algorithm), `site_model` (how the raw layout resolves into abstract sites and relational roles), and an optional `resolution_envelope` (`04` § The adapter mapping). An embodiment binds to its adapter through the descriptor's `tactile[frame].sensor_class`: the LEAP descriptor binds `ft`, the Allegro `array`. Anti-drift C5 checks the adapter's feature core is identical to `skill-isa`'s, and C6 checks each bound frame's declared features are a subset of its adapter's produced features.
+
 ## Validating
 
 `validate.py` is the committed conformance-test-class-1 runner: it checks the
-three schemas (Draft 2020-12), validates every reference instance against them,
+four schemas (Draft 2020-12), validates every reference instance against them,
 and asserts the cross-schema consistency invariants (the descriptor's capability
 enum is exactly `skill-isa`'s `PrimitiveId` set minus `reach.*` plus the four
 category gates; the extension-key pattern is shared; the closed-core tactile
-feature set is identical across `skill-isa`, the descriptor, and the
-`driver-interface` telemetry feature). It exits non-zero on any failure.
+feature set is identical across `skill-isa`, the descriptor, the
+`driver-interface` telemetry feature, and the `tactile-manifold` adapter
+feature; and each reference embodiment's declared tactile features are a subset
+of its bound adapter's produced features). It exits non-zero on any failure.
 
 ```bash
 # Ephemeral environment, no project pollution:

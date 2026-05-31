@@ -40,8 +40,8 @@ embodiment:
     lateral_grasp_max_thickness: 12 mm
 
   tactile:
-    tcp_index:  { sites: 1, features: [contact, normal_force], resolution: { spatial: 3 mm, temporal: 80 Hz, value: 0.1 N } }
-    tcp_thumb:  { sites: 1, features: [contact, normal_force], resolution: { spatial: 3 mm, temporal: 80 Hz, value: 0.1 N } }
+    tcp_index:  { sensor_class: ft, sites: 1, features: [contact, normal_force], resolution: { spatial: 3 mm, temporal: 80 Hz, value: 0.1 N } }
+    tcp_thumb:  { sensor_class: ft, sites: 1, features: [contact, normal_force], resolution: { spatial: 3 mm, temporal: 80 Hz, value: 0.1 N } }
 
   sensors:
     wrist_cam: { bore_axis: +z, fov: { h_angle: 70 deg, v_angle: 55 deg }, working_range: [0.05 m, 1.2 m], modalities: [presence, pose] }

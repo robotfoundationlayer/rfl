@@ -47,8 +47,8 @@ embodiment:
 
   # Contact-sensor descriptor — 04 § The contact-sensor descriptor.
   tactile:
-    tcp_thumb: { sites: 1, features: [contact, normal_force, shear], resolution: { spatial: 2 mm, temporal: 100 Hz, value: 0.05 N } }
-    tcp_index: { sites: 1, features: [contact, normal_force, shear], resolution: { spatial: 2 mm, temporal: 100 Hz, value: 0.05 N } }
+    tcp_thumb: { sensor_class: array, sites: 1, features: [contact, normal_force, shear], resolution: { spatial: 2 mm, temporal: 100 Hz, value: 0.05 N } }
+    tcp_index: { sensor_class: array, sites: 1, features: [contact, normal_force, shear], resolution: { spatial: 2 mm, temporal: 100 Hz, value: 0.05 N } }
 
   # Non-contact sensor descriptor — 03 § Sensor descriptor.
   sensors:
