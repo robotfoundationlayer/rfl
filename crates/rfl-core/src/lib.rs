@@ -21,6 +21,7 @@
 #![warn(clippy::pedantic)]
 
 pub mod driver;
+pub mod quantity;
 pub mod skill_isa;
 pub mod translation;
 
