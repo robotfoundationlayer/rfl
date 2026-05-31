@@ -11,14 +11,15 @@
 //! See `spec/02-translation-layer.md` for the formal definition.
 
 use crate::canonical::{
-    AlignSpec, CanonicalAction, Envelope, Monitor, MotionBounds, PoseExpr, ProxySpec,
+    AlignSpec, CanonicalAction, Envelope, Monitor, MotionBounds, PoseExpr, ProxySpec, SweepPose,
     TactileTargetOut, TimingHints, TimingMode,
 };
 use crate::embodiment::Embodiment;
 use crate::quantity::Quantity;
 use crate::skill_isa::{
     Axes, Axis, Compliance, ForceInsertFit, GraspPinch, GraspRelease, Primitive, ReachAlign,
-    ReachRetract, Skill, Statement, TactileTargetArg, TransportMoveToPose,
+    ReachRetract, ReachScan, ScanPattern, SenseInspect, Skill, Statement, TactileTargetArg,
+    TransportMoveToPose,
 };
 
 /// The retargeting result: the canonical action stream plus the per-action
@@ -62,7 +63,9 @@ pub fn retarget(skill: &Skill, embodiment: &Embodiment) -> crate::Result<Retarge
 fn check_capability(prim: &Primitive, e: &Embodiment) -> crate::Result<()> {
     let key: &str = match prim {
         // reach.* is the unkeyed mandatory baseline: no gate.
-        Primitive::ReachAlign(_) | Primitive::ReachRetract(_) => return Ok(()),
+        Primitive::ReachAlign(_) | Primitive::ReachRetract(_) | Primitive::ReachScan(_) => {
+            return Ok(())
+        }
         // grasp.release is presupposed by any declared grasp capability (spec/03
         // § Grasp-mode capabilities lists only the eight modes; the descriptors do
         // not declare grasp.release). Require at least one grasp.* mode.
@@ -78,6 +81,7 @@ fn check_capability(prim: &Primitive, e: &Embodiment) -> crate::Result<()> {
         // A category key implies the base primitive: `transport` = transport.move_to_pose.
         Primitive::TransportMoveToPose(_) => "transport",
         Primitive::ForceInsertFit(_) => "force.insert_fit",
+        Primitive::SenseInspect(_) => "sense.inspect",
     };
     if e.has_skill(key) {
         Ok(())
@@ -98,6 +102,8 @@ fn lower(prim: &Primitive, e: &Embodiment) -> (CanonicalAction, &'static str) {
         Primitive::ForceInsertFit(p) => (lower_force_insert_fit(p, e), "insert_fit"),
         Primitive::GraspRelease(p) => (lower_grasp_release(p, e), "release"),
         Primitive::ReachRetract(p) => (lower_reach_retract(p, e), "retract"),
+        Primitive::ReachScan(p) => (lower_reach_scan(p, e), "scan"),
+        Primitive::SenseInspect(p) => (lower_sense_inspect(p, e), "inspect"),
     }
 }
 
@@ -336,6 +342,93 @@ fn lower_reach_retract(p: &ReachRetract, e: &Embodiment) -> CanonicalAction {
     }
 }
 
+/// Parse a length quantity to metres (m / mm / cm). Returns 0.0 on a malformed value
+/// (v0 scan regions are author-declared, not referenced).
+fn length_m(q: &Quantity) -> f64 {
+    match q.parse() {
+        Some((v, "m")) => v,
+        Some((v, "mm")) => v / 1000.0,
+        Some((v, "cm")) => v / 100.0,
+        _ => 0.0,
+    }
+}
+
+/// Parse an angle quantity to radians (deg / rad).
+fn angle_rad(q: &Quantity) -> f64 {
+    match q.parse() {
+        Some((v, "deg")) => v.to_radians(),
+        Some((v, "rad")) => v,
+        _ => 0.0,
+    }
+}
+
+/// Lower `reach.scan`: compile the region into the sweep set Σ and emit one action
+/// carrying it as a `SweepPath`. reach.* is the baseline (no capability gate); the
+/// FOV comes from the embodiment sensor descriptor.
+fn lower_reach_scan(p: &ReachScan, e: &Embodiment) -> CanonicalAction {
+    let sensor_frame = p
+        .sensor_frame
+        .clone()
+        .unwrap_or_else(|| e.sensor_frame().to_string());
+    let pattern = p.pattern.unwrap_or(ScanPattern::Raster);
+    let standoff = length_m(&p.standoff);
+    let overlap = p.coverage_overlap.unwrap_or(0.0);
+
+    let poses = match &p.region {
+        crate::region::ScanRegion::Waypoints { poses, .. } => {
+            let wps: Vec<([f64; 3], [f64; 4])> =
+                poses.iter().map(|w| (w.position, w.orientation)).collect();
+            crate::sigma::waypoints(&wps)
+        }
+        // Surface region: raster (spiral/arc fall back to raster in v0).
+        crate::region::ScanRegion::Surface { size_u, size_v, .. } => {
+            let (h, v) = e
+                .sensor_fov(&sensor_frame)
+                .map(|f| (angle_rad(&f.h_angle), angle_rad(&f.v_angle)))
+                .unwrap_or((0.0, 0.0));
+            crate::sigma::raster(length_m(size_u), length_m(size_v), standoff, overlap, h, v)
+        }
+    };
+
+    let pattern_name = match pattern {
+        ScanPattern::Raster => "raster",
+        ScanPattern::Waypoints => "waypoints",
+        ScanPattern::Spiral => "spiral",
+        ScanPattern::Arc => "arc",
+    };
+    let sweep_poses: Vec<SweepPose> = poses.iter().map(SweepPose::from_pose).collect();
+    CanonicalAction {
+        target_frame: sensor_frame,
+        target_pose: PoseExpr::SweepPath { pattern: pattern_name.to_string(), poses: sweep_poses },
+        force_budget: None,
+        timing: TimingHints {
+            nominal_duration: None,
+            timing_mode: TimingMode::Strict,
+            stop_at_goal: true,
+        },
+        tactile_target: None,
+        monitors: vec![],
+        safety_envelope: base_envelope(e),
+    }
+}
+
+/// Lower `sense.inspect`: a perception action observing the target (like sense.locate).
+fn lower_sense_inspect(p: &SenseInspect, e: &Embodiment) -> CanonicalAction {
+    CanonicalAction {
+        target_frame: e.sensor_frame().to_string(),
+        target_pose: PoseExpr::Ref { r#ref: p.target.clone() },
+        force_budget: None,
+        timing: TimingHints {
+            nominal_duration: None,
+            timing_mode: TimingMode::Strict,
+            stop_at_goal: true,
+        },
+        tactile_target: None,
+        monitors: vec![],
+        safety_envelope: base_envelope(e),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -452,5 +545,26 @@ mod tests {
         let json = serde_json::to_string(&a.target_pose).unwrap();
         assert!(json.contains("-tool_axis"));
         assert!(json.contains("50 mm"));
+    }
+
+    #[test]
+    fn scan_lowers_to_sweep_path_per_fov() {
+        let yaml = "skill: surface-scan\nbody:\n  sequence:\n    - reach.scan:\n        region: { kind: surface, frame: panel, size_u: 200 mm, size_v: 150 mm }\n        standoff: 100 mm\n        pattern: raster\n        coverage_overlap: 0.2\n    - sense.inspect: { target: panel, observe: [defect] }\n";
+        let skill = Skill::parse_yaml(yaml).unwrap();
+        let mut allegro = Embodiment::parse_yaml(&std::fs::read_to_string(
+            Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("../../examples/01-cable-insertion/embodiments/allegro.yaml"),
+        ).unwrap()).unwrap();
+        // The 02 surface-scan descriptors declare sense.inspect; the 01 allegro does not.
+        allegro.capabilities.skills.push("sense.inspect".to_string());
+        let out = retarget(&skill, &allegro).expect("retarget");
+        assert_eq!(out.actions.len(), 2);
+        let crate::canonical::PoseExpr::SweepPath { poses, pattern } = &out.actions[0].target_pose
+        else {
+            panic!("expected SweepPath");
+        };
+        assert_eq!(pattern.as_str(), "raster");
+        assert_eq!(poses.len(), 9); // allegro palm_cam 60x45 -> 9 sweep poses
+        assert_eq!(out.suffixes, vec!["scan", "inspect"]);
     }
 }

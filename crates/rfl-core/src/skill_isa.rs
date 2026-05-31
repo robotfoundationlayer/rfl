@@ -121,6 +121,12 @@ pub enum Primitive {
     /// `reach.retract`.
     #[serde(rename = "reach.retract")]
     ReachRetract(ReachRetract),
+    /// `reach.scan`.
+    #[serde(rename = "reach.scan")]
+    ReachScan(ReachScan),
+    /// `sense.inspect`.
+    #[serde(rename = "sense.inspect")]
+    SenseInspect(SenseInspect),
 }
 
 /// `sense.locate` modality (`$defs/SenseLocateParams.modality`).
@@ -323,6 +329,49 @@ pub struct ReachRetract {
     pub distance: Quantity,
 }
 
+/// `reach.scan` sweep pattern (`$defs/ReachScanParams.pattern`). v0 lowers raster
+/// and waypoints; spiral and arc are accepted but fall back to raster (deferred).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum ScanPattern {
+    /// Serpentine surface coverage (default).
+    Raster,
+    /// Caller-supplied poses verbatim.
+    Waypoints,
+    /// Archimedean spiral (deferred; falls back to raster).
+    Spiral,
+    /// Swept arc (deferred; falls back to raster).
+    Arc,
+}
+
+/// `reach.scan` parameters (v0 subset of `$defs/ReachScanParams`).
+#[derive(Debug, Clone, serde::Deserialize)]
+pub struct ReachScan {
+    /// The region to cover.
+    pub region: crate::region::ScanRegion,
+    /// Sensor-to-region distance maintained during the sweep.
+    pub standoff: Quantity,
+    /// Sweep pattern (default raster).
+    #[serde(default)]
+    pub pattern: Option<ScanPattern>,
+    /// Sensor frame whose coverage matters (default the embodiment sensor frame).
+    #[serde(default)]
+    pub sensor_frame: Option<FrameRef>,
+    /// Overlap between passes (v0 requires an explicit ratio; auto is deferred).
+    #[serde(default)]
+    pub coverage_overlap: Option<f64>,
+}
+
+/// `sense.inspect` parameters (v0 subset of `$defs/SenseInspectParams`).
+#[derive(Debug, Clone, serde::Deserialize)]
+pub struct SenseInspect {
+    /// What to observe (a let-reference or frame name in the reference skill).
+    pub target: Ref,
+    /// What to capture (interpretation is out of RFL scope).
+    #[serde(default)]
+    pub observe: Option<Vec<String>>,
+}
+
 impl Skill {
     /// Parse a Skill ISA composition from YAML text.
     ///
@@ -378,6 +427,16 @@ mod parse_tests {
         assert_eq!(p.force_budget.0, "8 N");
         assert!(p.tactile_target.is_auto());
         assert_eq!(p.slip_response, Some(SlipResponse::Retighten));
+    }
+
+    #[test]
+    fn parses_scan_primitives() {
+        let yaml = "skill: t\nbody:\n  sequence:\n    - reach.scan:\n        region: { kind: surface, frame: panel, size_u: 200 mm, size_v: 150 mm }\n        standoff: 100 mm\n        pattern: raster\n        coverage_overlap: 0.2\n    - sense.inspect:\n        target: panel\n        observe: [defect]\n";
+        let s = Skill::parse_yaml(yaml).expect("parse");
+        let Statement::Primitive(Primitive::ReachScan(p)) = &s.body.sequence[0] else { panic!() };
+        assert_eq!(p.standoff.0, "100 mm");
+        assert!(matches!(p.pattern, Some(ScanPattern::Raster)));
+        assert!(matches!(&s.body.sequence[1], Statement::Primitive(Primitive::SenseInspect(_))));
     }
 
     #[test]
