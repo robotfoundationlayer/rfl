@@ -23,6 +23,7 @@
 pub mod canonical;
 pub mod driver;
 pub mod embodiment;
+pub mod grasp_force;
 pub mod pose;
 pub mod quantity;
 pub mod region;
