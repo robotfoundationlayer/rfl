@@ -21,6 +21,7 @@ Pick up a flexible cable terminated by a rigid connector and insert the connecto
 - `skill.yaml` — the embodiment-agnostic Skill ISA composition (no hand named)
 - `embodiments/allegro.yaml`, `embodiments/leap.yaml`, `embodiments/pneumatic-6f.yaml` — the three target descriptors
 - `run.py` — loads the skill + one embodiment and calls `retarget`
+- `driver-messages/` — reference instances of the canonical driver messages (`03` § Canonical driver messages): `execute` / `telemetry` / `status` + the `clearance-query` request / response, validating against `schemas/driver-interface.schema.json` — the runtime counterpart of the skill / descriptor inputs above
 
 ## Walkthrough — the skill, step by step
 
