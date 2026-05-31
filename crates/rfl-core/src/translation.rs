@@ -10,9 +10,13 @@
 //!
 //! See `spec/02-translation-layer.md` for the formal definition.
 
-use crate::canonical::{CanonicalAction, Envelope, MotionBounds, PoseExpr, TimingHints, TimingMode};
+use crate::canonical::{
+    CanonicalAction, Envelope, MotionBounds, PoseExpr, ProxySpec, TactileTargetOut, TimingHints,
+    TimingMode,
+};
 use crate::embodiment::Embodiment;
-use crate::skill_isa::{Primitive, Skill, Statement};
+use crate::quantity::Quantity;
+use crate::skill_isa::{GraspPinch, Primitive, Skill, Statement, TactileTargetArg};
 
 /// The retargeting result: the canonical action stream plus the per-action
 /// primitive suffix used to build deterministic action ids.
@@ -85,6 +89,7 @@ fn check_capability(prim: &Primitive, e: &Embodiment) -> crate::Result<()> {
 fn lower(prim: &Primitive, e: &Embodiment) -> crate::Result<(CanonicalAction, &'static str)> {
     match prim {
         Primitive::SenseLocate(p) => Ok((lower_sense_locate(p, e), "locate")),
+        Primitive::GraspPinch(p) => Ok((lower_grasp_pinch(p, e), "pinch")),
         other => Err(crate::Error::Translation(format!(
             "lowering not yet implemented for {}",
             primitive_name(other)
@@ -129,6 +134,67 @@ fn lower_sense_locate(p: &crate::skill_isa::SenseLocate, e: &Embodiment) -> Cano
     }
 }
 
+/// Clamp a force quantity to a descriptor scalar limit by magnitude, emitting the
+/// smaller as a string (CA4c). Both are assumed to share a unit (N for grip force);
+/// if the limit is absent or non-scalar the value passes through.
+fn clamp_force(value: &Quantity, limit_key: &str, e: &Embodiment) -> Quantity {
+    let Some(limit) = e.scalar_limit(limit_key) else {
+        return value.clone();
+    };
+    match (value.parse(), limit.parse()) {
+        (Some((v, vu)), Some((l, lu))) if vu == lu && l < v => limit.clone(),
+        _ => value.clone(),
+    }
+}
+
+/// A baseline envelope with motion bounds clamped to the embodiment's reach limits
+/// and stop_time taken from the descriptor (CA4c). Force-specific fields are added
+/// per-primitive.
+fn base_envelope(e: &Embodiment) -> Envelope {
+    Envelope {
+        motion_bounds: MotionBounds {
+            v_max: e.scalar_limit("v_cartesian_max").cloned(),
+            a_max: e.scalar_limit("a_cartesian_max").cloned(),
+            w_max: e.scalar_limit("w_cartesian_max").cloned(),
+        },
+        force_profile: None,
+        clearance: None,
+        compliance: None,
+        stop_time: e.scalar_limit("stop_time").cloned(),
+    }
+}
+
+/// Lower `grasp.pinch`. force_budget is clamped to grip_force_max (CA4c). The
+/// tactile_target `auto` is kept (manifold tier) on a tactile embodiment and
+/// degraded to the force/position proxy when tactile_sensing is undeclared
+/// (`spec/04` § Graceful degradation: position-convergence ∧ force-rise-and-hold,
+/// disclosed at the proxy fidelity tier).
+fn lower_grasp_pinch(p: &GraspPinch, e: &Embodiment) -> CanonicalAction {
+    let force_budget = Some(clamp_force(&p.force_budget, "grip_force_max", e));
+    let tactile_target = Some(match (&p.tactile_target, e.tactile_sensing()) {
+        (TactileTargetArg::Auto(_), true) => TactileTargetOut::Auto,
+        (TactileTargetArg::Auto(_), false) => TactileTargetOut::Proxy {
+            proxy: ProxySpec { tier: "proxy", criterion: "position_convergence_and_force_hold" },
+        },
+        (TactileTargetArg::Other(v), _) => {
+            TactileTargetOut::Explicit(serde_json::to_value(v).unwrap_or(serde_json::Value::Null))
+        }
+    });
+    CanonicalAction {
+        target_frame: e.grasp_frame().to_string(),
+        target_pose: PoseExpr::Ref { r#ref: p.target.clone() },
+        force_budget,
+        timing: TimingHints {
+            nominal_duration: None,
+            timing_mode: TimingMode::Strict,
+            stop_at_goal: true,
+        },
+        tactile_target,
+        monitors: vec![],
+        safety_envelope: base_envelope(e),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -163,5 +229,28 @@ mod tests {
         assert!(matches!(err, crate::Error::Translation(_)));
         assert!(err.to_string().contains("capability_absent"));
         assert!(err.to_string().contains("grasp.pinch"));
+    }
+
+    fn retarget_pinch_only(skill: &Skill, emb: &Embodiment) -> CanonicalAction {
+        let Statement::Primitive(Primitive::GraspPinch(p)) = &skill.body.sequence[1] else {
+            panic!("expected grasp.pinch at index 1");
+        };
+        super::lower_grasp_pinch(p, emb)
+    }
+
+    #[test]
+    fn pinch_clamps_force_and_keeps_manifold_tier_on_allegro() {
+        let (skill, emb) = load("allegro");
+        let out = retarget_pinch_only(&skill, &emb);
+        assert_eq!(out.force_budget.as_ref().unwrap().0, "8 N"); // 8 <= grip_force_max 20
+        assert!(matches!(out.tactile_target, Some(TactileTargetOut::Auto)));
+    }
+
+    #[test]
+    fn pinch_degrades_to_proxy_on_pneumatic() {
+        let (skill, emb) = load("pneumatic-6f");
+        let out = retarget_pinch_only(&skill, &emb);
+        assert_eq!(out.force_budget.as_ref().unwrap().0, "8 N"); // 8 <= grip_force_max 12
+        assert!(matches!(out.tactile_target, Some(TactileTargetOut::Proxy { .. })));
     }
 }
