@@ -51,9 +51,17 @@ fn main() -> Result<()> {
             anyhow::bail!("validate not yet implemented (target: spec v0.1, 2027 Q1) — {path:?}");
         }
         Command::Retarget { skill, embodiment } => {
-            anyhow::bail!(
-                "retarget not yet implemented (target: spec v0.1, 2027 Q1) — {skill:?} -> {embodiment:?}"
-            );
+            let skill_text = std::fs::read_to_string(&skill)
+                .map_err(|e| anyhow::anyhow!("read skill {skill:?}: {e}"))?;
+            let emb_text = std::fs::read_to_string(&embodiment)
+                .map_err(|e| anyhow::anyhow!("read embodiment {embodiment:?}: {e}"))?;
+            let parsed_skill = rfl_core::skill_isa::Skill::parse_yaml(&skill_text)?;
+            let emb = rfl_core::embodiment::Embodiment::parse_yaml(&emb_text)?;
+            let out = rfl_core::translation::retarget(&parsed_skill, &emb)?;
+            let jsonl =
+                rfl_core::canonical::to_jsonl(&parsed_skill.skill, &emb.id, &out.actions, &out.suffixes);
+            print!("{jsonl}");
+            Ok(())
         }
         Command::Conformance { driver } => {
             anyhow::bail!(
