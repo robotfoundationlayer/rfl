@@ -1,8 +1,11 @@
-# Design: PincherX-100 existence proof (sim-first, Class-4)
+# Design: Milchick — PincherX-100 existence proof for RFL (sim-first, Class-4)
 
-Status: approved design, pre-implementation (2026-05-31; revised 2026-06-01 — the
-headline task is **pick-and-place of a light object**, not reach-only: the 50 g payload
-permits grasping a ≤ 50 g object, a far more compelling and richer demonstration).
+Status: approved design, pre-implementation (2026-05-31; revised 2026-06-01 — (i) the
+headline task is **pick-and-place of a light object**, not reach-only (the 50 g payload
+permits grasping a ≤ 50 g object, a far richer demonstration); (ii) the product is named
+**Milchick** and its control program lives in a **separate `milchick` repo** depending on the
+published RFL binding — only the minimal Python binding stays in this (`rfl`) repo, to keep
+RFL provider-neutral).
 
 The first **real-embodiment** existence proof for RFL: demonstrate that the retarget
 contract is constructible against a real, low-end robot arm (Trossen PincherX 100), and
@@ -10,8 +13,10 @@ that Principle 1 (embodiment-agnostic), capability negotiation, and the graceful
 proxy tier survive contact with real hardware — validated first in a Gazebo simulation,
 then on the physical arm. This is the minimal realization of the README roadmap's v0.0.1
 milestone ("single (VLA, embodiment) pair existence proof; measured integration cost
-published") and lands on `spec/05`'s Class-4 "conformant simulator". A hardware-integration
-project, distinct from the in-process Rust increments; it lives outside `crates/`.
+published") and lands on `spec/05`'s Class-4 "conformant simulator". The control program (the
+**Milchick** product) is a separate repo, `milchick`, that consumes RFL as a dependency; this
+(`rfl`) repo gains only the minimal Python binding Milchick imports — keeping the neutral
+standard and the one-embodiment driver cleanly separated (Principle 4).
 
 ## 1. Why this proof, and what it does / does not prove
 
@@ -61,10 +66,14 @@ Gazebo-sim proof is a legitimate Class-4 conformant-simulator result (`spec/05`
 § recursive simulator conformance). The physical-arm run is a follow-on: the same Interbotix
 API backs both, so only the backend changes.
 
-## 4. Location and components
+## 4. Repos and components
 
-A new top-level directory `hardware/pincherx-100/` (outside `crates/`, so it neither
-collides with nor depends on the symbolic Rust workspace):
+The work splits across two repos to keep RFL provider-neutral (Principle 4: RFL does not
+define embodiment hardware).
+
+**`milchick` (separate repo — the product that uses RFL).** The PincherX-100 control program
++ existence-proof artifacts, depending on the published RFL binding (`pip install rfl`, or a
+git / path dependency during early co-development):
 
 - `pincherx-100.yaml` — the embodiment descriptor.
 - `skill-pickplace.yaml` — **headline**: locate → pinch → transport → release → retract.
@@ -78,8 +87,12 @@ collides with nor depends on the symbolic Rust workspace):
   grasp success (object lifted + placed), and integration-cost capture (driver LOC, time).
 - `README.md` — bringup instructions + how to run.
 
-The driver gets the canonical actions through a **minimal Python binding** rather than
-shelling out to the CLI — and that binding is the seed of the planned `bindings/`:
+A separate repo is itself on-thesis: it *is* the additive-integration demonstration — one
+neutral standard plus an independent driver/control implementation depending on it (the
+pattern future `rfl-leap` / `rfl-π0` driver repos would follow).
+
+**`rfl` (this repo — the neutral standard).** Gains only the minimal Python binding the
+Milchick driver imports:
 
 - `bindings/python/` — a minimal PyO3 crate (path-dependent on `crates/rfl-core`, built with
   `maturin`) exposing one function: `rfl.retarget(skill_yaml: str, descriptor_yaml: str) ->
@@ -87,7 +100,7 @@ shelling out to the CLI — and that binding is the seed of the planned `binding
   (`Skill::parse_yaml` → `Embodiment::parse_yaml` → `translation::retarget` →
   `canonical::to_jsonl` — exactly the logic of `rfl-conformance`'s `retarget_example_to_jsonl`,
   string-in / string-out). Being string-based it does not churn as primitive coverage or the
-  canonical JSON format evolve. This is the PincherX driver's retarget bridge **and** the
+  canonical JSON format evolve. This is the Milchick driver's retarget bridge **and** the
   first real content of the otherwise-planned `bindings/` directory; the C (cbindgen) binding
   and the full typed binding stay v1.0 deferrals.
 
