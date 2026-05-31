@@ -182,7 +182,7 @@ uniformly string-typed (consistent with `force_budget` and `motion_bounds`, and
 with the open `Envelope` floor in `driver-interface.schema.json`). The shortest
 round-trip `f64` Display is deterministic across platforms, so `format!("{} {}",
 round6(v), unit)` is byte-stable: `10.0 -> "10 N"`, `7.5 -> "7.5 N"`,
-`2.9 -> "2.9 N"`, `0.3381606… -> "0.338161 m/s^2"`.
+`2.9 -> "2.9 N"`, `9.80665/29 = 0.33816034… -> "0.33816 m/s^2"`.
 
 When the dynamic clamp does not bite (the kinematic ceiling is tighter), the
 descriptor's original `a_cartesian_max` string is emitted verbatim (no reformat),
@@ -219,7 +219,7 @@ the kinematic ceiling on the lowest-payload hand. The resulting per-hand deltas
 |---|---|---|---|---|
 | allegro (payload 3 N, grip_max 20, ceil 1.5) | 2.9 N | 8 N | 1.5 m/s² (kinematic; dyn ≈ 10.5) | 10 N |
 | leap (payload 2 N, grip_max 15, ceil 2.0) | 2.9 N | 8 N | 2.0 m/s² (kinematic; dyn ≈ 3.72) | 7.5 N |
-| pneumatic (payload 1.5 N, grip_max 12, ceil 0.8) | 2.9 N | 8 N | **0.338161 m/s²** (dynamic bites) | 6 N |
+| pneumatic (payload 1.5 N, grip_max 12, ceil 0.8) | 2.9 N | 8 N | **0.33816 m/s²** (dynamic bites; = 9.80665/29) | 6 N |
 
 The story: the same skill and task give the weakest hand (pneumatic) the most
 conservative bounds — limited on both acceleration *and* insertion force — while
