@@ -63,11 +63,10 @@ rfl/
 ├── whitepaper/           # ✅ Whitepaper PDFs + figures (60 + 73 pages)
 ├── spec/                 # ✅ Specification documents (Markdown, work in progress)
 ├── examples/             # ✅ Worked examples (01-cable-insertion, 02-surface-scan, 03-screw-fasten)
-├── crates/               # 🚧 Rust workspace (rfl-core / rfl-cli / rfl-conformance): rfl-cli retarget engine across three worked examples and their skill variants (structural; generative Σ raster + spiral; station-keeping reach.hover; mass-dependent grasp-force GF1c–GF4c incl. tool-mediated force.screw / force.unscrew + held-transport GC1); conformance test classes 1–3 green with all four envelope classes implemented (terminal / grasp-continuity / force-trajectory / interval-invariant), each verified against adversarial drivers; full 50-primitive coverage + bindings → v1.0
-├── docs/                 # 🚧 Docs: getting-started.md + design/ (per-increment reference-implementation design records)
+├── crates/               # ✅ Rust workspace (rfl-core / rfl-cli / rfl-conformance): rfl-cli retarget engine across three worked examples and their skill variants (structural; generative Σ raster + spiral; station-keeping reach.hover; mass-dependent grasp-force GF1c–GF4c incl. tool-mediated force.screw / force.unscrew + held-transport GC1); conformance test classes 1–3 green with all four envelope classes implemented (terminal / grasp-continuity / force-trajectory / interval-invariant), each verified against adversarial drivers; full 50-primitive coverage + bindings → v1.0
+├── docs/                 # ✅ Docs: getting-started.md + design/ (per-increment reference-implementation design records)
 ├── schemas/              # ✅ Four JSON schemas + validator (skill-isa, embodiment-descriptor, driver-interface, tactile-manifold/adapter — all precisely typed; validate.py = conformance test class 1 with anti-drift invariants C1–C7)
-├── bindings/             # ⏳ Python (PyO3) + C (cbindgen) bindings (planned for v1.0)
-└── conformance/          # ⏳ Conformance test suite (planned for v1.0)
+└── bindings/             # ⏳ Python (PyO3) + C (cbindgen) bindings (planned for v1.0)
 ```
 
 Legend: ✅ populated · 🚧 scaffold present, content pending · ⏳ planned, not yet created
