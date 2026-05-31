@@ -207,6 +207,79 @@ impl Driver for FaultyDriver {
     }
 }
 
+/// How a driver responds to an OVER-budget injected disturbance (under budget it always
+/// returns the nominal maintained invariant). `Graceful` is the conformant § 4.4 C2 response;
+/// the two adversarial responses prove `check_graceful_degradation` bites.
+#[derive(Debug, Clone, Copy)]
+pub enum DisturbanceResponse {
+    /// Conformant: halt to a stable config with the object still secured.
+    Graceful,
+    /// Adversarial: the object is dropped (securing_force below floor) — a loss, not a halt.
+    Drops,
+    /// Adversarial: claim success despite the over-budget disturbance.
+    ClaimsSuccess,
+}
+
+/// The ENV3 disturbance bench (`spec/05` § Disturbance injection): a driver parameterized by
+/// the bench-injected disturbance magnitude (N). It reads the action's `disturbance_budget`
+/// from the execute message and models a driver's response — maintain the nominal invariant
+/// when `injected <= budget`, otherwise respond per `DisturbanceResponse`. Disturbance
+/// injection is the bench's input; the response is what the checks judge. Non-carry actions
+/// (no `disturbance_budget`) pass through unchanged.
+#[derive(Debug)]
+pub struct DisturbanceDriver {
+    inner: ReferenceDriver,
+    injected_n: f64,
+    response: DisturbanceResponse,
+}
+
+impl DisturbanceDriver {
+    /// A disturbance driver injecting `injected_n` newtons with the given response policy.
+    #[must_use]
+    pub fn new(injected_n: f64, response: DisturbanceResponse) -> Self {
+        DisturbanceDriver { inner: ReferenceDriver::default(), injected_n, response }
+    }
+}
+
+impl Driver for DisturbanceDriver {
+    fn execute(&mut self, goal: &ExecuteGoal) -> DriverReport {
+        let mut report = self.inner.execute(goal);
+        let budget = goal
+            .canonical_action
+            .safety_envelope
+            .force_profile
+            .as_ref()
+            .and_then(|fp| fp.get("disturbance_budget"))
+            .and_then(serde_json::Value::as_str)
+            .and_then(|s| rfl_core::quantity::Quantity(s.to_string()).parse().map(|(v, _)| v));
+        // No budget (non-carry) or injected within budget: the invariant holds (nominal report).
+        let Some(budget) = budget else { return report };
+        if self.injected_n <= budget {
+            return report;
+        }
+        // Over budget. ClaimsSuccess returns the nominal Succeeded report unchanged (adversarial).
+        if matches!(self.response, DisturbanceResponse::ClaimsSuccess) {
+            return report;
+        }
+        // Graceful / Drops: a controlled halt (Failed, blocked, disturbance_exceeded).
+        report.status.outcome = Outcome::Failed;
+        report.status.failure_class = Some("blocked".to_string());
+        report.status.failure_detail = Some("disturbance_exceeded".to_string());
+        if let Some(v) = report.status.verdict.as_mut() {
+            v.value = false; // honest: the postcondition did not hold
+        }
+        if matches!(self.response, DisturbanceResponse::Drops) {
+            // The object was lost — securing_force falls below the floor (mirrors UnderSecure).
+            for t in &mut report.telemetry {
+                if t.securing_force.is_some() {
+                    t.securing_force = Some(rfl_core::quantity::Quantity("0.1 N".to_string()));
+                }
+            }
+        }
+        report
+    }
+}
+
 /// Retarget the skill onto the embodiment and drive every `execute` message through
 /// `driver`, returning the `(goal, report)` pair per action. Generic over any
 /// `Driver` (the nominal `ReferenceDriver` or a `FaultyDriver`). Action ids match the

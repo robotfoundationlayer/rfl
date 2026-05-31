@@ -7,8 +7,8 @@
 //! REJECTED by the matching checker — the non-circular proof that the suite bites.
 
 use rfl_conformance::{
-    check_envelope, drive, envelope_class_for, CheckOutcome, EnvelopeClass, Fault, FaultyDriver,
-    ReferenceDriver,
+    check_envelope, check_graceful_degradation, drive, envelope_class_for, CheckOutcome,
+    DisturbanceDriver, DisturbanceResponse, EnvelopeClass, Fault, FaultyDriver, ReferenceDriver,
 };
 use std::path::{Path, PathBuf};
 
@@ -247,6 +247,73 @@ fn mid_interval_drop_fails_interval_but_passes_terminal() {
         check_envelope(EnvelopeClass::TerminalPostcondition, goal, report),
         CheckOutcome::Pass
     );
+}
+
+// --- ENV3 disturbance injection (transport.carry C2) ---------------------------------------
+// The carry emits disturbance_budget = 0.4 N; injected magnitudes straddle it.
+
+#[test]
+fn carry_invariant_holds_under_sub_budget_disturbance() {
+    // Injected 0.3 N <= the 0.4 N budget: the held interval invariant still holds.
+    let dir = example_dir();
+    let pairs = drive(
+        DisturbanceDriver::new(0.3, DisturbanceResponse::Graceful),
+        &dir.join("skill-carry.yaml"),
+        &dir.join("embodiments/allegro.yaml"),
+    )
+    .expect("drive");
+    let (goal, report) = &pairs[2]; // locate, pinch, carry
+    assert_eq!(suffix_of(&goal.action_id), "carry");
+    assert_eq!(report.telemetry.len(), 3, "interval-sampled under perturbation");
+    assert_eq!(check_envelope(EnvelopeClass::IntervalInvariant, goal, report), CheckOutcome::Pass);
+}
+
+#[test]
+fn over_budget_disturbance_degrades_gracefully() {
+    // Injected 0.6 N > 0.4 N budget: NOT IntervalInvariant (did not succeed), but graceful
+    // (halt with object secured) — the opposite-verdicts property.
+    let dir = example_dir();
+    let pairs = drive(
+        DisturbanceDriver::new(0.6, DisturbanceResponse::Graceful),
+        &dir.join("skill-carry.yaml"),
+        &dir.join("embodiments/allegro.yaml"),
+    )
+    .expect("drive");
+    let (goal, report) = &pairs[2];
+    assert_eq!(suffix_of(&goal.action_id), "carry");
+    assert_eq!(check_graceful_degradation(goal, report), CheckOutcome::Pass);
+    assert!(matches!(
+        check_envelope(EnvelopeClass::IntervalInvariant, goal, report),
+        CheckOutcome::Fail(_)
+    ));
+}
+
+#[test]
+fn over_budget_drop_fails_graceful_degradation() {
+    // Adversarial: over budget AND drops the object -> not graceful (a loss). The non-circular bite.
+    let dir = example_dir();
+    let pairs = drive(
+        DisturbanceDriver::new(0.6, DisturbanceResponse::Drops),
+        &dir.join("skill-carry.yaml"),
+        &dir.join("embodiments/allegro.yaml"),
+    )
+    .expect("drive");
+    let (goal, report) = &pairs[2];
+    assert!(matches!(check_graceful_degradation(goal, report), CheckOutcome::Fail(_)));
+}
+
+#[test]
+fn over_budget_false_success_fails_graceful_degradation() {
+    // Adversarial: over budget but claims success (ignores the disturbance) -> rejected.
+    let dir = example_dir();
+    let pairs = drive(
+        DisturbanceDriver::new(0.6, DisturbanceResponse::ClaimsSuccess),
+        &dir.join("skill-carry.yaml"),
+        &dir.join("embodiments/allegro.yaml"),
+    )
+    .expect("drive");
+    let (goal, report) = &pairs[2];
+    assert!(matches!(check_graceful_degradation(goal, report), CheckOutcome::Fail(_)));
 }
 
 #[test]
