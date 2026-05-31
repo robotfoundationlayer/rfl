@@ -146,7 +146,7 @@ fn lower(
         Primitive::GraspPinch(p) => (lower_grasp_pinch(p, e, ctx, weights), "pinch"),
         Primitive::TransportMoveToPose(p) => (lower_transport_move_to_pose(p, e, ctx), "transport"),
         Primitive::ReachAlign(p) => (lower_reach_align(p, e), "align"),
-        Primitive::ForceInsertFit(p) => (lower_force_insert_fit(p, e), "insert_fit"),
+        Primitive::ForceInsertFit(p) => (lower_force_insert_fit(p, e, ctx), "insert_fit"),
         Primitive::GraspRelease(p) => (lower_grasp_release(p, e, ctx), "release"),
         Primitive::ReachRetract(p) => (lower_reach_retract(p, e), "retract"),
         Primitive::ReachScan(p) => (lower_reach_scan(p, e), "scan"),
@@ -351,11 +351,21 @@ fn yaml_to_json(v: &serde_yaml::Value) -> serde_json::Value {
     serde_json::to_value(v).unwrap_or(serde_json::Value::Null)
 }
 
-/// Lower `force.insert_fit`: carry the axial force_budget, lower the SeatingSpec
-/// stop_condition into a monitor, set compliance and the axial force_profile. The
-/// reaction-load bound is symbolic in v0 (design § 3).
-fn lower_force_insert_fit(p: &ForceInsertFit, e: &Embodiment) -> CanonicalAction {
-    let force_budget = Some(p.force_budget.clone()); // axial fit force; no grip-mode limit applies
+/// Lower `force.insert_fit`: carry the axial force_budget (clamped by GF3c to the
+/// held grasp's reaction capacity — grip_force_max / k_reaction — so the part does
+/// not slip in-grasp before seating), lower the SeatingSpec stop_condition into a
+/// monitor, set compliance and the axial force_profile.
+fn lower_force_insert_fit(p: &ForceInsertFit, e: &Embodiment, ctx: &GraspContext) -> CanonicalAction {
+    let mut force_budget = p.force_budget.clone();
+    if let Some(held) = &ctx.held {
+        if let Some((budget_n, unit)) = force_budget.parse() {
+            let unit = unit.to_string();
+            if let Some((grip_max_n, _)) = e.scalar_limit("grip_force_max").and_then(|q| q.parse()) {
+                let limit = grasp_force::reaction_limit(budget_n, grip_max_n, held.mode);
+                force_budget = Quantity::from_si(limit, &unit);
+            }
+        }
+    }
     let monitors = vec![Monitor { stop_condition: yaml_to_json(&p.stop_condition) }];
     let mut env = base_envelope(e);
     env.compliance = p.compliance.map(|c| {
@@ -366,11 +376,11 @@ fn lower_force_insert_fit(p: &ForceInsertFit, e: &Embodiment) -> CanonicalAction
         }
         .to_string()
     });
-    env.force_profile = Some(serde_json::json!({ "axial": p.force_budget.0.clone() }));
+    env.force_profile = Some(serde_json::json!({ "axial": force_budget.0.clone() }));
     CanonicalAction {
         target_frame: e.grasp_frame().to_string(),
         target_pose: PoseExpr::Ref { r#ref: p.target_fit.clone() },
-        force_budget,
+        force_budget: Some(force_budget),
         timing: TimingHints {
             nominal_duration: None,
             timing_mode: TimingMode::TimeScalable,
@@ -613,8 +623,9 @@ mod tests {
         let Statement::Primitive(Primitive::ForceInsertFit(p)) = &skill.body.sequence[5] else {
             panic!("expected force.insert_fit at index 5");
         };
-        let a = super::lower_force_insert_fit(p, &emb);
-        assert_eq!(a.force_budget.as_ref().unwrap().0, "15 N");
+        let ctx = super::GraspContext::default();
+        let a = super::lower_force_insert_fit(p, &emb, &ctx);
+        assert_eq!(a.force_budget.as_ref().unwrap().0, "15 N"); // no held object -> unclamped
         assert_eq!(a.safety_envelope.compliance.as_deref(), Some("active"));
         let monitors = serde_json::to_string(&a.monitors).unwrap();
         assert!(monitors.contains("all_of"));
@@ -703,5 +714,16 @@ mod tests {
             out.actions[2].safety_envelope.motion_bounds.a_max.as_ref().unwrap().0,
             "1.5 m/s^2"
         );
+    }
+
+    #[test]
+    fn insert_fit_reaction_clamps_budget_per_hand() {
+        // 15 N budget clamped to grip_force_max / 2: allegro 10, leap 7.5, pneumatic 6.
+        for (stem, expected) in [("allegro", "10 N"), ("leap", "7.5 N"), ("pneumatic-6f", "6 N")] {
+            let (skill, emb) = load(stem);
+            let out = retarget(&skill, &emb).expect("retarget");
+            // insert_fit is action index 5.
+            assert_eq!(out.actions[5].force_budget.as_ref().unwrap().0, expected, "stem {stem}");
+        }
     }
 }
