@@ -1,6 +1,6 @@
 # RFL Specification — Overview
 
-> **Status**: pre-release skeleton (2026-05-30). The full specification draft v0.1 is targeted for **2027 Q1**. This file fixes the scope, structure, and constitutional principles that the subsequent chapters will instantiate.
+> **Status**: design-complete (2026-05-30) — the scope, structure, and five constitutional principles the subsequent chapters instantiate are fixed; the full specification draft v0.1 (frozen text) is targeted for **2027 Q1**.
 
 ## What this specification defines
 

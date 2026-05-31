@@ -46,7 +46,7 @@ The whitepaper is the long-form argument; the [`spec/`](spec/) directory hosts t
 
 | File | Status |
 |---|---|
-| [`spec/00-overview.md`](spec/00-overview.md) | Drafted |
+| [`spec/00-overview.md`](spec/00-overview.md) | Design complete — the five constitutional principles (embodiment-agnostic / compositional / verifiable / provider-neutral / forward-compatible), specification scope and deliberate non-scope, and governance; the foundation the subsequent chapters instantiate |
 | [`spec/01-skill-isa.md`](spec/01-skill-isa.md) | Design complete — 50 primitives, type system, algebra (predicates / three-valued verdict), world-state model, composition validity |
 | [`spec/02-translation-layer.md`](spec/02-translation-layer.md) | Design complete — canonical action + `Envelope`, quaternion pose + single-scalar geodesic error, determinism boundary (Class 2-strict / 2-loose), grasp-force / stability derivations, trajectory generation + time-scaling; § Open issues (the cross-chapter design driver) fully resolved |
 | [`spec/03-driver-interface.md`](spec/03-driver-interface.md) | Design complete — frame model, capability manifest, collision model, sensor / gravity / safety descriptors, multi-embodiment addressing, canonical driver messages (execute / telemetry / status + clearance-query service) |
