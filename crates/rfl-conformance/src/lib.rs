@@ -21,6 +21,7 @@ pub mod badge;
 pub mod battery;
 pub mod certificate;
 pub mod certify;
+pub mod measure;
 pub mod replay;
 pub mod ros2;
 

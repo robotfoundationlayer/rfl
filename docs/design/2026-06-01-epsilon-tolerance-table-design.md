@@ -1,10 +1,15 @@
 # Per-skill ε-tolerance table — format + measurement harness design
 
-Status: **FORMAT IMPLEMENTED 2026-06-02** (`schemas/epsilon-tolerance.schema.json`
-+ `schemas/epsilon-tolerances.yaml`, all 11 contact-dynamics primitives with
-`null` tolerances; `validate.py` C9 checks the key set is exactly the
-contact-dynamics primitive set derived from skill-isa); **values still BLOCKED on
-measurement data** (the harness below). Design retained as the record.
+Status: **FORMAT + HARNESS IMPLEMENTED 2026-06-02.** Format:
+`schemas/epsilon-tolerance.schema.json` + `schemas/epsilon-tolerances.yaml` (11
+contact-dynamics primitives, `null` tolerances; `validate.py` C9 anti-drift).
+Harness: `rfl-conformance::measure` — the per-quantity deviation metrics
+(`abs_dev` / `l2_dev` / `se3_dev` / `so3_dev`, reusing `rfl-core::pose`) +
+`epsilon_candidate` (nearest-rank percentile × safety factor) + `run_to_run_abs`,
+the tool that *produces* the ε values from real traces. **Values still BLOCKED on
+measurement data**: a single nominal report has no run-to-run variation, so the
+harness needs N real runs from a reference driver / declared-conformant simulator
+to emit non-trivial ε. Design retained as the record.
 
 ## What it is
 
