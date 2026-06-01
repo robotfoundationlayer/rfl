@@ -1,0 +1,24 @@
+# Simulator conformance declaration (spec/05 § Recursive simulator conformance).
+#
+# A high-fidelity simulator may stand in for physical hardware in Test class 4
+# (end-to-end) only when declared conformant: its outputs must match a
+# PHYSICALLY-conformant embodiment's outputs within the Class 2-loose ε on this
+# reference fixture set. A simulator cannot bootstrap its own fidelity, so the
+# anchoring embodiment and fixtures are recorded here.
+#
+# Status is `pending`: the anchor is declared, but the ε-match has not run — it
+# needs both the measured ε-values (the data-dependent item) and a real
+# simulator run. Invariant C10 (validate.py) forbids a `conformant` claim that
+# lacks the anchor or the ε-match evidence (the no-self-bootstrap rule).
+simulator:
+  name: rfl-reference-sim
+  version: "0.0.1"
+  physics_engine: gazebo
+anchoring_embodiment: wonik-allegro-v4
+reference_fixtures:
+  - { skill: cable-insertion, embodiment: wonik-allegro-v4 }
+  - { skill: surface-scan, embodiment: wonik-allegro-v4 }
+  - { skill: screw-fasten, embodiment: wonik-allegro-v4 }
+tolerance_basis: class_2_loose
+conformance_status: pending
+declared: "2026-06-02"

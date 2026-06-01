@@ -47,14 +47,19 @@ trademark_permitted }` rows. Reads the committed cert fixtures; golden-safe.
 This is a ready-to-implement increment (new CLI arm + a small derive module +
 tests over the existing cert fixtures).
 
-## Deferred: recursive-simulator conformance
+## Recursive-simulator conformance — STRUCTURE IMPLEMENTED 2026-06-02
 
-`spec/05` § Recursive simulator conformance governs when a simulator may stand in
-for physical hardware in a conformance run. This needs a simulator-provenance
-model (what the simulator attests, how its fidelity is bounded) that interacts
-with the live-`--driver` path and the fidelity tier; it is a genuine design
-increment, not a derivation, and is **deferred** pending that model. Not BLOCKED
-on data/hardware — it is design-open.
+On re-reading, `spec/05` § Recursive simulator conformance is actually *resolved*,
+not design-open: a simulator earns conformant status **recursively** — its
+outputs must match a *physically-conformant* embodiment's within the Class
+2-loose ε on a recorded reference fixture set, so it cannot bootstrap its own
+fidelity. The structural form is implementable now (same pattern as the ε-table
+format): `schemas/simulator-declaration.schema.json` + `simulator-declaration.yaml`
+(simulator provenance + anchoring embodiment + reference fixtures + tolerance
+basis + status, `pending` until ε-matched) + `validate.py` **C10** (the
+no-self-bootstrap rule: a `conformant` claim must carry the anchor + non-empty
+fixtures + `epsilon_match` evidence; adversarially verified). The actual ε-match
+*grading* stays BLOCKED on ε-values + a real simulator run.
 
 ## Decision
 

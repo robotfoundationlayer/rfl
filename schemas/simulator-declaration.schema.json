@@ -1,0 +1,60 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://rfl.dev/schemas/simulator-declaration.schema.json",
+  "title": "RFL Simulator Conformance Declaration",
+  "description": "A simulator's declaration for recursive conformance (spec/05 § Recursive simulator conformance). Test class 4 (end-to-end) accepts a high-fidelity simulator in place of physical hardware only if it is declared conformant: its outputs match a PHYSICALLY-conformant embodiment's outputs within the Class 2-loose ε on a reference fixture set. A simulator cannot bootstrap its own fidelity, so the declaration records its anchoring embodiment and reference fixtures. The ε-matching grade is `pending` until the ε-values are measured (the data-dependent item) and the simulator is run; invariant C10 (schemas/validate.py) enforces the no-self-bootstrap rule for a `conformant` claim.",
+  "type": "object",
+  "required": ["simulator", "anchoring_embodiment", "reference_fixtures", "tolerance_basis", "conformance_status"],
+  "additionalProperties": false,
+  "properties": {
+    "simulator": {
+      "description": "The simulator's provenance.",
+      "type": "object",
+      "required": ["name", "version", "physics_engine"],
+      "additionalProperties": false,
+      "properties": {
+        "name": { "type": "string" },
+        "version": { "type": "string" },
+        "physics_engine": { "type": "string" }
+      }
+    },
+    "anchoring_embodiment": {
+      "description": "The id of the PHYSICALLY-conformant embodiment whose outputs this simulator's fidelity is anchored to (spec/05: a simulator cannot bootstrap its own fidelity).",
+      "type": "string",
+      "minLength": 1
+    },
+    "reference_fixtures": {
+      "description": "The (skill, embodiment) fixtures the simulator's outputs are matched against the anchoring embodiment on. Non-empty for a conformant claim.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["skill", "embodiment"],
+        "additionalProperties": false,
+        "properties": {
+          "skill": { "type": "string" },
+          "embodiment": { "type": "string" }
+        }
+      }
+    },
+    "tolerance_basis": {
+      "description": "The tolerance regime the output-matching uses. Class 2-loose (the per-skill ε-tolerance table) is the only basis for a contact-dynamics anchor.",
+      "enum": ["class_2_loose"]
+    },
+    "conformance_status": {
+      "description": "pending = declared but not yet ε-matched (ε-values pending, or the simulator not yet run); conformant = matched the anchoring embodiment within ε on the fixtures; non_conformant = failed the match.",
+      "enum": ["pending", "conformant", "non_conformant"]
+    },
+    "epsilon_match": {
+      "description": "The ε-match evidence (required by C10 for a `conformant` status): the worst per-quantity margin against the ε-table, and the date the match was run. Absent while `pending`.",
+      "type": "object",
+      "required": ["matched", "run_date"],
+      "additionalProperties": false,
+      "properties": {
+        "matched": { "type": "boolean" },
+        "run_date": { "type": "string", "format": "date" },
+        "worst_margin": { "type": ["number", "null"] }
+      }
+    },
+    "declared": { "type": "string", "format": "date" }
+  }
+}

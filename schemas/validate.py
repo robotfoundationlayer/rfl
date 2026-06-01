@@ -60,6 +60,7 @@ def main() -> int:
     certificate = load_schema("certificate.schema.json")
     extension = load_schema("extension-registry.schema.json")
     epsilon = load_schema("epsilon-tolerance.schema.json")
+    simulator = load_schema("simulator-declaration.schema.json")
 
     print("Schema well-formedness (JSON Schema Draft 2020-12)")
     for label, schema in (
@@ -70,6 +71,7 @@ def main() -> int:
         ("certificate", certificate),
         ("extension-registry", extension),
         ("epsilon-tolerance", epsilon),
+        ("simulator-declaration", simulator),
     ):
         try:
             Draft202012Validator.check_schema(schema)
@@ -109,6 +111,12 @@ def main() -> int:
     eps_table = yaml.safe_load((SCHEMAS / "epsilon-tolerances.yaml").read_text())
     errs = list(eps_validator.iter_errors(eps_table))
     check("epsilon-tolerances.yaml vs epsilon-tolerance", not errs, errs[0].message if errs else "")
+
+    sim_validator = Draft202012Validator(simulator)
+    sim_decl = yaml.safe_load((SCHEMAS / "simulator-declaration.yaml").read_text())
+    errs = list(sim_validator.iter_errors(sim_decl))
+    check("simulator-declaration.yaml vs simulator-declaration", not errs,
+          errs[0].message if errs else "")
 
     print("\nCross-schema consistency (anti-drift)")
 
@@ -227,6 +235,24 @@ def main() -> int:
     eps_drift = contact_dynamics ^ eps_keys
     check("C9 epsilon-table keys == contact-dynamics primitives", not eps_drift,
           f"symmetric difference {sorted(eps_drift)}")
+
+    # C10 — the recursive-simulator no-self-bootstrap rule (spec/05 § Recursive
+    # simulator conformance): a simulator may declare `conformant` only with the
+    # anchor to physical ground truth — a non-empty reference-fixture set and an
+    # `epsilon_match` that actually matched. A `pending` / `non_conformant`
+    # declaration carries the anchor but needs no match evidence.
+    status = sim_decl.get("conformance_status")
+    if status == "conformant":
+        em = sim_decl.get("epsilon_match") or {}
+        ok = (bool(sim_decl.get("anchoring_embodiment"))
+              and bool(sim_decl.get("reference_fixtures"))
+              and em.get("matched") is True)
+        check("C10 conformant simulator declaration is anchored + ε-matched", ok,
+              "a conformant claim needs anchoring_embodiment + non-empty "
+              "reference_fixtures + epsilon_match.matched")
+    else:
+        check("C10 simulator declaration anchor present", bool(sim_decl.get("anchoring_embodiment")),
+              "every declaration records its anchoring embodiment")
 
     print()
     if failures:

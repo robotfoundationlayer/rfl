@@ -11,6 +11,7 @@ JSON Schema definitions for the machine-readable RFL artifacts. They formalize t
 | `certificate.schema.json` | a conformance certificate emitted by `rfl certify` (shape + integrity, optional ed25519 signature) | `05` | present |
 | `extension-registry.schema.json` | a registry entry (namespace + version + surface + lifecycle + Principle-3 artifact) | `06` | present |
 | `epsilon-tolerance.schema.json` | the per-skill ε-tolerance table for Class 2-loose conformance (`epsilon-tolerances.yaml`; values `null` until measured) | `02` · `05` | present |
+| `simulator-declaration.schema.json` | a recursive-simulator conformance declaration (`simulator-declaration.yaml`; anchor + reference fixtures + ε-match) | `05` | present |
 
 ## Conventions
 
@@ -31,7 +32,7 @@ JSON Schema definitions for the machine-readable RFL artifacts. They formalize t
 ## Validating
 
 `validate.py` is the committed conformance-test-class-1 runner: it checks the
-seven schemas (Draft 2020-12), validates every reference instance against them,
+eight schemas (Draft 2020-12), validates every reference instance against them,
 and asserts the cross-schema consistency invariants (the descriptor's capability
 enum is exactly `skill-isa`'s `PrimitiveId` set minus `reach.*` plus the four
 category gates; the extension-key pattern is shared; the closed-core tactile
@@ -42,8 +43,11 @@ reference embodiment's declared tactile features are a subset of its bound
 adapter's produced features; (C8) every extension-registry entry validates
 against `extension-registry.schema.json`, has an `identifier` consistent with
 its namespace/name/version, and a `name` colliding with no reserved core token;
-and (C9) the ε-tolerance table's key set is exactly the contact-dynamics
-primitive set — every `force.*` plus `in_hand.pivot` — derived from `skill-isa`).
+(C9) the ε-tolerance table's key set is exactly the contact-dynamics
+primitive set — every `force.*` plus `in_hand.pivot` — derived from `skill-isa`;
+and (C10) a simulator-conformance declaration claiming `conformant` is anchored
+to physical ground truth — it records an anchoring embodiment, a non-empty
+reference-fixture set, and `epsilon_match` evidence (the no-self-bootstrap rule)).
 It exits non-zero on any failure.
 
 ```bash
