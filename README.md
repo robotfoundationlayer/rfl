@@ -69,7 +69,7 @@ rfl/
 ├── docs/                 # ✅ Docs: getting-started.md (+ scripts/demo.sh quickstart) + cli-reference.md + authoring-skills.md + authoring-embodiments.md + certifying-a-driver.md (self-certification guide) + design/ (per-increment reference-implementation design records)
 ├── schemas/              # ✅ Eight JSON schemas + validator (skill-isa, embodiment-descriptor, driver-interface, tactile-manifold/adapter, certificate, extension-registry, epsilon-tolerance, simulator-declaration — all precisely typed; validate.py = conformance test class 1 with anti-drift invariants C1–C10)
 ├── extensions/           # ✅ Extension registry (empty by design at v0.1; post-v1.0 growth path, spec/06)
-└── bindings/             # 🚧 Python (PyO3): minimal retarget binding present (`rfl.retarget`, string-in/out) · C (cbindgen) + full typed Python binding ⏳ (v1.0, 2027 Q2–Q3)
+└── bindings/             # ✅ C (cbindgen: `rfl_retarget`/`rfl_string_free`/`rfl_spec_version`) + ROS 2 (`rfl_msgs` IDL: Execute action / Telemetry topic / ClearanceQuery service) + Python (PyO3: minimal `rfl.retarget`) · full typed Python ⏳ (v1.0, 2027 Q2–Q3)
 ```
 
 Legend: ✅ populated · 🚧 scaffold present, content pending · ⏳ planned, not yet created
