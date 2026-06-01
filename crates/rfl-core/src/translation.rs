@@ -20,8 +20,8 @@ use crate::quantity::Quantity;
 use crate::skill_isa::{
     Axes, Axis, Compliance, DisturbanceArg, ForceCut, ForceInsertFit, ForcePressButton, ForceScrew,
     ForceSnapEngage, ForceUnscrew, ForceWipe, GraspPin, GraspPinch, GraspPlatform, GraspRelease,
-    InHandFlip, InHandRegrasp, Primitive, ReachAlign, ReachHover, ReachRetract, ReachScan,
-    ScanPattern, SenseInspect, Skill, StabilityMarginArg, Statement, TactileTargetArg,
+    InHandFlip, InHandPivot, InHandRegrasp, Primitive, ReachAlign, ReachHover, ReachRetract,
+    ReachScan, ScanPattern, SenseInspect, Skill, StabilityMarginArg, Statement, TactileTargetArg,
     TransportCarry, TransportMoveToPose,
 };
 use crate::stability::StabilityMetadata;
@@ -132,6 +132,7 @@ fn check_capability(prim: &Primitive, e: &Embodiment) -> crate::Result<()> {
         Primitive::GraspPin(_) => "grasp.pin",
         Primitive::GraspPlatform(_) => "grasp.platform",
         Primitive::InHandRegrasp(_) => "in_hand.regrasp",
+        Primitive::InHandPivot(_) => "in_hand.pivot",
         // A category key implies the base primitive: `transport` = transport.move_to_pose.
         Primitive::TransportMoveToPose(_) => "transport",
         // transport.carry is a DISTINCT capability beyond the base transport gate
@@ -185,6 +186,7 @@ fn lower(
         Primitive::GraspPin(p) => (lower_grasp_pin(p, e), "pin"),
         Primitive::GraspPlatform(p) => (lower_grasp_platform(p, e), "platform"),
         Primitive::InHandRegrasp(p) => (lower_in_hand_regrasp(p, e, ctx), "regrasp"),
+        Primitive::InHandPivot(p) => (lower_in_hand_pivot(p, e, ctx), "pivot"),
         Primitive::TransportMoveToPose(p) => (lower_transport_move_to_pose(p, e, ctx), "transport"),
         Primitive::TransportCarry(p) => (lower_transport_carry(p, e, ctx), "carry"),
         Primitive::ReachAlign(p) => (lower_reach_align(p, e), "align"),
@@ -894,6 +896,48 @@ fn lower_in_hand_regrasp(p: &InHandRegrasp, e: &Embodiment, ctx: &GraspContext) 
         monitors: vec![],
         safety_envelope: env,
         grasp_stability: Some(StabilityMetadata::for_mode(p.target_grasp_mode())),
+    }
+}
+
+/// Lower `in_hand.pivot` (`spec/01` § 3.5): pivot a held object about a single contact, releasing
+/// exactly the `pivot_axis` rotational DOF while the others secure it (controlled under-actuation),
+/// then re-securing it at completion. Emits the continuity floor (`min_holding_force`, read by
+/// GC1), the single released DOF (`released_dof`), and the `transition: controlled_under_actuation`
+/// marker (the GC4 contract). Unlike a regrasp, the pivot PRESERVES grasp identity, so it emits no
+/// `grasp_stability` (there is no new grasp to confirm — GC2's hold test is vacuous). The held
+/// object's floor comes from `ctx.held` (read-only).
+fn lower_in_hand_pivot(p: &InHandPivot, e: &Embodiment, ctx: &GraspContext) -> CanonicalAction {
+    let mut profile = serde_json::Map::new();
+    if let Some(held) = &ctx.held {
+        let mhf = grasp_force::min_holding_force(held.weight_n, held.mode);
+        profile.insert(
+            "min_holding_force".to_string(),
+            serde_json::Value::String(Quantity::from_si(mhf, "N").0),
+        );
+    }
+    profile.insert("released_dof".to_string(), yaml_to_json(&p.pivot_axis));
+    profile.insert(
+        "transition".to_string(),
+        serde_json::Value::String("controlled_under_actuation".to_string()),
+    );
+    let mut env = base_envelope(e);
+    env.force_profile = Some(serde_json::Value::Object(profile));
+    CanonicalAction {
+        target_frame: e.grasp_frame().to_string(),
+        target_pose: PoseExpr::AxisRelative {
+            direction: yaml_to_json(&p.pivot_axis),
+            distance: Quantity("0 mm".to_string()),
+        },
+        force_budget: None,
+        timing: TimingHints {
+            nominal_duration: None,
+            timing_mode: TimingMode::Strict,
+            stop_at_goal: true,
+        },
+        tactile_target: None,
+        monitors: vec![],
+        safety_envelope: env,
+        grasp_stability: None,
     }
 }
 
@@ -1801,6 +1845,42 @@ mod tests {
         );
         // the new grasp's stability class (so GC2's hold test confirms the new grasp).
         assert_eq!(a.grasp_stability.as_ref().unwrap().closure, Closure::Force);
+    }
+
+    #[test]
+    fn pivot_lowers_under_actuation_contract_and_preserves_grasp() {
+        let dir =
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples/03-screw-fasten");
+        let skill =
+            Skill::parse_yaml(&std::fs::read_to_string(dir.join("skill-pivot.yaml")).unwrap())
+                .unwrap();
+        let emb = crate::embodiment::Embodiment::parse_yaml(
+            &std::fs::read_to_string(dir.join("embodiments/allegro.yaml")).unwrap(),
+        )
+        .unwrap();
+        let out = retarget(&skill, &emb).expect("retarget");
+        // locate(0), pinch(1), pivot(2), release(3).
+        assert_eq!(out.suffixes[2], "pivot");
+        let a = &out.actions[2];
+        let fp = a
+            .safety_envelope
+            .force_profile
+            .as_ref()
+            .expect("pivot carries the under-actuation contract");
+        // the controlled-under-actuation marker (the GC4 contract on the wire).
+        assert_eq!(
+            fp.get("transition").and_then(|v| v.as_str()),
+            Some("controlled_under_actuation")
+        );
+        // the single released DOF (the pivot axis).
+        assert_eq!(fp.get("released_dof").and_then(|v| v.as_str()), Some("+x"));
+        // the continuity floor read by GC1.
+        assert_eq!(
+            fp.get("min_holding_force").and_then(|v| v.as_str()),
+            Some("2 N")
+        );
+        // grasp identity preserved -> no new grasp_stability (GC2 hold test vacuous).
+        assert!(a.grasp_stability.is_none());
     }
 
     #[test]

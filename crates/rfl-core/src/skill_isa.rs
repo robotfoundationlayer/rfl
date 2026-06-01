@@ -172,6 +172,9 @@ pub enum Primitive {
     /// `in_hand.regrasp`.
     #[serde(rename = "in_hand.regrasp")]
     InHandRegrasp(InHandRegrasp),
+    /// `in_hand.pivot`.
+    #[serde(rename = "in_hand.pivot")]
+    InHandPivot(InHandPivot),
 }
 
 impl Primitive {
@@ -348,6 +351,22 @@ impl InHandRegrasp {
             _ => GraspMode::Pinch,
         }
     }
+}
+
+/// `in_hand.pivot` parameters (v0 subset of `$defs/InHandPivotParams`, § 3.5). Requires
+/// `pivot_axis` (the released rotational DOF) and `angle`. Pivots a held object about a single
+/// contact, releasing exactly the pivot-axis DOF while the others secure it (controlled
+/// under-actuation, not a release); grasp identity is preserved. The drive mode and tolerances
+/// carry their spec defaults and are not lowered in v0 (serde ignores them).
+#[derive(Debug, Clone, serde::Deserialize)]
+pub struct InHandPivot {
+    /// The axis of the pivot rotation — the single DOF deliberately released.
+    pub pivot_axis: Direction,
+    /// Target swing angle about `pivot_axis` (carried symbolic in v0).
+    pub angle: Quantity,
+    /// The established grasp providing the pivot contact (default active).
+    #[serde(default)]
+    pub grasp_handle: Option<GraspHandle>,
 }
 
 /// `transport.move_to_pose` parameters (v0 subset of `$defs/TransportMoveToPoseParams`).

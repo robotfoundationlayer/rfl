@@ -1,0 +1,33 @@
+# Example 03 — In-hand pivot (in_hand.pivot variant)
+# A controlled under-actuation: pivot a held object about a single contact, releasing EXACTLY the
+# pivot-axis rotational DOF while the others keep it secured, then re-securing at completion.
+# Exercises GC4 (spec/05): exactly the named DOF is under-constrained, all others secure at every
+# instant, and the released DOF is re-secured (the object returns to fully held).
+skill: object-pivot
+description: >
+  Grasp a part, pivot it 90 deg about a single contact (releasing one DOF under control), then
+  release. Grasp identity is preserved; the released DOF is re-secured at completion.
+
+objects:
+  part: { ref: part, estimated_mass: 1.0 N }
+
+body:
+  sequence:
+
+    - let: part_t
+      from:
+        sense.locate:
+          target_ref: part
+          modality: auto
+
+    - grasp.pinch:
+        target: part_t
+        force_budget: 8 N
+        tactile_target: auto
+
+    - in_hand.pivot:
+        pivot_axis: +x
+        angle: 90 deg
+
+    - grasp.release:
+        grasp_handle: active
