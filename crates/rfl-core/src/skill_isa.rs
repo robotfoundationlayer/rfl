@@ -187,6 +187,15 @@ pub enum Primitive {
     /// `sense.inspect`.
     #[serde(rename = "sense.inspect")]
     SenseInspect(SenseInspect),
+    /// `sense.probe`.
+    #[serde(rename = "sense.probe")]
+    SenseProbe(SenseProbe),
+    /// `sense.verify`.
+    #[serde(rename = "sense.verify")]
+    SenseVerify(SenseVerify),
+    /// `sense.weigh`.
+    #[serde(rename = "sense.weigh")]
+    SenseWeigh(SenseWeigh),
     /// `force.screw`.
     #[serde(rename = "force.screw")]
     ForceScrew(ForceScrew),
@@ -1008,6 +1017,50 @@ pub struct SenseInspect {
     /// What to capture (interpretation is out of RFL scope).
     #[serde(default)]
     pub observe: Option<Vec<String>>,
+}
+
+/// `sense.probe` parameters (v0 subset of `$defs/SenseProbeParams`, § 7.1). A single light tactile
+/// contact at `target_pose` to measure local surface properties — a measurement, no state change.
+#[derive(Debug, Clone, serde::Deserialize)]
+pub struct SenseProbe {
+    /// Where to probe (carried as an inline frame-relative object or a ref).
+    pub target_pose: serde_yaml::Value,
+    /// The light force at which contact is registered (a measurement threshold, not actuation).
+    pub contact_force: Quantity,
+    /// What to measure on contact (default {presence, location}); carried as a marker.
+    #[serde(default)]
+    pub measure: Option<Vec<String>>,
+    /// Hard cap guaranteeing non-disturbance (carried symbolic in v0).
+    #[serde(default)]
+    pub max_probe_force: Option<Quantity>,
+}
+
+/// `sense.verify` parameters (v0 subset of `$defs/SenseVerifyParams`, § 7.5). Check whether a
+/// stated predicate over external state holds — the `sense` implementation of the algebra's
+/// Predicate. The predicate is carried opaque in v0.
+#[derive(Debug, Clone, serde::Deserialize)]
+pub struct SenseVerify {
+    /// The condition to check (a caller-defined criterion over observable state).
+    pub predicate: serde_yaml::Value,
+    /// Min confidence to assert true / false rather than indeterminate (carried symbolic).
+    #[serde(default)]
+    pub confidence_threshold: Option<serde_yaml::Value>,
+}
+
+/// `sense.weigh` parameters (v0 subset of `$defs/SenseWeighParams`, § 7.3). Estimate the mass (and
+/// optionally CoM) of a held object from the measured force/torque reaction — the only `sense`
+/// primitive that requires a held object; it produces the `estimated_mass` other categories consume.
+#[derive(Debug, Clone, serde::Deserialize)]
+pub struct SenseWeigh {
+    /// `static` | `dynamic` | `auto` estimation method (default auto); carried as a marker.
+    #[serde(default)]
+    pub method: Option<String>,
+    /// What to estimate (default {mass}); carried as a marker.
+    #[serde(default)]
+    pub measure: Option<Vec<String>>,
+    /// The grasp holding the object to weigh (default active).
+    #[serde(default)]
+    pub grasp_handle: Option<GraspHandle>,
 }
 
 /// `force.screw` parameters (v0 subset of `$defs/ForceScrewParams`). `completion`

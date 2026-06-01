@@ -198,6 +198,9 @@ fn check_capability(prim: &Primitive, e: &Embodiment) -> crate::Result<()> {
         }
         Primitive::InHandFlip(_) => "in_hand.flip",
         Primitive::SenseInspect(_) => "sense.inspect",
+        Primitive::SenseProbe(_) => "sense.probe",
+        Primitive::SenseVerify(_) => "sense.verify",
+        Primitive::SenseWeigh(_) => "sense.weigh",
     };
     if e.has_skill(key) {
         Ok(())
@@ -310,6 +313,9 @@ fn lower(
         Primitive::ReachScan(p) => (lower_reach_scan(p, e), "scan"),
         Primitive::ReachHover(p) => (lower_reach_hover(p, e), "hover"),
         Primitive::SenseInspect(p) => (lower_sense_inspect(p, e), "inspect"),
+        Primitive::SenseProbe(p) => (lower_sense_probe(p, e), "probe"),
+        Primitive::SenseVerify(p) => (lower_sense_verify(p, e), "verify"),
+        Primitive::SenseWeigh(p) => (lower_sense_weigh(p, e), "weigh"),
     }
 }
 
@@ -2003,6 +2009,125 @@ fn lower_sense_inspect(p: &SenseInspect, e: &Embodiment) -> CanonicalAction {
         tactile_target: None,
         monitors: vec![],
         safety_envelope: base_envelope(e),
+        grasp_stability: None,
+    }
+}
+
+/// Build an optional `measure` marker array from a slice of measure names.
+fn measure_marker(measure: Option<&[String]>) -> Option<(&'static str, serde_json::Value)> {
+    measure.map(|m| {
+        (
+            "measure",
+            serde_json::Value::Array(
+                m.iter()
+                    .map(|s| serde_json::Value::String(s.clone()))
+                    .collect(),
+            ),
+        )
+    })
+}
+
+/// Lower `sense.probe` (`spec/01` § 7.1): a single light tactile contact to measure local surface
+/// properties — perception (no motion envelope). Touches at the grasp/contact frame; emits the
+/// light `contact_force` as the force bound and a `measure` marker. No state change, no grasp.
+fn lower_sense_probe(p: &crate::skill_isa::SenseProbe, e: &Embodiment) -> CanonicalAction {
+    let target_pose = match yaml_to_json(&p.target_pose) {
+        serde_json::Value::Object(map) => {
+            let frame = map
+                .get("frame")
+                .and_then(serde_json::Value::as_str)
+                .unwrap_or("task")
+                .to_string();
+            let offset = map
+                .get("offset")
+                .cloned()
+                .unwrap_or(serde_json::Value::Null);
+            PoseExpr::FrameRelative { frame, offset }
+        }
+        other => PoseExpr::FrameRelative {
+            frame: "task".into(),
+            offset: other,
+        },
+    };
+    let mut env = base_envelope(e);
+    let mut fp = serde_json::Map::new();
+    fp.insert(
+        "probe".to_string(),
+        serde_json::Value::String("light_contact".to_string()),
+    );
+    if let Some((k, v)) = measure_marker(p.measure.as_deref()) {
+        fp.insert(k.to_string(), v);
+    }
+    env.force_profile = Some(serde_json::Value::Object(fp));
+    CanonicalAction {
+        target_frame: e.grasp_frame().to_string(),
+        target_pose,
+        force_budget: Some(p.contact_force.clone()),
+        timing: TimingHints {
+            nominal_duration: None,
+            timing_mode: TimingMode::Strict,
+            stop_at_goal: true,
+        },
+        tactile_target: None,
+        monitors: vec![],
+        safety_envelope: env,
+        grasp_stability: None,
+    }
+}
+
+/// Lower `sense.verify` (`spec/01` § 7.5): evaluate a caller-defined predicate over external state
+/// — perception (no motion envelope). The predicate lowers into a `Monitor` (the evaluation the
+/// driver runs); the symbolic target pose names the predicate.
+fn lower_sense_verify(p: &crate::skill_isa::SenseVerify, e: &Embodiment) -> CanonicalAction {
+    CanonicalAction {
+        target_frame: e.sensor_frame().to_string(),
+        target_pose: PoseExpr::Ref {
+            r#ref: "predicate".to_string(),
+        },
+        force_budget: None,
+        timing: TimingHints {
+            nominal_duration: None,
+            timing_mode: TimingMode::Strict,
+            stop_at_goal: true,
+        },
+        tactile_target: None,
+        monitors: vec![Monitor {
+            stop_condition: yaml_to_json(&p.predicate),
+        }],
+        safety_envelope: base_envelope(e),
+        grasp_stability: None,
+    }
+}
+
+/// Lower `sense.weigh` (`spec/01` § 7.3): estimate a held object's mass from the measured
+/// force/torque reaction — perception (no motion envelope), but the only `sense` primitive that
+/// requires a held object. Emits the method + measure markers; the symbolic pose names the held
+/// object. `ctx` is unchanged (the object stays held).
+fn lower_sense_weigh(p: &crate::skill_isa::SenseWeigh, e: &Embodiment) -> CanonicalAction {
+    let mut env = base_envelope(e);
+    let mut fp = serde_json::Map::new();
+    fp.insert(
+        "method".to_string(),
+        serde_json::Value::String(p.method.clone().unwrap_or_else(|| "auto".to_string())),
+    );
+    if let Some((k, v)) = measure_marker(p.measure.as_deref()) {
+        fp.insert(k.to_string(), v);
+    }
+    env.force_profile = Some(serde_json::Value::Object(fp));
+    CanonicalAction {
+        target_frame: e.grasp_frame().to_string(),
+        target_pose: PoseExpr::Ref {
+            r#ref: "held".to_string(),
+        },
+        force_budget: None,
+        timing: TimingHints {
+            nominal_duration: None,
+            timing_mode: TimingMode::Strict,
+            stop_at_goal: true,
+        },
+        tactile_target: None,
+        monitors: vec![],
+        safety_envelope: env,
         grasp_stability: None,
     }
 }
