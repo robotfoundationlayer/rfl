@@ -1,0 +1,6 @@
+---
+source: crates/rfl-conformance/tests/reach_moves.rs
+expression: "jsonl_for(\"leap\")"
+---
+{"message":"execute","action_id":"reach-moves/cmu-leap-v1/0001-to_pose","canonical_action":{"target_frame":"tcp_index","target_pose":{"frame":"staging","offset":{"along":"+z","distance":"100 mm"}},"timing":{"timing_mode":"strict","stop_at_goal":true},"safety_envelope":{"motion_bounds":{"v_max":"0.5 m/s","a_max":"2.0 m/s^2","w_max":"2.5 rad/s"},"stop_time":"0.08 s"}}}
+{"message":"execute","action_id":"reach-moves/cmu-leap-v1/0002-approach","canonical_action":{"target_frame":"tcp_index","target_pose":{"frame":"panel","offset":{"along":"outward_normal","distance":"50 mm"}},"timing":{"timing_mode":"strict","stop_at_goal":true},"safety_envelope":{"motion_bounds":{"v_max":"0.5 m/s","a_max":"2.0 m/s^2","w_max":"2.5 rad/s"},"stop_time":"0.08 s"}}}

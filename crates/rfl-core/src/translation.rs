@@ -109,6 +109,8 @@ fn check_capability(prim: &Primitive, e: &Embodiment) -> crate::Result<()> {
     let key: &str = match prim {
         // reach.* is the unkeyed mandatory baseline: no gate.
         Primitive::ReachAlign(_)
+        | Primitive::ReachToPose(_)
+        | Primitive::ReachApproach(_)
         | Primitive::ReachRetract(_)
         | Primitive::ReachScan(_)
         | Primitive::ReachHover(_) => return Ok(()),
@@ -293,6 +295,8 @@ fn lower(
         Primitive::PlaceDiscard(p) => (lower_place_discard(p, e, ctx), "discard"),
         Primitive::TransportCarry(p) => (lower_transport_carry(p, e, ctx), "carry"),
         Primitive::ReachAlign(p) => (lower_reach_align(p, e), "align"),
+        Primitive::ReachToPose(p) => (lower_reach_to_pose(p, e), "to_pose"),
+        Primitive::ReachApproach(p) => (lower_reach_approach(p, e), "approach"),
         Primitive::ForceInsertFit(p) => (lower_force_insert_fit(p, e, ctx), "insert_fit"),
         Primitive::ForceScrew(p) => (lower_force_screw(p, e, ctx), "screw"),
         Primitive::ForceUnscrew(p) => (lower_force_unscrew(p, e, ctx), "unscrew"),
@@ -1073,6 +1077,72 @@ fn lower_reach_hover(p: &ReachHover, e: &Embodiment) -> CanonicalAction {
         tactile_target: None,
         monitors: vec![],
         safety_envelope: env,
+        grasp_stability: None,
+    }
+}
+
+/// Lower `reach.to_pose` (`spec/01` § 1.1): the base free-space motion — move the controlled frame
+/// to an absolute target pose, terminating at rest without task contact. Terminal-postcondition
+/// (no force profile, no grasp stability). The frame-relative target is carried through like
+/// `transport.move_to_pose`, but to the control frame and with no held-transport bounds.
+fn lower_reach_to_pose(p: &crate::skill_isa::ReachToPose, e: &Embodiment) -> CanonicalAction {
+    let target_pose = match yaml_to_json(&p.target_pose) {
+        serde_json::Value::Object(map) => {
+            let frame = map
+                .get("frame")
+                .and_then(serde_json::Value::as_str)
+                .unwrap_or("task")
+                .to_string();
+            let offset = map
+                .get("offset")
+                .cloned()
+                .unwrap_or(serde_json::Value::Null);
+            PoseExpr::FrameRelative { frame, offset }
+        }
+        other => PoseExpr::FrameRelative {
+            frame: "task".into(),
+            offset: other,
+        },
+    };
+    CanonicalAction {
+        target_frame: e.control_frame().to_string(),
+        target_pose,
+        force_budget: None,
+        timing: TimingHints {
+            nominal_duration: None,
+            timing_mode: TimingMode::Strict,
+            stop_at_goal: true,
+        },
+        tactile_target: None,
+        monitors: vec![],
+        safety_envelope: base_envelope(e),
+        grasp_stability: None,
+    }
+}
+
+/// Lower `reach.approach` (`spec/01` § 1.2): move to a standoff pose offset from a target surface
+/// along its outward normal, tool axis toward the surface, terminating at rest without contact.
+/// Terminal-postcondition. Emits the standoff setpoint (`S = p + standoff·n`) like `reach.hover`
+/// but as a one-shot terminal pose (no station-keeping interval).
+fn lower_reach_approach(p: &crate::skill_isa::ReachApproach, e: &Embodiment) -> CanonicalAction {
+    CanonicalAction {
+        target_frame: e.control_frame().to_string(),
+        target_pose: PoseExpr::FrameRelative {
+            frame: p.target.clone(),
+            offset: serde_json::json!({
+                "along": "outward_normal",
+                "distance": p.standoff.0.clone(),
+            }),
+        },
+        force_budget: None,
+        timing: TimingHints {
+            nominal_duration: None,
+            timing_mode: TimingMode::Strict,
+            stop_at_goal: true,
+        },
+        tactile_target: None,
+        monitors: vec![],
+        safety_envelope: base_envelope(e),
         grasp_stability: None,
     }
 }

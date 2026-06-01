@@ -1068,7 +1068,9 @@ pub enum EnvelopeClass {
 #[must_use]
 pub fn envelope_class_for(suffix: &str) -> Option<EnvelopeClass> {
     match suffix {
-        "align" | "retract" | "scan" => Some(EnvelopeClass::TerminalPostcondition),
+        "align" | "to_pose" | "approach" | "retract" | "scan" => {
+            Some(EnvelopeClass::TerminalPostcondition)
+        }
         "pinch" | "power" | "lateral" | "tripod" | "hook" | "conform" | "cage" | "release"
         | "transport" | "flip" | "regrasp" | "pivot" | "rotate" | "translate" | "roll"
         | "slide" | "handoff" | "lift" | "lower" | "follow_trajectory" | "put_down" | "stack"

@@ -1,0 +1,19 @@
+# Example 03 — Reach (reach.to_pose / reach.approach)
+# The two remaining free-space reach primitives: the base move-to-an-absolute-pose and the
+# approach-to-a-standoff-over-a-surface. Both terminate at rest WITHOUT task contact
+# (terminal-postcondition, ENV1). reach.* is the unkeyed mandatory baseline — no capability gate —
+# so the skill retargets to every embodiment unchanged.
+skill: reach-moves
+description: >
+  Move the controlled frame to a staging pose, then approach a panel surface to a 50 mm standoff.
+  Demonstrates the terminal-postcondition reach primitives.
+
+body:
+  sequence:
+
+    - reach.to_pose:
+        target_pose: { frame: staging, offset: { along: +z, distance: 100 mm } }
+
+    - reach.approach:
+        target: panel
+        standoff: 50 mm

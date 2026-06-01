@@ -163,6 +163,12 @@ pub enum Primitive {
     /// `reach.align`.
     #[serde(rename = "reach.align")]
     ReachAlign(ReachAlign),
+    /// `reach.to_pose`.
+    #[serde(rename = "reach.to_pose")]
+    ReachToPose(ReachToPose),
+    /// `reach.approach`.
+    #[serde(rename = "reach.approach")]
+    ReachApproach(ReachApproach),
     /// `force.insert_fit`.
     #[serde(rename = "force.insert_fit")]
     ForceInsertFit(ForceInsertFit),
@@ -834,6 +840,27 @@ pub enum Axis {
     Y,
     /// z.
     Z,
+}
+
+/// `reach.to_pose` parameters (v0 subset of `$defs/ReachToPoseParams`, § 1.1). The base free-space
+/// motion to an absolute target pose, terminating at rest without task contact.
+#[derive(Debug, Clone, serde::Deserialize)]
+pub struct ReachToPose {
+    /// `Pose6D` target, carried as an inline frame-relative object or a ref.
+    pub target_pose: serde_yaml::Value,
+}
+
+/// `reach.approach` parameters (v0 subset of `$defs/ReachApproachParams`, § 1.2). Move to a
+/// standoff pose offset from a target surface along its outward normal, terminating at rest.
+#[derive(Debug, Clone, serde::Deserialize)]
+pub struct ReachApproach {
+    /// The surface to approach (v0: a frame ref; the point + normal is floored to a frame name).
+    pub target: FrameRef,
+    /// Terminal distance from the surface along its outward normal.
+    pub standoff: Quantity,
+    /// Controlled-frame axis aligned anti-parallel to the surface normal (carried symbolic in v0).
+    #[serde(default)]
+    pub approach_axis: Option<Direction>,
 }
 
 /// `reach.align` parameters (v0 subset of `$defs/ReachAlignParams`).
