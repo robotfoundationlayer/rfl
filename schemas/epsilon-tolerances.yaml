@@ -5,16 +5,22 @@
 # action GENERATION stays Class 2-strict; only realized execution is loose.
 #
 # Values are `null` until measured — the data-dependent pre-freeze item. The
-# structure is fixed now (schemas/epsilon-tolerance.schema.json) and the key set
-# is checked complete by validate.py C9. A null tolerance means the loose check
-# is not yet gradeable for that quantity (never silently a pass). The measurement
-# harness that fills these is specified in
-# docs/design/2026-06-01-epsilon-tolerance-table-design.md.
+# structure is fixed now (schemas/epsilon-tolerance.schema.json) and the primitive
+# key set is checked complete by validate.py C9. A null tolerance means the loose
+# check is not yet gradeable for that quantity (never silently a pass). The
+# measurement harness that fills these is `rfl measure` (see
+# docs/design/2026-06-01-epsilon-tolerance-table-design.md and the quantity
+# reconciliation in 2026-06-02-measure-quantity-reconciliation-design.md).
+#
+# Pose is split into realized_position (l2_norm, m) and realized_orientation
+# (geodesic_so3, rad): a single ε cannot bound metres and radians at once without
+# a length scale, so each component carries its own tolerance in its own unit.
 epsilon_tolerances:
   force.insert_fit:
-    realized_pose:   { metric: geodesic_se3, tolerance: null }
-    realized_wrench: { metric: l2_norm,      tolerance: null, unit: "N" }
-    seating_depth:   { metric: abs,          tolerance: null, unit: "m" }
+    realized_position:    { metric: l2_norm,      tolerance: null, unit: "m" }
+    realized_orientation: { metric: geodesic_so3, tolerance: null, unit: "rad" }
+    realized_wrench:      { metric: l2_norm,      tolerance: null, unit: "N" }
+    seating_depth:        { metric: abs,          tolerance: null, unit: "m" }
   force.screw:
     completion_torque: { metric: abs, tolerance: null, unit: "N*m" }
     turns:             { metric: abs, tolerance: null }
@@ -22,26 +28,31 @@ epsilon_tolerances:
     completion_torque: { metric: abs, tolerance: null, unit: "N*m" }
     turns:             { metric: abs, tolerance: null }
   force.press_button:
-    actuation_force: { metric: abs,          tolerance: null, unit: "N" }
-    realized_pose:   { metric: geodesic_se3, tolerance: null }
+    actuation_force:      { metric: abs,          tolerance: null, unit: "N" }
+    realized_position:    { metric: l2_norm,      tolerance: null, unit: "m" }
+    realized_orientation: { metric: geodesic_so3, tolerance: null, unit: "rad" }
   force.snap_engage:
-    engagement_force: { metric: abs,          tolerance: null, unit: "N" }
-    realized_pose:    { metric: geodesic_se3, tolerance: null }
+    engagement_force:     { metric: abs,          tolerance: null, unit: "N" }
+    realized_position:    { metric: l2_norm,      tolerance: null, unit: "m" }
+    realized_orientation: { metric: geodesic_so3, tolerance: null, unit: "rad" }
   force.cut:
     cut_depth:       { metric: abs,     tolerance: null, unit: "m" }
     realized_wrench: { metric: l2_norm, tolerance: null, unit: "N" }
   force.wipe:
-    contact_force: { metric: abs,          tolerance: null, unit: "N" }
-    realized_pose: { metric: geodesic_se3, tolerance: null }
+    contact_force:        { metric: abs,          tolerance: null, unit: "N" }
+    realized_position:    { metric: l2_norm,      tolerance: null, unit: "m" }
+    realized_orientation: { metric: geodesic_so3, tolerance: null, unit: "rad" }
   force.scrub:
     contact_force:         { metric: abs, tolerance: null, unit: "N" }
     oscillation_amplitude: { metric: abs, tolerance: null, unit: "m" }
   force.push:
-    realized_pose:   { metric: geodesic_se3, tolerance: null }
-    realized_wrench: { metric: l2_norm,      tolerance: null, unit: "N" }
+    realized_position:    { metric: l2_norm,      tolerance: null, unit: "m" }
+    realized_orientation: { metric: geodesic_so3, tolerance: null, unit: "rad" }
+    realized_wrench:      { metric: l2_norm,      tolerance: null, unit: "N" }
   force.pull:
-    realized_pose:   { metric: geodesic_se3, tolerance: null }
-    realized_wrench: { metric: l2_norm,      tolerance: null, unit: "N" }
+    realized_position:    { metric: l2_norm,      tolerance: null, unit: "m" }
+    realized_orientation: { metric: geodesic_so3, tolerance: null, unit: "rad" }
+    realized_wrench:      { metric: l2_norm,      tolerance: null, unit: "N" }
   in_hand.pivot:
     final_orientation: { metric: geodesic_so3, tolerance: null, unit: "rad" }
     securing_force:    { metric: abs,          tolerance: null, unit: "N" }
