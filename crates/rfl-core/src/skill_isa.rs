@@ -181,6 +181,9 @@ pub enum Primitive {
     /// `force.scrub`.
     #[serde(rename = "force.scrub")]
     ForceScrub(ForceScrub),
+    /// `grasp.adjust`.
+    #[serde(rename = "grasp.adjust")]
+    GraspAdjust(GraspAdjust),
     /// `grasp.release`.
     #[serde(rename = "grasp.release")]
     GraspRelease(GraspRelease),
@@ -342,6 +345,7 @@ impl Primitive {
                 | Primitive::PlaceOrient(_)
                 | Primitive::PlaceHandTo(_)
                 | Primitive::PlaceDiscard(_)
+                | Primitive::GraspAdjust(_)
                 | Primitive::GraspRelease(_)
                 | Primitive::ForcePull(_)
                 | Primitive::SenseWeigh(_)
@@ -367,6 +371,7 @@ impl Primitive {
     #[must_use]
     pub fn grasp_handle_ref(&self) -> Option<&str> {
         let handle = match self {
+            Primitive::GraspAdjust(p) => p.grasp_handle.as_ref(),
             Primitive::GraspRelease(p) => p.grasp_handle.as_ref(),
             Primitive::InHandRegrasp(p) => p.grasp_handle.as_ref(),
             Primitive::InHandPivot(p) => p.grasp_handle.as_ref(),
@@ -1016,6 +1021,22 @@ pub enum ActiveLiteral {
     /// `active`.
     #[serde(rename = "active")]
     Active,
+}
+
+/// `grasp.adjust` parameters (v0 subset of `$defs/GraspAdjustParams`, § 2.9). Modify an established
+/// grasp in place — change grip force / re-center / recover from slip — without releasing it or
+/// changing its identity (mode / closure / topology). A held → held operation preserving continuity.
+#[derive(Debug, Clone, serde::Deserialize)]
+pub struct GraspAdjust {
+    /// Adjusted grip force (clamped to grip_force_max); `auto`/absent = re-derive from feedback.
+    #[serde(default)]
+    pub new_force_budget: Option<Quantity>,
+    /// Adjustment intent `{slip_recovery, force_adapt, recenter, manual}` (carried as a marker).
+    #[serde(default)]
+    pub reason: Option<String>,
+    /// The established grasp to modify (default active).
+    #[serde(default)]
+    pub grasp_handle: Option<GraspHandle>,
 }
 
 /// `grasp.release` parameters (v0 subset of `$defs/GraspReleaseParams`).

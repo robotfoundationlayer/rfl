@@ -1,0 +1,34 @@
+# Example 03 — Grasp adjust (grasp.adjust variant)
+# Modify an established grasp in place — here, raise the grip force to adapt to a heavier-than-
+# expected load — without releasing the object or changing the grasp's identity (mode / closure /
+# topology). A held -> held operation: grasp continuity is preserved throughout (GC1 floor), and no
+# new grasp_stability is emitted (the originating grasp's metadata stands). Completes the 50-
+# primitive Skill ISA vocabulary.
+skill: object-grasp-adjust
+description: >
+  Grasp a part, adjust the grip force in place (force_adapt) preserving grasp identity, then
+  release. Demonstrates the held -> held grasp modifier.
+
+objects:
+  part: { ref: part, estimated_mass: 1.0 N }
+
+body:
+  sequence:
+
+    - let: part_t
+      from:
+        sense.locate:
+          target_ref: part
+          modality: auto
+
+    - grasp.pinch:
+        target: part_t
+        force_budget: 8 N
+        tactile_target: auto
+
+    - grasp.adjust:
+        new_force_budget: 12 N
+        reason: force_adapt
+
+    - grasp.release:
+        grasp_handle: active

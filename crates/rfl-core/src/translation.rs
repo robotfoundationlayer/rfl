@@ -114,10 +114,10 @@ fn check_capability(prim: &Primitive, e: &Embodiment) -> crate::Result<()> {
         | Primitive::ReachRetract(_)
         | Primitive::ReachScan(_)
         | Primitive::ReachHover(_) => return Ok(()),
-        // grasp.release is presupposed by any declared grasp capability (spec/03
-        // § Grasp-mode capabilities lists only the eight modes; the descriptors do
-        // not declare grasp.release). Require at least one grasp.* mode.
-        Primitive::GraspRelease(_) => {
+        // grasp.release and grasp.adjust are held-state operations presupposed by any declared
+        // grasp capability (spec/03 § Grasp-mode capabilities lists only the grasp modes; the
+        // descriptors do not declare them). Require at least one grasp.* mode.
+        Primitive::GraspRelease(_) | Primitive::GraspAdjust(_) => {
             return if e
                 .capabilities
                 .skills
@@ -240,45 +240,10 @@ fn lower(
         Primitive::GraspPlatform(p) => (lower_grasp_platform(p, e), "platform"),
         Primitive::InHandRegrasp(p) => (lower_in_hand_regrasp(p, e, ctx), "regrasp"),
         Primitive::InHandPivot(p) => (lower_in_hand_pivot(p, e, ctx), "pivot"),
-        Primitive::InHandRotate(p) => (
-            lower_in_hand_manip(&p.axis, Quantity("0 mm".into()), "rotate", vec![], e, ctx),
-            "rotate",
-        ),
-        Primitive::InHandTranslate(p) => (
-            lower_in_hand_manip(
-                &p.direction,
-                p.distance.clone(),
-                "translate",
-                vec![],
-                e,
-                ctx,
-            ),
-            "translate",
-        ),
-        Primitive::InHandRoll(p) => (
-            lower_in_hand_manip(
-                &p.roll_axis,
-                Quantity("0 mm".into()),
-                "roll",
-                vec![],
-                e,
-                ctx,
-            ),
-            "roll",
-        ),
-        Primitive::InHandSlide(p) => (
-            lower_in_hand_manip(
-                &p.slide_direction,
-                Quantity("0 mm".into()),
-                "slide",
-                vec![Monitor {
-                    stop_condition: yaml_to_json(&p.stop_condition),
-                }],
-                e,
-                ctx,
-            ),
-            "slide",
-        ),
+        Primitive::InHandRotate(p) => (lower_in_hand_rotate(p, e, ctx), "rotate"),
+        Primitive::InHandTranslate(p) => (lower_in_hand_translate(p, e, ctx), "translate"),
+        Primitive::InHandRoll(p) => (lower_in_hand_roll(p, e, ctx), "roll"),
+        Primitive::InHandSlide(p) => (lower_in_hand_slide(p, e, ctx), "slide"),
         Primitive::TransportHandoff(p) => (lower_transport_handoff(p, e, ctx), "handoff"),
         Primitive::TransportMoveToPose(p) => (lower_transport_move_to_pose(p, e, ctx), "transport"),
         Primitive::TransportLift(p) => (lower_transport_lift(p, e, ctx), "lift"),
@@ -314,6 +279,7 @@ fn lower(
         Primitive::ForceSnapEngage(p) => (lower_force_snap_engage(p, e), "snap_engage"),
         Primitive::ForceCut(p) => (lower_force_cut(p, e), "cut"),
         Primitive::InHandFlip(p) => (lower_in_hand_flip(p, e), "flip"),
+        Primitive::GraspAdjust(p) => (lower_grasp_adjust(p, e, ctx), "adjust"),
         Primitive::GraspRelease(p) => (lower_grasp_release(p, e, ctx), "release"),
         Primitive::ReachRetract(p) => (lower_reach_retract(p, e), "retract"),
         Primitive::ReachScan(p) => (lower_reach_scan(p, e), "scan"),
@@ -1526,6 +1492,52 @@ fn lower_in_hand_regrasp(p: &InHandRegrasp, e: &Embodiment, ctx: &GraspContext) 
     }
 }
 
+/// Lower `grasp.adjust` (`spec/01` § 2.9): modify the active grasp in place — change grip force /
+/// re-center / recover from slip — without releasing it or changing its identity (a held → held
+/// op). Emits the GC1 continuity floor (`min_holding_force` from `ctx.held`), the adjusted force
+/// budget (clamped), and an `adjustment` marker. No `grasp_stability` (identity is unchanged — the
+/// originating grasp's stability metadata stands); `ctx` is read-only (the object stays held).
+fn lower_grasp_adjust(
+    p: &crate::skill_isa::GraspAdjust,
+    e: &Embodiment,
+    ctx: &GraspContext,
+) -> CanonicalAction {
+    let mut profile = serde_json::Map::new();
+    if let Some(held) = &ctx.held {
+        let mhf = grasp_force::min_holding_force(held.weight_n, held.mode);
+        profile.insert(
+            "min_holding_force".to_string(),
+            serde_json::Value::String(Quantity::from_si(mhf, "N").0),
+        );
+    }
+    profile.insert(
+        "adjustment".to_string(),
+        serde_json::Value::String(p.reason.clone().unwrap_or_else(|| "manual".to_string())),
+    );
+    let force_budget = p
+        .new_force_budget
+        .as_ref()
+        .map(|q| clamp_force(q, "grip_force_max", e));
+    let mut env = base_envelope(e);
+    env.force_profile = Some(serde_json::Value::Object(profile));
+    CanonicalAction {
+        target_frame: e.grasp_frame().to_string(),
+        target_pose: PoseExpr::Ref {
+            r#ref: "held".to_string(),
+        },
+        force_budget,
+        timing: TimingHints {
+            nominal_duration: None,
+            timing_mode: TimingMode::Strict,
+            stop_at_goal: true,
+        },
+        tactile_target: None,
+        monitors: vec![],
+        safety_envelope: env,
+        grasp_stability: None,
+    }
+}
+
 /// Lower `in_hand.pivot` (`spec/01` § 3.5): pivot a held object about a single contact, releasing
 /// exactly the `pivot_axis` rotational DOF while the others secure it (controlled under-actuation),
 /// then re-securing it at completion. Emits the continuity floor (`min_holding_force`, read by
@@ -1728,6 +1740,65 @@ fn lower_place_discard(
         extra.push(("max_drop_height", serde_json::Value::String(h.0.clone())));
     }
     lower_place_action("discard_zone", "discard", extra, e, ctx)
+}
+
+/// Lower `in_hand.rotate` (§ 3.1) — reorient in place (position fixed).
+fn lower_in_hand_rotate(
+    p: &crate::skill_isa::InHandRotate,
+    e: &Embodiment,
+    ctx: &GraspContext,
+) -> CanonicalAction {
+    lower_in_hand_manip(&p.axis, Quantity("0 mm".into()), "rotate", vec![], e, ctx)
+}
+
+/// Lower `in_hand.translate` (§ 3.2) — shift in the grasp by `distance`.
+fn lower_in_hand_translate(
+    p: &crate::skill_isa::InHandTranslate,
+    e: &Embodiment,
+    ctx: &GraspContext,
+) -> CanonicalAction {
+    lower_in_hand_manip(
+        &p.direction,
+        p.distance.clone(),
+        "translate",
+        vec![],
+        e,
+        ctx,
+    )
+}
+
+/// Lower `in_hand.roll` (§ 3.4) — rolling reorientation in place.
+fn lower_in_hand_roll(
+    p: &crate::skill_isa::InHandRoll,
+    e: &Embodiment,
+    ctx: &GraspContext,
+) -> CanonicalAction {
+    lower_in_hand_manip(
+        &p.roll_axis,
+        Quantity("0 mm".into()),
+        "roll",
+        vec![],
+        e,
+        ctx,
+    )
+}
+
+/// Lower `in_hand.slide` (§ 3.6) — controlled slip to a stop condition (lowered into a Monitor).
+fn lower_in_hand_slide(
+    p: &crate::skill_isa::InHandSlide,
+    e: &Embodiment,
+    ctx: &GraspContext,
+) -> CanonicalAction {
+    lower_in_hand_manip(
+        &p.slide_direction,
+        Quantity("0 mm".into()),
+        "slide",
+        vec![Monitor {
+            stop_condition: yaml_to_json(&p.stop_condition),
+        }],
+        e,
+        ctx,
+    )
 }
 
 /// Lower `transport.handoff` (`spec/01` § 4.3): transfer a held object from the giver's grasp to

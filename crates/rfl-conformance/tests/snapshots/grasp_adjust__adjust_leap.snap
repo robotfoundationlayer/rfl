@@ -1,0 +1,8 @@
+---
+source: crates/rfl-conformance/tests/grasp_adjust.rs
+expression: "jsonl_for(\"leap\")"
+---
+{"message":"execute","action_id":"object-grasp-adjust/cmu-leap-v1/0001-locate","canonical_action":{"target_frame":"wrist_cam","target_pose":{"ref":"part"},"timing":{"timing_mode":"strict","stop_at_goal":true},"safety_envelope":{"motion_bounds":{}}}}
+{"message":"execute","action_id":"object-grasp-adjust/cmu-leap-v1/0002-pinch","canonical_action":{"target_frame":"tcp_thumb","target_pose":{"ref":"part_t"},"force_budget":"8 N","timing":{"timing_mode":"strict","stop_at_goal":true},"tactile_target":"auto","safety_envelope":{"motion_bounds":{"v_max":"0.5 m/s","a_max":"2.0 m/s^2","w_max":"2.5 rad/s"},"force_profile":{"min_holding_force":"2 N"},"stop_time":"0.08 s"},"grasp_stability":{"closure":"force","secured_dof":{"all_axes":"friction_held"},"stable_directions":"omnidirectional","min_holding_force":"2 N"}}}
+{"message":"execute","action_id":"object-grasp-adjust/cmu-leap-v1/0003-adjust","canonical_action":{"target_frame":"tcp_thumb","target_pose":{"ref":"held"},"force_budget":"12 N","timing":{"timing_mode":"strict","stop_at_goal":true},"safety_envelope":{"motion_bounds":{"v_max":"0.5 m/s","a_max":"2.0 m/s^2","w_max":"2.5 rad/s"},"force_profile":{"adjustment":"force_adapt","min_holding_force":"2 N"},"stop_time":"0.08 s"}}}
+{"message":"execute","action_id":"object-grasp-adjust/cmu-leap-v1/0004-release","canonical_action":{"target_frame":"tcp_thumb","target_pose":{"direction":"-tool_axis","distance":"0 mm"},"timing":{"timing_mode":"strict","stop_at_goal":true},"safety_envelope":{"motion_bounds":{"v_max":"0.5 m/s","a_max":"2.0 m/s^2","w_max":"2.5 rad/s"},"stop_time":"0.08 s"}}}

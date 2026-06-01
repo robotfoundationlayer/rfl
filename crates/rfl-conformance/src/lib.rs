@@ -1073,8 +1073,10 @@ pub fn envelope_class_for(suffix: &str) -> Option<EnvelopeClass> {
         }
         "pinch" | "power" | "lateral" | "tripod" | "hook" | "conform" | "cage" | "release"
         | "transport" | "flip" | "regrasp" | "pivot" | "rotate" | "translate" | "roll"
-        | "slide" | "handoff" | "lift" | "lower" | "follow_trajectory" | "put_down" | "stack"
-        | "insert_loose" | "orient" | "hand_to" | "discard" => Some(EnvelopeClass::GraspContinuity),
+        | "slide" | "handoff" | "lift" | "lower" | "follow_trajectory" | "adjust" | "put_down"
+        | "stack" | "insert_loose" | "orient" | "hand_to" | "discard" => {
+            Some(EnvelopeClass::GraspContinuity)
+        }
         "insert_fit" | "screw" | "unscrew" | "press_button" | "wipe" | "snap_engage" | "cut"
         | "push" | "pull" | "scrub" => Some(EnvelopeClass::ForceTrajectory),
         "hover" | "carry" => Some(EnvelopeClass::IntervalInvariant),
