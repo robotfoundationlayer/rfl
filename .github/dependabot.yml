@@ -1,0 +1,26 @@
+# Automated dependency updates. Complements cargo-deny (which gates licenses +
+# advisories in CI): Dependabot opens the update PRs, cargo-deny verifies them.
+version: 2
+updates:
+  # Rust workspace dependencies.
+  - package-ecosystem: cargo
+    directory: "/"
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    groups:
+      # Batch routine patch/minor bumps into one PR to reduce noise.
+      cargo-minor:
+        update-types:
+          - minor
+          - patch
+    commit-message:
+      prefix: "deps"
+
+  # GitHub Actions used by the CI workflow.
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: weekly
+    commit-message:
+      prefix: "ci"
