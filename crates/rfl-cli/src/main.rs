@@ -15,6 +15,8 @@
 //! - `rfl keygen <out>` — generate an ed25519 keypair (secret to `<out>`, public to stdout)
 //! - `rfl sign --key <secret> <certificate.json>` — attach an ed25519 signature to a certificate
 //! - `rfl badge <certificate.json>` — derive a conformance badge (regime + fidelity tier + trademark gate)
+//! - `rfl sim --skill <s> --embodiment <e>` — the reference simulator driver: retarget + execute,
+//!   emitting a conformant driver-report JSONL (the supply-side reference; feed it to `rfl certify --report`)
 
 use anyhow::Result;
 use clap::{Parser, Subcommand};
@@ -85,6 +87,16 @@ enum Command {
     Badge {
         /// Path to the certificate JSON file.
         certificate: std::path::PathBuf,
+    },
+    /// The reference simulator driver: retarget a skill onto an embodiment, execute it with the
+    /// nominal reference driver, and emit a conformant driver-report JSONL (telemetry + status).
+    Sim {
+        /// Path to the skill YAML file.
+        #[arg(long)]
+        skill: std::path::PathBuf,
+        /// Path to the embodiment descriptor YAML file.
+        #[arg(long)]
+        embodiment: std::path::PathBuf,
     },
     /// Print the specification version this CLI implements.
     SpecVersion,
@@ -343,6 +355,14 @@ fn main() -> Result<()> {
                 println!("  [{mark}] {} ({class}) — fidelity {tier}", a.action_id);
             }
             std::process::exit(0);
+        }
+        Command::Sim { skill, embodiment } => {
+            // Retarget + execute with the nominal reference driver, then emit the
+            // driver-report JSONL (`rfl certify --report` consumes it). Reuses the
+            // same helpers the conformance suite tests.
+            let reports = rfl_conformance::run_reference_driver(&skill, &embodiment)?;
+            print!("{}", rfl_conformance::reports_to_jsonl(&reports));
+            Ok(())
         }
         Command::SpecVersion => {
             println!("{}", rfl_core::SPEC_VERSION);

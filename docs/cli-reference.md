@@ -23,6 +23,7 @@ rfl verify   <certificate.json>
 rfl keygen   <secret-key-out>
 rfl sign     --key <secret-key> <certificate.json>
 rfl badge    <certificate.json>
+rfl sim      --skill <skill.yaml> --embodiment <descriptor.yaml>
 rfl spec-version
 ```
 
@@ -194,6 +195,31 @@ hand that degrades to the force/position proxy badges `proxy`, never `manifold`.
 |---|---|
 | `0` | Badge derived and printed. |
 | `2` | Unreadable or malformed certificate. |
+
+## `rfl sim`
+
+The **reference simulator driver** (the supply-side reference): retarget a skill
+onto an embodiment, execute it with the nominal in-process reference driver, and
+emit a conformant driver-report JSONL (telemetry + status) on stdout. It
+*generates* the report — so it works for **any** skill, not only ones with a
+committed recording.
+
+```bash
+rfl sim --skill examples/01-cable-insertion/skill.yaml \
+  --embodiment examples/01-cable-insertion/embodiments/allegro.yaml > report.jsonl
+rfl certify --skill examples/01-cable-insertion/skill.yaml \
+  --embodiment examples/01-cable-insertion/embodiments/allegro.yaml --report report.jsonl
+# RESULT: PASS …
+```
+
+| Exit | Meaning |
+|---|---|
+| `0` | Report emitted to stdout. |
+| `1` | Unreadable file, parse error, or a `capability_absent` retarget rejection. |
+
+The emitted report is what a conformant driver would return, so piping it into
+`rfl certify --report` passes. (For *live* third-party certification, point
+`rfl certify --driver` at a real driver binary instead.)
 
 ## `rfl spec-version`
 
