@@ -115,6 +115,12 @@ pub enum Primitive {
     /// `grasp.pinch`.
     #[serde(rename = "grasp.pinch")]
     GraspPinch(GraspPinch),
+    /// `grasp.power`.
+    #[serde(rename = "grasp.power")]
+    GraspPower(GraspPower),
+    /// `grasp.lateral`.
+    #[serde(rename = "grasp.lateral")]
+    GraspLateral(GraspLateral),
     /// `transport.move_to_pose`.
     #[serde(rename = "transport.move_to_pose")]
     TransportMoveToPose(TransportMoveToPose),
@@ -188,6 +194,8 @@ impl Primitive {
     pub fn establishes_grasp(&self) -> Option<GraspMode> {
         match self {
             Primitive::GraspPinch(_) => Some(GraspMode::Pinch),
+            Primitive::GraspPower(_) => Some(GraspMode::Power),
+            Primitive::GraspLateral(_) => Some(GraspMode::Lateral),
             Primitive::GraspPin(_) => Some(GraspMode::Pin),
             Primitive::GraspPlatform(_) => Some(GraspMode::Platform),
             // a regrasp supersedes the active grasp with its target mode (spec/01 § 3.3).
@@ -296,6 +304,41 @@ pub struct GraspPinch {
 
 fn tactile_auto() -> TactileTargetArg {
     TactileTargetArg::Auto(AutoLiteral::Auto)
+}
+
+/// `grasp.power` parameters (v0 subset of `$defs/GraspPowerParams`, § 2.2). Whole-volume
+/// force-closure enclosure; lowers like `grasp.pinch` (force closure, friction_held) over the
+/// `payload_grasp_power` payload. `enclosure_completeness` / `grasp_pose` carry spec defaults and
+/// are not lowered in v0.
+#[derive(Debug, Clone, serde::Deserialize)]
+pub struct GraspPower {
+    /// The object target to enclose (a let-reference in the reference skill).
+    pub target: Ref,
+    /// Max grip force.
+    pub force_budget: Quantity,
+    /// Contact-confirmation criterion (default auto).
+    #[serde(default = "tactile_auto")]
+    pub tactile_target: TactileTargetArg,
+    /// Reaction to detected slip.
+    #[serde(default)]
+    pub slip_response: Option<SlipResponse>,
+}
+
+/// `grasp.lateral` parameters (v0 subset of `$defs/GraspLateralParams`, § 2.5). Key-grip force
+/// closure across a thin dimension; lowers like `grasp.pinch` over `payload_grasp_lateral`. The
+/// `grasp_edge` feature carries its spec default and is not lowered in v0.
+#[derive(Debug, Clone, serde::Deserialize)]
+pub struct GraspLateral {
+    /// The object target to clamp (a let-reference in the reference skill).
+    pub target: Ref,
+    /// Max clamp force.
+    pub force_budget: Quantity,
+    /// Contact-confirmation criterion (default auto).
+    #[serde(default = "tactile_auto")]
+    pub tactile_target: TactileTargetArg,
+    /// Reaction to detected slip.
+    #[serde(default)]
+    pub slip_response: Option<SlipResponse>,
 }
 
 /// `grasp.pin` parameters (v0 subset of `$defs/GraspPinParams`, § 2.7). `target` +

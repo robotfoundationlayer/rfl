@@ -129,6 +129,8 @@ fn check_capability(prim: &Primitive, e: &Embodiment) -> crate::Result<()> {
         }
         Primitive::SenseLocate(_) => "sense.locate",
         Primitive::GraspPinch(_) => "grasp.pinch",
+        Primitive::GraspPower(_) => "grasp.power",
+        Primitive::GraspLateral(_) => "grasp.lateral",
         Primitive::GraspPin(_) => "grasp.pin",
         Primitive::GraspPlatform(_) => "grasp.platform",
         Primitive::InHandRegrasp(_) => "in_hand.regrasp",
@@ -184,6 +186,8 @@ fn lower(
     match prim {
         Primitive::SenseLocate(p) => (lower_sense_locate(p, e), "locate"),
         Primitive::GraspPinch(p) => (lower_grasp_pinch(p, e, ctx, weights), "pinch"),
+        Primitive::GraspPower(p) => (lower_grasp_power(p, e, ctx, weights), "power"),
+        Primitive::GraspLateral(p) => (lower_grasp_lateral(p, e, ctx, weights), "lateral"),
         Primitive::GraspPin(p) => (lower_grasp_pin(p, e), "pin"),
         Primitive::GraspPlatform(p) => (lower_grasp_platform(p, e), "platform"),
         Primitive::InHandRegrasp(p) => (lower_in_hand_regrasp(p, e, ctx), "regrasp"),
@@ -275,19 +279,36 @@ fn base_envelope(e: &Embodiment) -> Envelope {
 /// to the force/position proxy when tactile_sensing is undeclared (`spec/04`
 /// § Graceful degradation). The held object is recorded for the downstream transport /
 /// force derivations (GF2c / GF3c).
-fn lower_grasp_pinch(
-    p: &GraspPinch,
+/// Lower any force-closure grasp (`pinch` / `power` / `lateral` / `precision_tripod`): clamp the
+/// grip to `grip_force_max`, resolve the tactile confirmation tier (proxy when no tactile sensing),
+/// graft the weight-dependent `min_holding_force` floor, and record the held object so a downstream
+/// transport / force primitive can derive its mass-dependent bounds. The per-mode differences are
+/// the `GraspMode` (which selects the stability class via `StabilityMetadata::for_mode`, including
+/// the tripod's `rotation_constrained` flag) and the proxy criterion string.
+fn force_closure_grasp_action(
+    mode: GraspMode,
+    target: &str,
+    force_budget_in: &Quantity,
+    tactile: &TactileTargetArg,
     e: &Embodiment,
     ctx: &mut GraspContext,
     weights: &BTreeMap<String, Quantity>,
 ) -> CanonicalAction {
-    let mut force_budget = clamp_force(&p.force_budget, "grip_force_max", e);
-    let tactile_target = Some(match (&p.tactile_target, e.tactile_sensing()) {
+    // The proxy-tier contact criterion is mode-determined (the confirmation a no-tactile
+    // embodiment substitutes); v0 reference strings, informative.
+    let proxy_criterion = match mode {
+        GraspMode::Power => "distributed_enclosure_and_force_hold",
+        GraspMode::Lateral => "clamp_contact_and_force_hold",
+        GraspMode::PrecisionTripod => "tripod_contact_and_force_hold",
+        _ => "position_convergence_and_force_hold",
+    };
+    let mut force_budget = clamp_force(force_budget_in, "grip_force_max", e);
+    let tactile_target = Some(match (tactile, e.tactile_sensing()) {
         (TactileTargetArg::Auto(_), true) => TactileTargetOut::Auto,
         (TactileTargetArg::Auto(_), false) => TactileTargetOut::Proxy {
             proxy: ProxySpec {
                 tier: "proxy",
-                criterion: "position_convergence_and_force_hold",
+                criterion: proxy_criterion,
             },
         },
         (TactileTargetArg::Other(v), _) => {
@@ -297,9 +318,9 @@ fn lower_grasp_pinch(
     let mut env = base_envelope(e);
     // The grasp's static stability class is mode-determined (spec/01 grasp-mode table);
     // the weight-dependent min_holding_force is grafted in when the object mass is known.
-    let mut stability = StabilityMetadata::for_mode(GraspMode::Pinch);
-    if let Some((weight_n, _)) = weights.get(&p.target).and_then(|q| q.parse()) {
-        let mhf = grasp_force::min_holding_force(weight_n, GraspMode::Pinch);
+    let mut stability = StabilityMetadata::for_mode(mode);
+    if let Some((weight_n, _)) = weights.get(target).and_then(|q| q.parse()) {
+        let mhf = grasp_force::min_holding_force(weight_n, mode);
         stability.min_holding_force = Some(Quantity::from_si(mhf, "N"));
         env.force_profile =
             Some(serde_json::json!({ "min_holding_force": Quantity::from_si(mhf, "N").0 }));
@@ -309,15 +330,12 @@ fn lower_grasp_pinch(
                 force_budget = Quantity::from_si(mhf, &unit);
             }
         }
-        ctx.held = Some(HeldObject {
-            weight_n,
-            mode: GraspMode::Pinch,
-        });
+        ctx.held = Some(HeldObject { weight_n, mode });
     }
     CanonicalAction {
         target_frame: e.grasp_frame().to_string(),
         target_pose: PoseExpr::Ref {
-            r#ref: p.target.clone(),
+            r#ref: target.to_string(),
         },
         force_budget: Some(force_budget),
         timing: TimingHints {
@@ -330,6 +348,62 @@ fn lower_grasp_pinch(
         safety_envelope: env,
         grasp_stability: Some(stability),
     }
+}
+
+fn lower_grasp_pinch(
+    p: &GraspPinch,
+    e: &Embodiment,
+    ctx: &mut GraspContext,
+    weights: &BTreeMap<String, Quantity>,
+) -> CanonicalAction {
+    force_closure_grasp_action(
+        GraspMode::Pinch,
+        &p.target,
+        &p.force_budget,
+        &p.tactile_target,
+        e,
+        ctx,
+        weights,
+    )
+}
+
+/// Lower `grasp.power` (`spec/01` § 2.2): whole-volume force-closure enclosure. Same lowering as
+/// pinch (force closure, friction_held) with the power proxy criterion (distributed enclosure
+/// contact) and the `payload_grasp_power` payload key carried by the held mode.
+fn lower_grasp_power(
+    p: &crate::skill_isa::GraspPower,
+    e: &Embodiment,
+    ctx: &mut GraspContext,
+    weights: &BTreeMap<String, Quantity>,
+) -> CanonicalAction {
+    force_closure_grasp_action(
+        GraspMode::Power,
+        &p.target,
+        &p.force_budget,
+        &p.tactile_target,
+        e,
+        ctx,
+        weights,
+    )
+}
+
+/// Lower `grasp.lateral` (`spec/01` § 2.5): key-grip force closure across a thin dimension. Same
+/// lowering as pinch with the lateral proxy criterion (clamp contact across the thin dimension).
+fn lower_grasp_lateral(
+    p: &crate::skill_isa::GraspLateral,
+    e: &Embodiment,
+    ctx: &mut GraspContext,
+    weights: &BTreeMap<String, Quantity>,
+) -> CanonicalAction {
+    force_closure_grasp_action(
+        GraspMode::Lateral,
+        &p.target,
+        &p.force_budget,
+        &p.tactile_target,
+        e,
+        ctx,
+        weights,
+    )
 }
 
 /// Lower `grasp.pin` (`spec/01` § 2.7): pin a target against an external surface by

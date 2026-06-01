@@ -20,6 +20,18 @@ pub const G0: f64 = 9.80665;
 pub enum GraspMode {
     /// Antipodal force-closure pinch.
     Pinch,
+    /// Whole-volume force-closure enclosure (`spec/01` § 2.2).
+    Power,
+    /// Lateral (key-grip) force closure across a thin dimension (`spec/01` § 2.5).
+    Lateral,
+    /// Three-point precision force closure resisting axis rotation (`spec/01` § 2.4).
+    PrecisionTripod,
+    /// Directional form closure on a hookable feature (`spec/01` § 2.3).
+    Hook,
+    /// Compliant form-closure enclosure conforming to the object (`spec/01` § 2.8).
+    EnvelopeConform,
+    /// Caging form-closure enclosure with residual mobility (`spec/01` § 2.8).
+    EnvelopeCage,
     /// Extrinsic force-closure pin against an external surface (`spec/01` § 2.7).
     Pin,
     /// Support closure: an object borne in balance over a support polygon (`spec/01` § 2.6).
@@ -34,11 +46,20 @@ impl GraspMode {
     #[must_use]
     pub fn k_holding(self) -> f64 {
         match self {
-            GraspMode::Pinch | GraspMode::Pin => 2.0,
-            // N/A for support closure: a borne object is not gripped, so there is no
-            // grip-per-weight factor. Present for the exhaustive match; unused by
-            // lowering (platform emits no min_holding_force).
-            GraspMode::Platform => 1.0,
+            // force-closure grips share the schematic 1/(2μ) factor (pinch / power / lateral /
+            // tripod), as does the pin's two-interface clamp; envelope grips are gentle
+            // distributed friction and reuse the same conservative factor.
+            GraspMode::Pinch
+            | GraspMode::Power
+            | GraspMode::Lateral
+            | GraspMode::PrecisionTripod
+            | GraspMode::Pin
+            | GraspMode::EnvelopeConform
+            | GraspMode::EnvelopeCage => 2.0,
+            // N/A for form-closure hook and support-closure platform: a hooked or borne
+            // object is not gripped, so there is no grip-per-weight factor. Present for the
+            // exhaustive match; unused by lowering (neither emits min_holding_force).
+            GraspMode::Hook | GraspMode::Platform => 1.0,
         }
     }
 
@@ -47,17 +68,29 @@ impl GraspMode {
     #[must_use]
     pub fn k_reaction(self) -> f64 {
         match self {
-            GraspMode::Pinch | GraspMode::Pin => 2.0,
-            // N/A for support closure (see `k_holding`).
-            GraspMode::Platform => 1.0,
+            GraspMode::Pinch
+            | GraspMode::Power
+            | GraspMode::Lateral
+            | GraspMode::PrecisionTripod
+            | GraspMode::Pin
+            | GraspMode::EnvelopeConform
+            | GraspMode::EnvelopeCage => 2.0,
+            // N/A for form-closure hook and support closure (see `k_holding`).
+            GraspMode::Hook | GraspMode::Platform => 1.0,
         }
     }
 
-    /// The descriptor limit key for this mode's rated payload (max holdable weight).
+    /// The descriptor limit key for this mode's rated payload (max holdable weight). Hook is
+    /// form-closure rated by its load capacity, not a grip payload.
     #[must_use]
     pub fn payload_key(self) -> &'static str {
         match self {
             GraspMode::Pinch => "payload_grasp_pinch",
+            GraspMode::Power => "payload_grasp_power",
+            GraspMode::Lateral => "payload_grasp_lateral",
+            GraspMode::PrecisionTripod => "payload_grasp_tripod",
+            GraspMode::EnvelopeConform | GraspMode::EnvelopeCage => "payload_grasp_envelope",
+            GraspMode::Hook => "hook_load_capacity",
             GraspMode::Pin => "payload_grasp_pin",
             GraspMode::Platform => "payload_support",
         }

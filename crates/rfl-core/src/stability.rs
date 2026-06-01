@@ -138,9 +138,71 @@ impl StabilityMetadata {
             // pinch / power: force closure, friction_held (all DOF), no flags.
             // v0 models "all DOF" as the conventional key `all_axes`; the per-axis
             // DOF vocabulary is introduced by the first DOF-reading check (STB3 / GC4).
-            GraspMode::Pinch => StabilityMetadata {
+            // pinch / power: force closure, friction_held (all DOF), omnidirectional, no flags.
+            GraspMode::Pinch | GraspMode::Power => StabilityMetadata {
                 closure: Closure::Force,
                 secured_dof: BTreeMap::from([("all_axes".to_string(), DofSecuring::FrictionHeld)]),
+                stable_directions: StableDirections::omnidirectional(),
+                flags: StabilityFlags::default(),
+                residual_mobility: None,
+                min_holding_force: None,
+            },
+            // lateral: clamp-normal + in-plane friction_held (the in-plane retention is weaker but
+            // modeled as the same securing kind in v0), omnidirectional, no flags.
+            GraspMode::Lateral => StabilityMetadata {
+                closure: Closure::Force,
+                secured_dof: BTreeMap::from([
+                    ("clamp_normal".to_string(), DofSecuring::FrictionHeld),
+                    ("in_plane".to_string(), DofSecuring::FrictionHeld),
+                ]),
+                stable_directions: StableDirections::omnidirectional(),
+                flags: StabilityFlags::default(),
+                residual_mobility: None,
+                min_holding_force: None,
+            },
+            // precision_tripod: force closure, friction_held, but rotation about the grasp axis is
+            // form-constrained by the non-degenerate triangle -> the rotation_constrained flag.
+            GraspMode::PrecisionTripod => StabilityMetadata {
+                closure: Closure::Force,
+                secured_dof: BTreeMap::from([("all_axes".to_string(), DofSecuring::FrictionHeld)]),
+                stable_directions: StableDirections::omnidirectional(),
+                flags: StabilityFlags {
+                    rotation_constrained: true,
+                    ..StabilityFlags::default()
+                },
+                residual_mobility: None,
+                min_holding_force: None,
+            },
+            // hook: form closure — the load direction is form_held, reverse / lateral free, so the
+            // grasp is directional (stable only along the load direction).
+            GraspMode::Hook => StabilityMetadata {
+                closure: Closure::Form,
+                secured_dof: BTreeMap::from([(
+                    "load_direction".to_string(),
+                    DofSecuring::FormHeld,
+                )]),
+                stable_directions: StableDirections::Set(vec!["load_direction".to_string()]),
+                flags: StabilityFlags::default(),
+                residual_mobility: None,
+                min_holding_force: None,
+            },
+            // envelope_conform: form closure, gentle distributed friction_held, compliant contact.
+            GraspMode::EnvelopeConform => StabilityMetadata {
+                closure: Closure::Form,
+                secured_dof: BTreeMap::from([("enclosure".to_string(), DofSecuring::FrictionHeld)]),
+                stable_directions: StableDirections::omnidirectional(),
+                flags: StabilityFlags {
+                    compliant: true,
+                    ..StabilityFlags::default()
+                },
+                residual_mobility: None,
+                min_holding_force: None,
+            },
+            // envelope_cage: form closure — trapped, not fixed; the object retains in-enclosure
+            // freedom (residual_mobility, grafted in by the caller from cage_clearance).
+            GraspMode::EnvelopeCage => StabilityMetadata {
+                closure: Closure::Form,
+                secured_dof: BTreeMap::from([("enclosure".to_string(), DofSecuring::FrictionHeld)]),
                 stable_directions: StableDirections::omnidirectional(),
                 flags: StabilityFlags::default(),
                 residual_mobility: None,
@@ -221,6 +283,33 @@ mod tests {
             json.contains("\"stable_directions\":[\"against_surface.normal\"]"),
             "json: {json}"
         );
+    }
+
+    #[test]
+    fn for_mode_power_matches_pinch_force_closure() {
+        let m = StabilityMetadata::for_mode(GraspMode::Power);
+        assert_eq!(m.closure, Closure::Force);
+        assert_eq!(
+            m.secured_dof.get("all_axes"),
+            Some(&DofSecuring::FrictionHeld)
+        );
+        assert_eq!(m.stable_directions, StableDirections::omnidirectional());
+        assert!(m.flags.is_empty());
+    }
+
+    #[test]
+    fn for_mode_lateral_clamps_normal_and_in_plane() {
+        let m = StabilityMetadata::for_mode(GraspMode::Lateral);
+        assert_eq!(m.closure, Closure::Force);
+        assert_eq!(
+            m.secured_dof.get("clamp_normal"),
+            Some(&DofSecuring::FrictionHeld)
+        );
+        assert_eq!(
+            m.secured_dof.get("in_plane"),
+            Some(&DofSecuring::FrictionHeld)
+        );
+        assert!(m.flags.is_empty());
     }
 
     #[test]
