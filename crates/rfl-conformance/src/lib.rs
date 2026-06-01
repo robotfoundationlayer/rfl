@@ -144,6 +144,19 @@ impl Driver for ReferenceDriver {
                 }
             })
             .collect();
+        // Engagement-confirmation evidence (force.snap_engage confirm_held, spec/01 § 6.10): the
+        // nominal driver's release-test confirmed the bistable connection holds. AUD1 evidence.
+        let mut evidence = vec!["nominal reference-driver execution".to_string()];
+        if ca
+            .safety_envelope
+            .force_profile
+            .as_ref()
+            .and_then(|fp| fp.get("confirm_held"))
+            .and_then(serde_json::Value::as_bool)
+            == Some(true)
+        {
+            evidence.push("held_confirmed".to_string());
+        }
         let status = Status {
             message: "status",
             action_id: goal.action_id.clone(),
@@ -151,7 +164,7 @@ impl Driver for ReferenceDriver {
             verdict: Some(Verdict {
                 value: true,
                 confidence: 1.0,
-                evidence: vec!["nominal reference-driver execution".to_string()],
+                evidence,
             }),
             fidelity_tier,
             final_pose: Some(RealizedPose::placeholder()),
@@ -455,6 +468,64 @@ impl Driver for PressButtonDriver {
     }
 }
 
+/// How a driver reports a `force.snap_engage` (`spec/01` § 6.10). `Engages` is the nominal
+/// detent + held-confirmed + success; `NoSnap` is the conformant `no_snap` (force rise, no
+/// detent); `ClaimsHeld` is adversarial (success + detent but the hold was never confirmed).
+#[derive(Debug, Clone, Copy)]
+pub enum SnapEngageResponse {
+    /// Conformant: the snap-in detent fired, the hold was confirmed, and the engagement succeeded.
+    Engages,
+    /// Conformant: no snap fired -> no_snap reported honestly (force kept within budget).
+    NoSnap,
+    /// Adversarial: claim success though the connection was never confirmed held.
+    ClaimsHeld,
+}
+
+/// The `force.snap_engage` bench: models a driver's engagement outcome. Reuses the nominal
+/// `ReferenceDriver` (which echoes the detent + held-confirmed evidence) and mutates it per
+/// `response`. Non-snap actions pass through unchanged.
+#[derive(Debug)]
+pub struct SnapEngageDriver {
+    inner: ReferenceDriver,
+    response: SnapEngageResponse,
+}
+
+impl SnapEngageDriver {
+    /// A snap-engage driver with the given engagement outcome.
+    #[must_use]
+    pub fn new(response: SnapEngageResponse) -> Self {
+        SnapEngageDriver { inner: ReferenceDriver::default(), response }
+    }
+}
+
+impl Driver for SnapEngageDriver {
+    fn execute(&mut self, goal: &ExecuteGoal) -> DriverReport {
+        let mut report = self.inner.execute(goal);
+        match self.response {
+            SnapEngageResponse::Engages => {} // nominal: detent + held_confirmed + Succeeded
+            SnapEngageResponse::NoSnap => {
+                for t in &mut report.telemetry {
+                    t.events.clear(); // no snap detent fired
+                }
+                report.status.outcome = Outcome::Failed;
+                report.status.failure_class = Some("blocked".to_string());
+                report.status.failure_detail = Some("no_snap".to_string());
+                if let Some(v) = report.status.verdict.as_mut() {
+                    v.value = false;
+                    v.evidence.retain(|e| e != "held_confirmed"); // nothing engaged to confirm
+                }
+            }
+            SnapEngageResponse::ClaimsHeld => {
+                // snap detected (detent kept), claims success, but the hold was never confirmed.
+                if let Some(v) = report.status.verdict.as_mut() {
+                    v.evidence.retain(|e| e != "held_confirmed");
+                }
+            }
+        }
+        report
+    }
+}
+
 /// Retarget the skill onto the embodiment and drive every `execute` message through
 /// `driver`, returning the `(goal, report)` pair per action. Generic over any
 /// `Driver` (the nominal `ReferenceDriver` or a `FaultyDriver`). Action ids match the
@@ -535,7 +606,9 @@ pub fn envelope_class_for(suffix: &str) -> Option<EnvelopeClass> {
     match suffix {
         "align" | "retract" | "scan" => Some(EnvelopeClass::TerminalPostcondition),
         "pinch" | "release" | "transport" => Some(EnvelopeClass::GraspContinuity),
-        "insert_fit" | "screw" | "unscrew" | "press_button" | "wipe" => Some(EnvelopeClass::ForceTrajectory),
+        "insert_fit" | "screw" | "unscrew" | "press_button" | "wipe" | "snap_engage" => {
+            Some(EnvelopeClass::ForceTrajectory)
+        }
         "hover" | "carry" => Some(EnvelopeClass::IntervalInvariant),
         _ => None, // locate / inspect: perception, no envelope
     }
@@ -815,6 +888,40 @@ pub fn check_actuation(goal: &ExecuteGoal, report: &DriverReport) -> CheckOutcom
         if !has_detent {
             return CheckOutcome::Fail(
                 "press_button claimed success without a detent actuation event".to_string(),
+            );
+        }
+    }
+    CheckOutcome::Pass
+}
+
+/// Verify the § 6.10 engagement-confirmation for `force.snap_engage`: a snap that succeeded
+/// under a `confirm_held` contract MUST carry the held-confirmation evidence (the release-test
+/// confirmed the bistable connection holds). Vacuous unless the action declares `confirm_held`.
+/// Makes the AUD1 `verdict.evidence` channel falsifiable — a `false_engagement` claiming success
+/// (snap detected but the connection does not hold) fails.
+#[must_use]
+pub fn check_engagement(goal: &ExecuteGoal, report: &DriverReport) -> CheckOutcome {
+    let confirm = goal
+        .canonical_action
+        .safety_envelope
+        .force_profile
+        .as_ref()
+        .and_then(|fp| fp.get("confirm_held"))
+        .and_then(serde_json::Value::as_bool)
+        == Some(true);
+    if !confirm {
+        return CheckOutcome::Pass; // no confirm_held contract -> vacuous
+    }
+    if matches!(report.status.outcome, Outcome::Succeeded) {
+        let held = report
+            .status
+            .verdict
+            .as_ref()
+            .is_some_and(|v| v.evidence.iter().any(|e| e == "held_confirmed"));
+        if !held {
+            return CheckOutcome::Fail(
+                "snap_engage claimed success without confirming the connection holds (confirm_held)"
+                    .to_string(),
             );
         }
     }
@@ -1232,5 +1339,62 @@ mod tests {
             check_envelope(EnvelopeClass::ForceTrajectory, &goal, &report(9.0)),
             CheckOutcome::Fail(_)
         ));
+    }
+
+    #[test]
+    fn check_engagement_requires_held_confirmation_on_success() {
+        use rfl_core::canonical::{
+            CanonicalAction, Envelope, MotionBounds, PoseExpr, TimingHints, TimingMode,
+        };
+        use rfl_core::driver::{Outcome, RealizedPose, Status, Verdict};
+        let action = CanonicalAction {
+            target_frame: "grasp".into(),
+            target_pose: PoseExpr::Ref { r#ref: "clip".into() },
+            force_budget: Some(rfl_core::quantity::Quantity("25 N".into())),
+            timing: TimingHints {
+                nominal_duration: None,
+                timing_mode: TimingMode::TimeScalable,
+                stop_at_goal: true,
+            },
+            tactile_target: None,
+            monitors: vec![],
+            safety_envelope: Envelope {
+                motion_bounds: MotionBounds::default(),
+                force_profile: Some(serde_json::json!({ "actuation": "detent", "confirm_held": true })),
+                station_keeping: None,
+                clearance: None,
+                compliance: None,
+                stop_time: None,
+            },
+        };
+        let goal = ExecuteGoal::wrap("s/e/0001-snap_engage".to_string(), action);
+        let report = |outcome: Outcome, evidence: Vec<String>| DriverReport {
+            telemetry: vec![],
+            status: Status {
+                message: "status",
+                action_id: "s/e/0001-snap_engage".to_string(),
+                outcome,
+                verdict: Some(Verdict { value: true, confidence: 1.0, evidence }),
+                fidelity_tier: None,
+                final_pose: Some(RealizedPose::placeholder()),
+                failure_class: None,
+                failure_detail: None,
+            },
+        };
+        // Succeeded + held_confirmed -> Pass.
+        assert_eq!(
+            check_engagement(&goal, &report(Outcome::Succeeded, vec!["held_confirmed".to_string()])),
+            CheckOutcome::Pass
+        );
+        // Succeeded + no held_confirmed -> Fail.
+        assert!(matches!(
+            check_engagement(&goal, &report(Outcome::Succeeded, vec![])),
+            CheckOutcome::Fail(_)
+        ));
+        // Not succeeded -> vacuously Pass.
+        assert_eq!(
+            check_engagement(&goal, &report(Outcome::Failed, vec![])),
+            CheckOutcome::Pass
+        );
     }
 }

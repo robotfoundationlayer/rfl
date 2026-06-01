@@ -7,10 +7,10 @@
 //! REJECTED by the matching checker — the non-circular proof that the suite bites.
 
 use rfl_conformance::{
-    check_actuation, check_envelope, check_graceful_degradation, check_settling, drive,
-    envelope_class_for, CheckOutcome, DisturbanceDriver, DisturbanceResponse, EnvelopeClass, Fault,
-    FaultyDriver, HoverResponse, HoverSettlingDriver, PressButtonDriver, PressButtonResponse,
-    ReferenceDriver,
+    check_actuation, check_engagement, check_envelope, check_graceful_degradation, check_settling,
+    drive, envelope_class_for, CheckOutcome, DisturbanceDriver, DisturbanceResponse, EnvelopeClass,
+    Fault, FaultyDriver, HoverResponse, HoverSettlingDriver, PressButtonDriver, PressButtonResponse,
+    ReferenceDriver, SnapEngageDriver, SnapEngageResponse,
 };
 use std::path::{Path, PathBuf};
 
@@ -556,6 +556,70 @@ fn wipe_over_force_fails() {
     .expect("drive");
     let (goal, report) = &pairs[0];
     // wrench.force -> 999, above the band upper edge.
+    assert!(matches!(
+        check_envelope(EnvelopeClass::ForceTrajectory, goal, report),
+        CheckOutcome::Fail(_)
+    ));
+}
+
+// --- force.snap_engage snap-in + engagement-confirmation (spec/01 § 6.10) --------------------
+
+#[test]
+fn nominal_snap_engage_passes_all_legs() {
+    let dir = screw_dir();
+    let pairs = drive(
+        ReferenceDriver::default(),
+        &dir.join("skill-snap.yaml"),
+        &dir.join("embodiments/allegro.yaml"),
+    )
+    .expect("drive");
+    let (goal, report) = &pairs[0];
+    assert_eq!(suffix_of(&goal.action_id), "snap_engage");
+    assert_eq!(check_envelope(EnvelopeClass::ForceTrajectory, goal, report), CheckOutcome::Pass);
+    assert_eq!(check_actuation(goal, report), CheckOutcome::Pass); // reused detent leg
+    assert_eq!(check_engagement(goal, report), CheckOutcome::Pass); // the new confirm_held leg
+}
+
+#[test]
+fn snap_engage_no_snap_is_honest() {
+    let dir = screw_dir();
+    let pairs = drive(
+        SnapEngageDriver::new(SnapEngageResponse::NoSnap),
+        &dir.join("skill-snap.yaml"),
+        &dir.join("embodiments/allegro.yaml"),
+    )
+    .expect("drive");
+    let (goal, report) = &pairs[0];
+    // no snap fired, force held: not a success; the checks do not falsely fail it.
+    assert!(!matches!(report.status.outcome, rfl_core::driver::Outcome::Succeeded));
+    assert_eq!(check_engagement(goal, report), CheckOutcome::Pass);
+    assert_eq!(check_envelope(EnvelopeClass::ForceTrajectory, goal, report), CheckOutcome::Pass);
+}
+
+#[test]
+fn snap_engage_unconfirmed_hold_fails() {
+    let dir = screw_dir();
+    let pairs = drive(
+        SnapEngageDriver::new(SnapEngageResponse::ClaimsHeld),
+        &dir.join("skill-snap.yaml"),
+        &dir.join("embodiments/allegro.yaml"),
+    )
+    .expect("drive");
+    let (goal, report) = &pairs[0];
+    // claims success (snap detected) but the connection was never confirmed held -> the bite.
+    assert!(matches!(check_engagement(goal, report), CheckOutcome::Fail(_)));
+}
+
+#[test]
+fn snap_engage_over_force_fails() {
+    let dir = screw_dir();
+    let pairs = drive(
+        FaultyDriver::new(Fault::OverForce),
+        &dir.join("skill-snap.yaml"),
+        &dir.join("embodiments/allegro.yaml"),
+    )
+    .expect("drive");
+    let (goal, report) = &pairs[0];
     assert!(matches!(
         check_envelope(EnvelopeClass::ForceTrajectory, goal, report),
         CheckOutcome::Fail(_)
