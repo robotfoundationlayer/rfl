@@ -56,6 +56,7 @@ def main() -> int:
     descriptor = load_schema("embodiment-descriptor.schema.json")
     driver = load_schema("driver-interface.schema.json")
     adapter = load_schema("tactile-manifold/adapter.schema.json")
+    certificate = load_schema("certificate.schema.json")
 
     print("Schema well-formedness (JSON Schema Draft 2020-12)")
     for label, schema in (
@@ -63,6 +64,7 @@ def main() -> int:
         ("embodiment-descriptor", descriptor),
         ("driver-interface", driver),
         ("tactile-manifold adapter", adapter),
+        ("certificate", certificate),
     ):
         try:
             Draft202012Validator.check_schema(schema)

@@ -1,0 +1,62 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://rfl.dev/schemas/certificate.schema.json",
+  "title": "RFL Conformance Certificate",
+  "description": "The artifact emitted by `rfl certify` (Class 3 driver-protocol, JSONL replay). Identifies inputs by RFL id + content sha256; content_hash is sha256 over the sorted-key canonical JSON of every field except content_hash itself. Backs `rfl verify`.",
+  "type": "object",
+  "required": [
+    "certificate_schema_version", "spec_version", "tool_version", "skill", "embodiment",
+    "report_sha256", "result", "covered", "excluded", "actions", "sequence_checks", "content_hash"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "certificate_schema_version": { "const": "0.1" },
+    "spec_version": { "type": "string" },
+    "tool_version": { "type": "string" },
+    "skill": { "$ref": "#/$defs/FileRef" },
+    "embodiment": { "$ref": "#/$defs/FileRef" },
+    "report_sha256": { "$ref": "#/$defs/Sha256Hex" },
+    "result": { "enum": ["pass", "fail"] },
+    "covered": { "type": "array", "items": { "type": "string" } },
+    "excluded": { "type": "array", "items": { "type": "string" } },
+    "actions": { "type": "array", "items": { "$ref": "#/$defs/ActionEntry" } },
+    "sequence_checks": { "type": "array", "items": { "$ref": "#/$defs/CheckEntry" } },
+    "content_hash": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" }
+  },
+  "$defs": {
+    "Sha256Hex": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "FileRef": {
+      "type": "object",
+      "required": ["id", "sha256"],
+      "additionalProperties": false,
+      "properties": {
+        "id": { "type": "string" },
+        "sha256": { "$ref": "#/$defs/Sha256Hex" }
+      }
+    },
+    "CheckEntry": {
+      "type": "object",
+      "required": ["name", "result"],
+      "additionalProperties": false,
+      "properties": {
+        "name": { "type": "string" },
+        "result": { "enum": ["pass", "fail"] },
+        "reason": { "type": "string" }
+      }
+    },
+    "ActionEntry": {
+      "type": "object",
+      "required": ["action_id", "suffix", "checks", "passed"],
+      "additionalProperties": false,
+      "properties": {
+        "action_id": { "type": "string" },
+        "suffix": { "type": "string" },
+        "envelope_class": {
+          "enum": ["terminal_postcondition", "grasp_continuity", "force_trajectory", "interval_invariant"]
+        },
+        "checks": { "type": "array", "items": { "$ref": "#/$defs/CheckEntry" } },
+        "passed": { "type": "boolean" }
+      }
+    }
+  }
+}
