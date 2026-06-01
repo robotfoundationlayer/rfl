@@ -98,6 +98,8 @@ struct TelemetryIn {
     fidelity_tier: Option<String>,
     #[serde(default)]
     contact_geometry: Option<ContactGeometryIn>,
+    #[serde(default)]
+    measured_quantities: BTreeMap<String, String>,
 }
 
 #[derive(serde::Deserialize)]
@@ -146,6 +148,11 @@ fn to_telemetry(t: TelemetryIn) -> Telemetry {
             sites: c.sites,
             object_com: c.object_com,
         }),
+        measured_quantities: t
+            .measured_quantities
+            .into_iter()
+            .map(|(k, v)| (k, Quantity(v)))
+            .collect(),
     }
 }
 
@@ -277,6 +284,26 @@ mod tests {
             assert_eq!(back.status.outcome, r.status.outcome);
             assert_eq!(back.status.action_id, r.status.action_id);
         }
+    }
+
+    #[test]
+    fn carries_measured_quantities_through_the_schema_gate() {
+        // A telemetry line opting into measured_quantities validates against the
+        // schema and is reconstructed with the domain scalars keyed by name.
+        let jsonl = concat!(
+            r#"{"message":"telemetry","action_id":"a/b/0001-x","t":0.0,"measured_quantities":{"seating_depth":"12 mm","completion_torque":"2.4 N*m"}}"#,
+            "\n",
+            r#"{"message":"status","action_id":"a/b/0001-x","outcome":"succeeded"}"#,
+            "\n",
+        );
+        let replayed = replay_report(jsonl).expect("replay");
+        let report = replayed.get("a/b/0001-x").expect("action present");
+        let mq = &report.telemetry[0].measured_quantities;
+        assert_eq!(mq.get("seating_depth"), Some(&Quantity("12 mm".into())));
+        assert_eq!(
+            mq.get("completion_torque"),
+            Some(&Quantity("2.4 N*m".into()))
+        );
     }
 
     #[test]

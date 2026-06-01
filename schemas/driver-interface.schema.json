@@ -149,6 +149,11 @@
               "maxItems": 3
             }
           }
+        },
+        "measured_quantities": {
+          "description": "Primitive-specific domain quantities the driver measured (05 § Class 2-loose: seating_depth / completion_torque / turns / actuation_force / ...), keyed by the epsilon-table quantity name. Each value is a scalar Quantity string. Opt-in (analogous to contact_geometry); read by `rfl measure`.",
+          "type": "object",
+          "additionalProperties": { "type": "string" }
         }
       },
       "additionalProperties": false

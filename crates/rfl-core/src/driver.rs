@@ -13,6 +13,8 @@
 //!
 //! See `spec/03-driver-interface.md` and `spec/05-conformance.md` § Four test classes.
 
+use std::collections::BTreeMap;
+
 use crate::canonical::ExecuteGoal;
 use crate::quantity::Quantity;
 
@@ -130,6 +132,13 @@ pub struct Telemetry {
     /// Present only for a grasp that opts into reporting it.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub contact_geometry: Option<ContactGeometry>,
+    /// Primitive-specific domain quantities the driver measured at this sample,
+    /// keyed by the ε-table quantity name (`spec/05` § Class 2-loose: `seating_depth`,
+    /// `completion_torque`, `turns`, …). The driver is the authoritative source — it
+    /// alone knows the semantic instant (completion, seating, the actuation peak).
+    /// Each value is a scalar `Quantity`. Opt-in: skipped on the wire when empty.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub measured_quantities: BTreeMap<String, Quantity>,
 }
 
 /// The terminal action result (`StatusResult`; required: message, action_id, outcome).
@@ -223,6 +232,7 @@ mod tests {
             events: vec![],
             fidelity_tier: Some("manifold".into()),
             contact_geometry: None,
+            measured_quantities: BTreeMap::new(),
         };
         let j = serde_json::to_string(&t).unwrap();
         assert!(j.contains("\"message\":\"telemetry\""));
@@ -231,6 +241,17 @@ mod tests {
         assert!(j.contains("\"fidelity_tier\":\"manifold\""));
         assert!(!j.contains("wrench")); // skipped when None
         assert!(!j.contains("tactile")); // skipped when empty
+        assert!(!j.contains("measured_quantities")); // skipped when empty (golden-safe)
+
+        // When present, the domain quantities serialize keyed by name.
+        let mut mq = BTreeMap::new();
+        mq.insert("seating_depth".to_string(), Quantity("12 mm".into()));
+        let t2 = Telemetry {
+            measured_quantities: mq,
+            ..t
+        };
+        let j2 = serde_json::to_string(&t2).unwrap();
+        assert!(j2.contains("\"measured_quantities\":{\"seating_depth\":\"12 mm\"}"));
     }
 
     #[test]

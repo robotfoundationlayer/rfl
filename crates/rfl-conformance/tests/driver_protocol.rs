@@ -160,6 +160,7 @@ fn telemetry_with_station_error_is_schema_valid() {
         events: vec![],
         fidelity_tier: None,
         contact_geometry: None,
+        measured_quantities: Default::default(),
     };
     let v = serde_json::to_value(&t).unwrap();
     schemas
@@ -195,6 +196,7 @@ fn telemetry_with_detent_event_is_schema_valid() {
         events: vec![serde_json::json!({ "kind": "detent" })],
         fidelity_tier: None,
         contact_geometry: None,
+        measured_quantities: Default::default(),
     };
     let v = serde_json::to_value(&t).unwrap();
     schemas

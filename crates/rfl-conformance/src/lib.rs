@@ -173,6 +173,7 @@ impl Driver for ReferenceDriver {
                     events: events.clone(),
                     fidelity_tier: fidelity_tier.clone(),
                     contact_geometry: None,
+                    measured_quantities: Default::default(),
                 }
             })
             .collect();
@@ -2702,6 +2703,7 @@ mod tests {
             events: vec![],
             fidelity_tier: None,
             contact_geometry: None,
+            measured_quantities: Default::default(),
         };
         let status = Status {
             message: "status",
@@ -2776,6 +2778,7 @@ mod tests {
                     events: vec![],
                     fidelity_tier: None,
                     contact_geometry: None,
+                    measured_quantities: Default::default(),
                 }],
                 status,
             }
@@ -3030,6 +3033,7 @@ mod tests {
             events,
             fidelity_tier: None,
             contact_geometry: None,
+            measured_quantities: Default::default(),
         };
         let status = |outcome: Outcome| Status {
             message: "status",
@@ -3118,6 +3122,7 @@ mod tests {
                 events: vec![],
                 fidelity_tier: None,
                 contact_geometry: None,
+                measured_quantities: Default::default(),
             };
             DriverReport {
                 telemetry: vec![t],
@@ -3199,6 +3204,7 @@ mod tests {
                 events: vec![],
                 fidelity_tier: None,
                 contact_geometry: cg,
+                measured_quantities: Default::default(),
             }],
             status: Status {
                 message: "status",

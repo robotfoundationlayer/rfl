@@ -566,6 +566,7 @@ mod tests {
             events: vec![],
             fidelity_tier: None,
             contact_geometry: None,
+            measured_quantities: BTreeMap::new(),
         }
     }
 
