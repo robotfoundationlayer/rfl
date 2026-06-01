@@ -18,6 +18,7 @@
 use std::path::Path;
 
 pub mod battery;
+pub mod certificate;
 pub mod replay;
 
 /// Retarget the example skill onto the named embodiment descriptor and return the

@@ -1,0 +1,168 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 RFL Contributors
+
+//! The `rfl certify` certificate: a deterministic, content-hashed artifact. Inputs are identified
+//! by RFL id + content sha256 (never a filesystem path), so the certificate is machine-independent.
+//! `content_hash` covers the compact serialization of every field except itself; signing is
+//! out-of-band (detached-sign the canonical bytes).
+
+use serde::Serialize;
+use sha2::{Digest, Sha256};
+
+use crate::EnvelopeClass;
+
+/// An input file reference: its RFL id + content hash.
+#[derive(Serialize)]
+pub struct FileRef {
+    /// The RFL id (skill name / embodiment id).
+    pub id: String,
+    /// Lowercase hex sha256 of the file bytes.
+    pub sha256: String,
+}
+
+/// One obligation's result in the certificate.
+#[derive(Serialize)]
+pub struct CheckEntry {
+    /// The obligation name.
+    pub name: &'static str,
+    /// `"pass"` or `"fail"`.
+    pub result: &'static str,
+    /// The failure reason (present only on `fail`).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reason: Option<String>,
+}
+
+/// One action's certified result.
+#[derive(Serialize)]
+pub struct ActionEntry {
+    /// The correlated action id.
+    pub action_id: String,
+    /// The primitive suffix.
+    pub suffix: String,
+    /// The envelope class verified (absent for perception primitives).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub envelope_class: Option<&'static str>,
+    /// Every obligation run for this action.
+    pub checks: Vec<CheckEntry>,
+    /// True iff every check passed.
+    pub passed: bool,
+}
+
+/// The certificate body (everything the `content_hash` covers).
+#[derive(Serialize)]
+pub struct CertificateBody {
+    /// The certificate-format version.
+    pub certificate_schema_version: &'static str,
+    /// The RFL spec version the suite implements.
+    pub spec_version: &'static str,
+    /// The `rfl` tool version.
+    pub tool_version: &'static str,
+    /// The certified skill.
+    pub skill: FileRef,
+    /// The certified embodiment.
+    pub embodiment: FileRef,
+    /// sha256 of the vendor report bytes.
+    pub report_sha256: String,
+    /// `"pass"` or `"fail"`.
+    pub result: &'static str,
+    /// The test classes / dimensions this certificate covers.
+    pub covered: Vec<&'static str>,
+    /// What it explicitly does NOT cover (honesty boundary).
+    pub excluded: Vec<&'static str>,
+    /// Per-action results, in retarget order.
+    pub actions: Vec<ActionEntry>,
+    /// Sequence-level obligations (e.g. momentary_release propagation).
+    pub sequence_checks: Vec<CheckEntry>,
+}
+
+/// A sealed certificate: the body plus its content hash.
+#[derive(Serialize)]
+pub struct Certificate {
+    /// The hashed body.
+    #[serde(flatten)]
+    pub body: CertificateBody,
+    /// `"sha256:<hex>"` over the compact serialization of `body`.
+    pub content_hash: String,
+}
+
+/// Lowercase hex sha256 of `bytes`.
+#[must_use]
+pub fn sha256_hex(bytes: &[u8]) -> String {
+    format!("{:x}", Sha256::digest(bytes))
+}
+
+/// The stable string for an envelope class (certificate vocabulary).
+#[must_use]
+pub fn envelope_class_str(class: EnvelopeClass) -> &'static str {
+    match class {
+        EnvelopeClass::TerminalPostcondition => "terminal_postcondition",
+        EnvelopeClass::GraspContinuity => "grasp_continuity",
+        EnvelopeClass::ForceTrajectory => "force_trajectory",
+        EnvelopeClass::IntervalInvariant => "interval_invariant",
+    }
+}
+
+/// Seal a body: attach `content_hash` over its compact serialization.
+#[must_use]
+pub fn seal(body: CertificateBody) -> Certificate {
+    let compact = serde_json::to_vec(&body).expect("serialize certificate body");
+    let content_hash = format!("sha256:{}", sha256_hex(&compact));
+    Certificate { body, content_hash }
+}
+
+/// Render a sealed certificate as pretty canonical JSON.
+#[must_use]
+pub fn to_json(cert: &Certificate) -> String {
+    serde_json::to_string_pretty(cert).expect("serialize certificate")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn sample_body(result: &'static str) -> CertificateBody {
+        CertificateBody {
+            certificate_schema_version: "0.1",
+            spec_version: "v0.1-draft",
+            tool_version: "0.0.1",
+            skill: FileRef { id: "cable-insertion".into(), sha256: "aa".into() },
+            embodiment: FileRef { id: "allegro".into(), sha256: "bb".into() },
+            report_sha256: "cc".into(),
+            result,
+            covered: vec!["class3_driver_protocol"],
+            excluded: vec!["class4_physical", "class2_loose_epsilon", "env3_disturbance"],
+            actions: vec![ActionEntry {
+                action_id: "cable-insertion/allegro/0002-pinch".into(),
+                suffix: "pinch".into(),
+                envelope_class: Some("grasp_continuity"),
+                checks: vec![CheckEntry { name: "envelope", result: "pass", reason: None }],
+                passed: true,
+            }],
+            sequence_checks: vec![CheckEntry {
+                name: "momentary_release",
+                result: "pass",
+                reason: None,
+            }],
+        }
+    }
+
+    #[test]
+    fn seal_is_deterministic_and_verifiable() {
+        let a = to_json(&seal(sample_body("pass")));
+        let b = to_json(&seal(sample_body("pass")));
+        assert_eq!(a, b, "certificate must be byte-identical across runs");
+
+        // recompute the hash over the compact body and confirm it matches content_hash.
+        let cert = seal(sample_body("pass"));
+        let compact = serde_json::to_vec(&cert.body).unwrap();
+        assert_eq!(cert.content_hash, format!("sha256:{}", sha256_hex(&compact)));
+        assert!(cert.content_hash.starts_with("sha256:"));
+    }
+
+    #[test]
+    fn result_change_changes_hash() {
+        let pass = seal(sample_body("pass")).content_hash;
+        let fail = seal(sample_body("fail")).content_hash;
+        assert_ne!(pass, fail);
+    }
+}
