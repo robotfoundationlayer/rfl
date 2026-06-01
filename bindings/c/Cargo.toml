@@ -1,0 +1,21 @@
+[package]
+name = "rfl-c"
+description = "Robot Foundation Layer — C ABI binding (the retarget engine, string-in / string-out)"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+authors.workspace = true
+
+[lib]
+name = "rfl"
+# cdylib (librfl.so/.dylib/.dll) + staticlib (librfl.a) for C/C++ consumers.
+crate-type = ["cdylib", "staticlib", "rlib"]
+
+[dependencies]
+rfl-core.workspace = true
+
+[build-dependencies]
+cbindgen = "0.29"
