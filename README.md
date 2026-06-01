@@ -54,7 +54,7 @@ The whitepaper is the long-form argument; the [`spec/`](spec/) directory hosts t
 | [`spec/05-conformance.md`](spec/05-conformance.md) | Design complete — envelope-class taxonomy, grasp-continuity modes, closure / stability / composition, reversibility + irreversible-operation safety, hazardous-operation benches, audit trail, conformance regime (determinism floor / fidelity tier / recursive simulator) |
 | [`spec/06-extension-registry.md`](spec/06-extension-registry.md) | Design complete — the eight extension-point surfaces, the three-valued accept / reject rule (core / registered-passthrough / unknown-rejected, the I5 contract), namespace + version semantics, registration / promotion flow, and the deprecation lifecycle |
 
-The whitepaper PDFs above are the authoritative reference at v0.1; the in-repo `spec/*.md` files are the developing machine-readable form intended to converge with the whitepaper by v1.0 (2027 Q2–Q3).
+The whitepaper PDFs above are the authoritative reference at v0.1; the in-repo `spec/*.md` files are the developing machine-readable form intended to converge with the whitepaper by v1.0 (2027 Q2–Q3). The chapter-by-chapter convergence state (and the open deltas) is tracked in [`docs/spec-whitepaper-convergence.md`](docs/spec-whitepaper-convergence.md).
 
 To self-certify a driver against the Class 3 driver-protocol obligations — capture a report, run `rfl certify`, then `rfl verify` — see the [Certifying a driver](docs/certifying-a-driver.md) guide. Every subcommand (with flags, exit codes, and worked I/O) is in the [CLI reference](docs/cli-reference.md).
 
