@@ -10,6 +10,8 @@
 //! - `rfl conformance --driver <binary>` — run the conformance test suite
 //! - `rfl certify --skill <s> --embodiment <e> --report <j>` — certify a vendor
 //!   driver report (JSONL replay) against the Class 3 driver-protocol obligations
+//! - `rfl verify <certificate.json>` — schema-validate a certificate and re-verify its
+//!   content hash (tamper detection)
 
 use anyhow::Result;
 use clap::{Parser, Subcommand};
@@ -57,6 +59,11 @@ enum Command {
         /// Optional path to write the canonical certificate JSON.
         #[arg(long)]
         out: Option<std::path::PathBuf>,
+    },
+    /// Schema-validate a certificate and re-verify its content hash (tamper detection).
+    Verify {
+        /// Path to the certificate JSON file.
+        certificate: std::path::PathBuf,
     },
     /// Print the specification version this CLI implements.
     SpecVersion,
@@ -133,6 +140,32 @@ fn main() -> Result<()> {
             match outcome.result {
                 rfl_conformance::certify::CertResult::Pass => std::process::exit(0),
                 rfl_conformance::certify::CertResult::Fail => std::process::exit(1),
+            }
+        }
+        Command::Verify { certificate } => {
+            let text = match std::fs::read_to_string(&certificate) {
+                Ok(t) => t,
+                Err(e) => {
+                    eprintln!("verify: read {certificate:?}: {e}");
+                    std::process::exit(2);
+                }
+            };
+            match rfl_conformance::certificate::verify_certificate(&text) {
+                Err(e) => {
+                    eprintln!("verify: malformed certificate: {e:#}");
+                    std::process::exit(2);
+                }
+                Ok(report) => {
+                    if report.matches {
+                        println!("VERIFIED: content_hash {} matches", report.declared);
+                        std::process::exit(0);
+                    }
+                    println!(
+                        "TAMPERED: declared {} != recomputed {}",
+                        report.declared, report.recomputed
+                    );
+                    std::process::exit(1);
+                }
             }
         }
         Command::SpecVersion => {
