@@ -31,6 +31,7 @@ except ModuleNotFoundError as exc:  # pragma: no cover - environment guard
 ROOT = Path(__file__).resolve().parent.parent
 SCHEMAS = ROOT / "schemas"
 EXAMPLES = ROOT / "examples" / "01-cable-insertion"
+EXTENSIONS = ROOT / "extensions"
 
 # The four reach.* ids carry no capability key (reach is the assumed-present
 # baseline), and these four category keys are the manifest category gates.
@@ -57,6 +58,7 @@ def main() -> int:
     driver = load_schema("driver-interface.schema.json")
     adapter = load_schema("tactile-manifold/adapter.schema.json")
     certificate = load_schema("certificate.schema.json")
+    extension = load_schema("extension-registry.schema.json")
 
     print("Schema well-formedness (JSON Schema Draft 2020-12)")
     for label, schema in (
@@ -65,6 +67,7 @@ def main() -> int:
         ("driver-interface", driver),
         ("tactile-manifold adapter", adapter),
         ("certificate", certificate),
+        ("extension-registry", extension),
     ):
         try:
             Draft202012Validator.check_schema(schema)
@@ -175,6 +178,38 @@ def main() -> int:
     ext_drift = sorted(k for k, v in ext_locs.items() if v != sk_ext)
     check("C7 TactileFeature ext-pattern identical across schemas", not ext_drift,
           f"differ from skill-isa: {ext_drift}")
+
+    # C8 — every extension-registry entry is structurally consistent. Each entry
+    # (every real one under extensions/**/*.json — none at v0.1 by design — plus
+    # the schema's bundled worked example, so the check is non-vacuous while the
+    # live registry is empty) validates against the schema, has an `identifier`
+    # consistent with its namespace/name/version, and a `name` that collides with
+    # no reserved core token. Reserved tokens are derived from skill-isa at check
+    # time (the C1 anti-drift discipline): the primitive leaf names, the category
+    # gates, and the closed-core tactile features (spec/06 § Namespace rules,
+    # reserved names). Real entries also pin to their extensions/<ns>/v<MAJOR>/ path.
+    ext_validator = Draft202012Validator(extension)
+    reserved = {p.split(".", 1)[1] for p in prim} | CATEGORY_GATES | sk_core
+    registry_files = sorted(EXTENSIONS.glob("*/v*/*.json")) if EXTENSIONS.is_dir() else []
+    entries = [(f"{f.parent.parent.name}/{f.parent.name}/{f.name}", json.loads(f.read_text()), f)
+               for f in registry_files]
+    entries += [(f"schema example[{i}]", ex, None)
+                for i, ex in enumerate(extension.get("examples", []))]
+    for label, entry, path in entries:
+        errs = list(ext_validator.iter_errors(entry))
+        check(f"C8 {label} vs extension-registry", not errs, errs[0].message if errs else "")
+        if errs:
+            continue
+        want_id = f"ext.{entry['namespace']}.{entry['name']}.v{entry['version']}"
+        check(f"C8 {label} identifier consistent", entry["identifier"] == want_id,
+              f"identifier {entry['identifier']!r} != derived {want_id!r}")
+        check(f"C8 {label} name not reserved", entry["name"] not in reserved,
+              f"name {entry['name']!r} collides with a reserved core token")
+        if path is not None:
+            check(f"C8 {label} path matches namespace/version",
+                  path.parent.parent.name == entry["namespace"]
+                  and path.parent.name == f"v{entry['version']}",
+                  "directory does not match namespace/v<MAJOR>")
 
     print()
     if failures:

@@ -9,6 +9,7 @@ JSON Schema definitions for the machine-readable RFL artifacts. They formalize t
 | `driver-interface.schema.json` | the canonical driver messages (execute / telemetry / status / clearance-query) | `03` | present |
 | `tactile-manifold/` | per-sensor-class adapter mappings (`adapter.schema.json` + ft / array / visuotactile) | `04` | present |
 | `certificate.schema.json` | a conformance certificate emitted by `rfl certify` (shape + integrity, optional ed25519 signature) | `05` | present |
+| `extension-registry.schema.json` | a registry entry (namespace + version + surface + lifecycle + Principle-3 artifact) | `06` | present |
 
 ## Conventions
 
@@ -29,15 +30,18 @@ JSON Schema definitions for the machine-readable RFL artifacts. They formalize t
 ## Validating
 
 `validate.py` is the committed conformance-test-class-1 runner: it checks the
-five schemas (Draft 2020-12), validates every reference instance against them,
+six schemas (Draft 2020-12), validates every reference instance against them,
 and asserts the cross-schema consistency invariants (the descriptor's capability
 enum is exactly `skill-isa`'s `PrimitiveId` set minus `reach.*` plus the four
 category gates; the extension-key pattern is shared; the closed-core tactile
 feature set is identical across `skill-isa`, the descriptor, the
 `driver-interface` telemetry feature, and the `tactile-manifold` adapter
-feature, with the extension-feature pattern identical across all four; and each
+feature, with the extension-feature pattern identical across all four; each
 reference embodiment's declared tactile features are a subset of its bound
-adapter's produced features). It exits non-zero on any failure.
+adapter's produced features; and (C8) every extension-registry entry validates
+against `extension-registry.schema.json`, has an `identifier` consistent with
+its namespace/name/version, and a `name` colliding with no reserved core token).
+It exits non-zero on any failure.
 
 ```bash
 # Ephemeral environment, no project pollution:

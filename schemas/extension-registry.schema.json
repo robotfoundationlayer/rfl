@@ -1,0 +1,112 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://rfl.dev/schemas/extension-registry.schema.json",
+  "title": "RFL Extension Registry Entry",
+  "description": "One registered extension, the controlled mechanism by which RFL accumulates capability without modifying the core (spec/06). An entry declares which of the eight extension-point surfaces it extends, its namespaced + versioned identifier, its lifecycle state, and the Principle-3 conformance artifact that makes it mechanically testable. The registry is empty by design at v0.1 (Principle 5: the registry is the post-v1.0 growth path).",
+  "type": "object",
+  "required": ["namespace", "namespace_kind", "name", "version", "identifier", "surface", "lifecycle", "artifact", "description"],
+  "additionalProperties": false,
+  "properties": {
+    "namespace": {
+      "description": "Vendor or domain namespace (spec/06 § Namespace rules). Reserved on first-claim for a vendor; Maintainer-assigned for a domain.",
+      "type": "string",
+      "pattern": "^[a-z0-9]+(-[a-z0-9]+)*$"
+    },
+    "namespace_kind": {
+      "description": "A vendor namespace governs its own extensions on first-claim; a domain namespace is cross-vendor and Maintainer-assigned.",
+      "enum": ["vendor", "domain"]
+    },
+    "name": {
+      "description": "The extension name within its namespace. Must collide with no reserved core token (enforced by validate.py C8).",
+      "type": "string",
+      "pattern": "^[a-z0-9]+(-[a-z0-9]+)*$"
+    },
+    "version": {
+      "description": "The .v<MAJOR> integer (spec/06 § Version semantics). A major bump mints a new identifier; there is no in-place contract mutation.",
+      "type": "integer",
+      "minimum": 1
+    },
+    "identifier": {
+      "description": "The resolved canonical identifier ext.<namespace>.<name>.v<MAJOR>. Its consistency with namespace/name/version is a C8 invariant (JSON Schema cannot assert sibling-value equality).",
+      "type": "string",
+      "pattern": "^ext\\.[a-z0-9]+(-[a-z0-9]+)*\\.[a-z0-9]+(-[a-z0-9]+)*\\.v[0-9]+$"
+    },
+    "compact_alias": {
+      "description": "Optional rfl-x:<name> short form for the 03 role-tag and auxiliary-name surfaces (spec/06 § Namespace rules).",
+      "type": "string",
+      "pattern": "^rfl-x:[a-z0-9]+(-[a-z0-9]+)*$"
+    },
+    "surface": {
+      "description": "Which of the eight extensible surfaces this entry extends (spec/06 § What is extensible).",
+      "enum": [
+        "skill_isa_primitive",
+        "capability_skill_id",
+        "auxiliary_capability",
+        "frame_role",
+        "limit_key",
+        "hazard_class",
+        "sensor_class",
+        "tactile_feature"
+      ]
+    },
+    "lifecycle": {
+      "description": "Exactly one lifecycle state (spec/06 § Deprecation lifecycle). A retired identifier resolves to unknown (rejected).",
+      "enum": ["active", "deprecated", "retired"]
+    },
+    "successor": {
+      "description": "For a deprecated entry superseded by a .v<MAJOR> successor or a core promotion, the successor identifier (a core name or an ext.* id), so live references migrate without a break. Absent for a withdrawal with no successor.",
+      "type": "string"
+    },
+    "artifact": {
+      "description": "The Principle-3 chapter-required artifact that makes the extension mechanically testable (a primitive's rubric + conformance fixture, a sensor_class's adapter, etc.). Registration without it is rejected at review (spec/06 § What is extensible).",
+      "type": "object",
+      "required": ["kind", "description"],
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "description": "The artifact form required by the owning chapter for this surface.",
+          "enum": ["conformance_fixture", "adapter_mapping", "rubric"]
+        },
+        "path": {
+          "description": "Repo-relative path to the artifact (e.g. a conformance fixture or adapter file under this entry's extensions/<namespace>/v<MAJOR>/ directory).",
+          "type": "string"
+        },
+        "description": { "type": "string" }
+      }
+    },
+    "description": {
+      "description": "Human-readable motivation and semantics (spec/06 § Registration process step 1).",
+      "type": "string"
+    },
+    "implementing_organizations": {
+      "description": "Organizations that implement this extension; the spec/06 § Promotion-to-core cross-vendor-adoption evidence (>= 3 to be eligible).",
+      "type": "array",
+      "items": { "type": "string" },
+      "uniqueItems": true
+    },
+    "registered": {
+      "description": "ISO-8601 date the extension was registered.",
+      "type": "string",
+      "format": "date"
+    }
+  },
+  "examples": [
+    {
+      "namespace": "softrobotics",
+      "namespace_kind": "vendor",
+      "name": "pneumatic-grasp",
+      "version": 1,
+      "identifier": "ext.softrobotics.pneumatic-grasp.v1",
+      "surface": "skill_isa_primitive",
+      "lifecycle": "active",
+      "artifact": {
+        "kind": "conformance_fixture",
+        "path": "extensions/softrobotics/v1/pneumatic-grasp.fixture.json",
+        "description": "Terminal-postcondition fixture: a compliant pneumatic enclosure secures a deformable target without exceeding its max_contact_force."
+      },
+      "description": "A pneumatic-hand-specific grasp primitive (spec/06 § Namespace rules illustrative example). Not registered in the live tree; carried here as the schema's worked example.",
+      "implementing_organizations": ["SoftRobotics"],
+      "registered": "2026-06-01"
+    }
+  ]
+}
