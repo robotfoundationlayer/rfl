@@ -1,0 +1,157 @@
+{
+  "certificate_schema_version": "0.1",
+  "spec_version": "v0.1-draft",
+  "tool_version": "0.0.1",
+  "skill": {
+    "id": "object-flip",
+    "sha256": "4b71919b63e2c024089d5f3f9b9ed9d1e5036e1df964635db8955eaa5ad60359"
+  },
+  "embodiment": {
+    "id": "wonik-allegro-v4",
+    "sha256": "5afd2de40c19a108bacb5d1b312d8f80db5d8c82ba3394a19ddb0bc61a0a4cdd"
+  },
+  "report_sha256": "eed73189dfe184ed055e0f1c440b897884ba1cefbd3aefff1b0502961472c9c0",
+  "result": "pass",
+  "covered": [
+    "class3_driver_protocol"
+  ],
+  "excluded": [
+    "class4_physical",
+    "class2_loose_epsilon",
+    "env3_disturbance",
+    "fidelity_tier_physical_truth"
+  ],
+  "actions": [
+    {
+      "action_id": "object-flip/wonik-allegro-v4/0001-locate",
+      "suffix": "locate",
+      "checks": [
+        {
+          "name": "actuation",
+          "result": "pass"
+        },
+        {
+          "name": "engagement",
+          "result": "pass"
+        },
+        {
+          "name": "irreversible",
+          "result": "pass"
+        },
+        {
+          "name": "freed_part_disposition",
+          "result": "pass"
+        },
+        {
+          "name": "audit_honesty",
+          "result": "pass"
+        }
+      ],
+      "passed": true
+    },
+    {
+      "action_id": "object-flip/wonik-allegro-v4/0002-pinch",
+      "suffix": "pinch",
+      "envelope_class": "grasp_continuity",
+      "fidelity_tier": "manifold",
+      "checks": [
+        {
+          "name": "envelope",
+          "result": "pass"
+        },
+        {
+          "name": "actuation",
+          "result": "pass"
+        },
+        {
+          "name": "engagement",
+          "result": "pass"
+        },
+        {
+          "name": "irreversible",
+          "result": "pass"
+        },
+        {
+          "name": "freed_part_disposition",
+          "result": "pass"
+        },
+        {
+          "name": "audit_honesty",
+          "result": "pass"
+        }
+      ],
+      "passed": true
+    },
+    {
+      "action_id": "object-flip/wonik-allegro-v4/0003-flip",
+      "suffix": "flip",
+      "envelope_class": "grasp_continuity",
+      "checks": [
+        {
+          "name": "envelope",
+          "result": "pass"
+        },
+        {
+          "name": "actuation",
+          "result": "pass"
+        },
+        {
+          "name": "engagement",
+          "result": "pass"
+        },
+        {
+          "name": "irreversible",
+          "result": "pass"
+        },
+        {
+          "name": "freed_part_disposition",
+          "result": "pass"
+        },
+        {
+          "name": "audit_honesty",
+          "result": "pass"
+        }
+      ],
+      "passed": true
+    },
+    {
+      "action_id": "object-flip/wonik-allegro-v4/0004-release",
+      "suffix": "release",
+      "envelope_class": "grasp_continuity",
+      "checks": [
+        {
+          "name": "envelope",
+          "result": "pass"
+        },
+        {
+          "name": "actuation",
+          "result": "pass"
+        },
+        {
+          "name": "engagement",
+          "result": "pass"
+        },
+        {
+          "name": "irreversible",
+          "result": "pass"
+        },
+        {
+          "name": "freed_part_disposition",
+          "result": "pass"
+        },
+        {
+          "name": "audit_honesty",
+          "result": "pass"
+        }
+      ],
+      "passed": true
+    }
+  ],
+  "sequence_checks": [
+    {
+      "name": "momentary_release",
+      "result": "pass"
+    }
+  ],
+  "content_hash": "sha256:eac1458cfe81152a8a14caff95a5419bb59950b80a4a30e08a0084d00ade09c8"
+}

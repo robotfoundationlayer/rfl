@@ -29,6 +29,13 @@ const CASES: &[Case] = &[
         report: "driver-report-pneumatic.jsonl",
         cert: "certificate-pneumatic.json",
     },
+    Case {
+        dir: "03-screw-fasten",
+        skill: "skill-flip.yaml",
+        embodiment: "allegro.yaml",
+        report: "driver-report-flip.jsonl",
+        cert: "certificate-flip.json",
+    },
 ];
 
 #[test]

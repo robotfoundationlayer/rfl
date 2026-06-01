@@ -131,6 +131,33 @@ fn certifies_proxy_fidelity_on_pneumatic() {
 }
 
 #[test]
+fn certifies_flip_sequence_momentary_release() {
+    let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples/03-screw-fasten");
+    let skill = dir.join("skill-flip.yaml");
+    let emb = dir.join("embodiments/allegro.yaml");
+    let reports = run_reference_driver(&skill, &emb).unwrap();
+    let report = temp_report("flip", &reports_to_jsonl(&reports));
+
+    let outcome = certify::run(&skill, &emb, &report).expect("valid run");
+    assert_eq!(outcome.result, CertResult::Pass);
+    // the skill contains an in_hand.flip -> a flip action is present (the sequence check has
+    // something to trace), making momentary_release non-vacuous.
+    assert!(
+        outcome.certificate.body.actions.iter().any(|a| a.suffix == "flip"),
+        "skill-flip should retarget to a flip action"
+    );
+    let seq = outcome
+        .certificate
+        .body
+        .sequence_checks
+        .iter()
+        .find(|c| c.name == "momentary_release")
+        .unwrap();
+    assert_eq!(seq.result, "pass");
+    std::fs::remove_file(report).ok();
+}
+
+#[test]
 fn certificate_is_deterministic() {
     let dir = example_dir();
     let skill = dir.join("skill.yaml");
