@@ -1,0 +1,32 @@
+# Example 03 — Hook grasp (grasp.hook variant)
+# The first FORM-closure grasp: engage a hookable feature (handle / loop / bar) and support load
+# along a primary direction WITHOUT an opposing squeeze. Directional retention (stable only along
+# load_direction). Exercises GC2's form-closure hold test (hold_test:load_direction) — the closure
+# type the ReferenceDriver and check_hold_test already branch on, now driven end-to-end for the
+# first time. allegro + leap declare grasp.hook; the pneumatic bellows hand cannot form a rigid
+# hook, so it is rejected at the capability gate (capability_absent).
+skill: object-hook-grasp
+description: >
+  Locate a part by its handle, engage a form-closure hook supporting a downward load, then release.
+  Demonstrates the directional (load_direction) form-closure stability class.
+
+objects:
+  part: { ref: part }
+
+body:
+  sequence:
+
+    - let: part_t
+      from:
+        sense.locate:
+          target_ref: part
+          modality: auto
+
+    - grasp.hook:
+        target: part_t
+        load_budget: 12 N
+        load_direction: -z
+        tactile_target: auto
+
+    - grasp.release:
+        grasp_handle: active

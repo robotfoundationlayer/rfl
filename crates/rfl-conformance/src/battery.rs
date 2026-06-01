@@ -212,6 +212,36 @@ mod tests {
     }
 
     #[test]
+    fn nominal_hook_passes_form_hold_test_but_wrong_profile_fails() {
+        let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples/03-screw-fasten");
+        let skill = dir.join("skill-hook.yaml");
+        let emb = dir.join("embodiments/allegro.yaml");
+        // nominal: the FORM-closure hook reports a load_direction hold test -> passes GC2. This is
+        // the first form-closure grasp to drive the load_direction branch end-to-end.
+        let nominal = drive(ReferenceDriver::default(), &skill, &emb).unwrap();
+        let (g, r) = &nominal[1]; // locate(0), hook(1), release(2)
+        assert_eq!(g.action_id.rsplit('-').next(), Some("hook"));
+        let v = verify_action(g, r);
+        let ht = v.checks.iter().find(|c| c.name == "hold_test").unwrap();
+        assert!(
+            matches!(ht.outcome, CheckOutcome::Pass),
+            "checks: {:?}",
+            v.checks
+                .iter()
+                .map(|c| (c.name, &c.outcome))
+                .collect::<Vec<_>>()
+        );
+        // adversarial: a driver running a wrong-closure (level_gentle) profile -> GC2 fails for the
+        // form-closure hook just as it does for a force-closure pinch.
+        let wrong = drive(FaultyDriver::new(Fault::WrongHoldTest), &skill, &emb).unwrap();
+        let (g, r) = &wrong[1];
+        let v = verify_action(g, r);
+        assert!(!v.passed);
+        let ht = v.checks.iter().find(|c| c.name == "hold_test").unwrap();
+        assert!(matches!(ht.outcome, CheckOutcome::Fail(_)));
+    }
+
+    #[test]
     fn nominal_flip_passes_bounded_window_but_over_window_fails() {
         let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples/03-screw-fasten");
         let skill = dir.join("skill-flip.yaml");
