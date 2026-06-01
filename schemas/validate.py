@@ -95,9 +95,10 @@ def main() -> int:
         check(f"{ad.name} vs tactile-manifold adapter", not errs, errs[0].message if errs else "")
 
     cert_validator = Draft202012Validator(certificate)
-    cert_path = EXAMPLES / "certificate.json"
-    errs = list(cert_validator.iter_errors(json.loads(cert_path.read_text())))
-    check("certificate.json vs certificate-schema", not errs, errs[0].message if errs else "")
+    for cert_file in sorted((ROOT / "examples").glob("*/certificate*.json")):
+        errs = list(cert_validator.iter_errors(json.loads(cert_file.read_text())))
+        label = f"{cert_file.parent.name}/{cert_file.name}"
+        check(f"{label} vs certificate-schema", not errs, errs[0].message if errs else "")
 
     print("\nCross-schema consistency (anti-drift)")
 

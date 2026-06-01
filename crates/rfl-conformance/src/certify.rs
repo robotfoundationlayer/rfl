@@ -47,6 +47,7 @@ fn action_entry(v: &ActionVerdict) -> ActionEntry {
         action_id: v.action_id.clone(),
         suffix: v.suffix.clone(),
         envelope_class: v.envelope_class.map(certificate::envelope_class_str),
+        fidelity_tier: v.fidelity_tier.clone(),
         checks: v.checks.iter().map(check_entry).collect(),
         passed: v.passed,
     }

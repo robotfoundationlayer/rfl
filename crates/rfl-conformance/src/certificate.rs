@@ -47,6 +47,9 @@ pub struct ActionEntry {
     /// The envelope class verified (absent for perception primitives).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub envelope_class: Option<&'static str>,
+    /// The fidelity tier achieved (`spec/05` badge); absent for actions with no confirmation tier.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub fidelity_tier: Option<String>,
     /// Every obligation run for this action.
     pub checks: Vec<CheckEntry>,
     /// True iff every check passed.
@@ -200,6 +203,7 @@ mod tests {
                 action_id: "cable-insertion/allegro/0002-pinch".into(),
                 suffix: "pinch".into(),
                 envelope_class: Some("grasp_continuity"),
+                fidelity_tier: Some("manifold".to_string()),
                 checks: vec![CheckEntry { name: "envelope", result: "pass", reason: None }],
                 passed: true,
             }],

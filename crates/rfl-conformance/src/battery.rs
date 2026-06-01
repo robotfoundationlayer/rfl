@@ -32,6 +32,9 @@ pub struct ActionVerdict {
     pub suffix: String,
     /// The envelope class verified (None for perception primitives with no motion envelope).
     pub envelope_class: Option<EnvelopeClass>,
+    /// The fidelity tier achieved (`report.status.fidelity_tier`); None for actions with no
+    /// confirmation tier (reach / perception).
+    pub fidelity_tier: Option<String>,
     /// Every obligation run for this action.
     pub checks: Vec<NamedCheck>,
     /// True iff every check passed.
@@ -56,7 +59,15 @@ pub fn verify_action(goal: &ExecuteGoal, report: &DriverReport) -> ActionVerdict
     });
     checks.push(NamedCheck { name: "audit_honesty", outcome: check_audit_honesty(goal, report) });
     let passed = checks.iter().all(|c| matches!(c.outcome, CheckOutcome::Pass));
-    ActionVerdict { action_id: goal.action_id.clone(), suffix, envelope_class, checks, passed }
+    let fidelity_tier = report.status.fidelity_tier.clone();
+    ActionVerdict {
+        action_id: goal.action_id.clone(),
+        suffix,
+        envelope_class,
+        fidelity_tier,
+        checks,
+        passed,
+    }
 }
 
 /// Run the sequence-level obligation (`momentary_release` propagation, AUD2).

@@ -54,6 +54,7 @@
         "envelope_class": {
           "enum": ["terminal_postcondition", "grasp_continuity", "force_trajectory", "interval_invariant"]
         },
+        "fidelity_tier": { "enum": ["manifold", "proxy", "proxy_reactive"] },
         "checks": { "type": "array", "items": { "$ref": "#/$defs/CheckEntry" } },
         "passed": { "type": "boolean" }
       }

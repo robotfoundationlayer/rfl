@@ -93,6 +93,25 @@ fn missing_status_is_invalid_run() {
 }
 
 #[test]
+fn certificate_records_per_action_fidelity_tier() {
+    let dir = example_dir();
+    let skill = dir.join("skill.yaml");
+    let emb = dir.join("embodiments/allegro.yaml");
+    let reports = run_reference_driver(&skill, &emb).unwrap();
+    let report = temp_report("fidelity", &reports_to_jsonl(&reports));
+
+    let outcome = certify::run(&skill, &emb, &report).expect("valid run");
+    let actions = &outcome.certificate.body.actions;
+    // grasp.pinch confirms at manifold tier on allegro (tactile sensing present).
+    let pinch = actions.iter().find(|a| a.suffix == "pinch").unwrap();
+    assert_eq!(pinch.fidelity_tier.as_deref(), Some("manifold"));
+    // a pure reach has no confirmation tier.
+    let reach = actions.iter().find(|a| a.suffix == "align" || a.suffix == "retract").unwrap();
+    assert_eq!(reach.fidelity_tier, None);
+    std::fs::remove_file(report).ok();
+}
+
+#[test]
 fn certificate_is_deterministic() {
     let dir = example_dir();
     let skill = dir.join("skill.yaml");
