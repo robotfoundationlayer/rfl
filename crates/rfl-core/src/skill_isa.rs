@@ -121,6 +121,9 @@ pub enum Primitive {
     /// `grasp.lateral`.
     #[serde(rename = "grasp.lateral")]
     GraspLateral(GraspLateral),
+    /// `grasp.hook`.
+    #[serde(rename = "grasp.hook")]
+    GraspHook(GraspHook),
     /// `transport.move_to_pose`.
     #[serde(rename = "transport.move_to_pose")]
     TransportMoveToPose(TransportMoveToPose),
@@ -196,6 +199,7 @@ impl Primitive {
             Primitive::GraspPinch(_) => Some(GraspMode::Pinch),
             Primitive::GraspPower(_) => Some(GraspMode::Power),
             Primitive::GraspLateral(_) => Some(GraspMode::Lateral),
+            Primitive::GraspHook(_) => Some(GraspMode::Hook),
             Primitive::GraspPin(_) => Some(GraspMode::Pin),
             Primitive::GraspPlatform(_) => Some(GraspMode::Platform),
             // a regrasp supersedes the active grasp with its target mode (spec/01 § 3.3).
@@ -339,6 +343,24 @@ pub struct GraspLateral {
     /// Reaction to detected slip.
     #[serde(default)]
     pub slip_response: Option<SlipResponse>,
+}
+
+/// `grasp.hook` parameters (v0 subset of `$defs/GraspHookParams`, § 2.3). `target` + `load_budget`
+/// required. Form-closure on a hookable feature: directional retention along `load_direction`, no
+/// opposing squeeze (`load_budget` replaces `force_budget`), clamped to `hook_load_capacity`. The
+/// `hook_feature` / `seating_force` carry spec defaults and are not lowered in v0.
+#[derive(Debug, Clone, serde::Deserialize)]
+pub struct GraspHook {
+    /// The object target exposing a hookable feature (a let-reference in the reference skill).
+    pub target: Ref,
+    /// The load the engagement must support (replaces force_budget; clamped to hook_load_capacity).
+    pub load_budget: Quantity,
+    /// Primary supported load direction (default auto = anticipated load; carried symbolic in v0).
+    #[serde(default)]
+    pub load_direction: Option<Direction>,
+    /// Contact-confirmation criterion (default auto = hook inner-curve seating).
+    #[serde(default = "tactile_auto")]
+    pub tactile_target: TactileTargetArg,
 }
 
 /// `grasp.pin` parameters (v0 subset of `$defs/GraspPinParams`, § 2.7). `target` +

@@ -131,6 +131,7 @@ fn check_capability(prim: &Primitive, e: &Embodiment) -> crate::Result<()> {
         Primitive::GraspPinch(_) => "grasp.pinch",
         Primitive::GraspPower(_) => "grasp.power",
         Primitive::GraspLateral(_) => "grasp.lateral",
+        Primitive::GraspHook(_) => "grasp.hook",
         Primitive::GraspPin(_) => "grasp.pin",
         Primitive::GraspPlatform(_) => "grasp.platform",
         Primitive::InHandRegrasp(_) => "in_hand.regrasp",
@@ -188,6 +189,7 @@ fn lower(
         Primitive::GraspPinch(p) => (lower_grasp_pinch(p, e, ctx, weights), "pinch"),
         Primitive::GraspPower(p) => (lower_grasp_power(p, e, ctx, weights), "power"),
         Primitive::GraspLateral(p) => (lower_grasp_lateral(p, e, ctx, weights), "lateral"),
+        Primitive::GraspHook(p) => (lower_grasp_hook(p, e), "hook"),
         Primitive::GraspPin(p) => (lower_grasp_pin(p, e), "pin"),
         Primitive::GraspPlatform(p) => (lower_grasp_platform(p, e), "platform"),
         Primitive::InHandRegrasp(p) => (lower_in_hand_regrasp(p, e, ctx), "regrasp"),
@@ -448,6 +450,54 @@ fn lower_grasp_pin(p: &GraspPin, e: &Embodiment) -> CanonicalAction {
         monitors: vec![],
         safety_envelope: env,
         grasp_stability: Some(StabilityMetadata::for_mode(GraspMode::Pin)),
+    }
+}
+
+/// Lower `grasp.hook` (`spec/01` § 2.3): engage a hookable feature in form closure, supporting
+/// load along a primary direction without an opposing squeeze. Mirrors `lower_grasp_pin` (no
+/// `min_holding_force`, no `ctx.held` — directional retention, not a free grip load): the
+/// `load_budget` is clamped to `hook_load_capacity` and emitted as the action's force bound, and
+/// `load_direction` rides `force_profile` as a symbolic marker. The form-closure stability class
+/// (`StabilityMetadata::for_mode(Hook)`) makes the driver run the `load_direction` hold test (GC2)
+/// — the first Form-closure grasp to exercise that branch.
+fn lower_grasp_hook(p: &crate::skill_isa::GraspHook, e: &Embodiment) -> CanonicalAction {
+    let force_budget = clamp_force(&p.load_budget, "hook_load_capacity", e);
+    let tactile_target = Some(match (&p.tactile_target, e.tactile_sensing()) {
+        (TactileTargetArg::Auto(_), true) => TactileTargetOut::Auto,
+        (TactileTargetArg::Auto(_), false) => TactileTargetOut::Proxy {
+            proxy: ProxySpec {
+                tier: "proxy",
+                criterion: "hook_inner_curve_seating",
+            },
+        },
+        (TactileTargetArg::Other(v), _) => {
+            TactileTargetOut::Explicit(serde_json::to_value(v).unwrap_or(serde_json::Value::Null))
+        }
+    });
+    let mut env = base_envelope(e);
+    let load_direction = p
+        .load_direction
+        .as_ref()
+        .map_or(serde_json::Value::String("auto".to_string()), yaml_to_json);
+    env.force_profile = Some(serde_json::json!({
+        "load_direction": load_direction,
+        "form_closure": true,
+    }));
+    CanonicalAction {
+        target_frame: e.grasp_frame().to_string(),
+        target_pose: PoseExpr::Ref {
+            r#ref: p.target.clone(),
+        },
+        force_budget: Some(force_budget),
+        timing: TimingHints {
+            nominal_duration: None,
+            timing_mode: TimingMode::Strict,
+            stop_at_goal: true,
+        },
+        tactile_target,
+        monitors: vec![],
+        safety_envelope: env,
+        grasp_stability: Some(StabilityMetadata::for_mode(GraspMode::Hook)),
     }
 }
 
