@@ -18,7 +18,7 @@ embodiment:
     tool_axis: { tcp_thumb: +z }
 
   capabilities:
-    skills: [grasp.pinch, grasp.lateral, transport, force.insert_fit, force.screw, force.unscrew, force.press_button, force.wipe, force.snap_engage, force.cut, in_hand.flip, in_hand.regrasp, in_hand.pivot, sense.locate]
+    skills: [grasp.pinch, grasp.lateral, transport, force.insert_fit, force.screw, force.unscrew, force.press_button, force.wipe, force.snap_engage, force.cut, in_hand.flip, in_hand.regrasp, in_hand.pivot, transport.handoff, sense.locate]
     aux:
       tactile_sensing: true        # fingertip force sensing → manifold-tier (coarser than Allegro)
       compliance: active

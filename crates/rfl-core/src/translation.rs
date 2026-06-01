@@ -22,7 +22,7 @@ use crate::skill_isa::{
     ForceSnapEngage, ForceUnscrew, ForceWipe, GraspPin, GraspPinch, GraspPlatform, GraspRelease,
     InHandFlip, InHandPivot, InHandRegrasp, Primitive, ReachAlign, ReachHover, ReachRetract,
     ReachScan, ScanPattern, SenseInspect, Skill, StabilityMarginArg, Statement, TactileTargetArg,
-    TransportCarry, TransportMoveToPose,
+    TransportCarry, TransportHandoff, TransportMoveToPose,
 };
 use crate::stability::StabilityMetadata;
 use std::collections::BTreeMap;
@@ -133,6 +133,7 @@ fn check_capability(prim: &Primitive, e: &Embodiment) -> crate::Result<()> {
         Primitive::GraspPlatform(_) => "grasp.platform",
         Primitive::InHandRegrasp(_) => "in_hand.regrasp",
         Primitive::InHandPivot(_) => "in_hand.pivot",
+        Primitive::TransportHandoff(_) => "transport.handoff",
         // A category key implies the base primitive: `transport` = transport.move_to_pose.
         Primitive::TransportMoveToPose(_) => "transport",
         // transport.carry is a DISTINCT capability beyond the base transport gate
@@ -187,6 +188,7 @@ fn lower(
         Primitive::GraspPlatform(p) => (lower_grasp_platform(p, e), "platform"),
         Primitive::InHandRegrasp(p) => (lower_in_hand_regrasp(p, e, ctx), "regrasp"),
         Primitive::InHandPivot(p) => (lower_in_hand_pivot(p, e, ctx), "pivot"),
+        Primitive::TransportHandoff(p) => (lower_transport_handoff(p, e, ctx), "handoff"),
         Primitive::TransportMoveToPose(p) => (lower_transport_move_to_pose(p, e, ctx), "transport"),
         Primitive::TransportCarry(p) => (lower_transport_carry(p, e, ctx), "carry"),
         Primitive::ReachAlign(p) => (lower_reach_align(p, e), "align"),
@@ -938,6 +940,61 @@ fn lower_in_hand_pivot(p: &InHandPivot, e: &Embodiment, ctx: &GraspContext) -> C
         monitors: vec![],
         safety_envelope: env,
         grasp_stability: None,
+    }
+}
+
+/// Lower `transport.handoff` (`spec/01` § 4.3): transfer a held object from the giver's grasp to
+/// the receiver's, using two-party make-before-break. Emits the receiver's new grasp stability
+/// (so GC2 confirms it) and a `force_profile` carrying the per-party continuity floor
+/// (`min_holding_force`, read by GC1), the combined-force ceiling (`cograsp_force_budget`, when
+/// declared — read by the GC6 check), the `transition: two_party_handoff` marker, and the
+/// `receiver`. Like a regrasp, the handoff produces a new grasp (the receiver's) and supersedes
+/// the giver's. `ctx` is read-only.
+fn lower_transport_handoff(
+    p: &TransportHandoff,
+    e: &Embodiment,
+    ctx: &GraspContext,
+) -> CanonicalAction {
+    let mut profile = serde_json::Map::new();
+    if let Some(held) = &ctx.held {
+        let mhf = grasp_force::min_holding_force(held.weight_n, held.mode);
+        profile.insert(
+            "min_holding_force".to_string(),
+            serde_json::Value::String(Quantity::from_si(mhf, "N").0),
+        );
+    }
+    if let Some(budget) = &p.cograsp_force_budget {
+        profile.insert(
+            "cograsp_force_budget".to_string(),
+            serde_json::Value::String(budget.0.clone()),
+        );
+    }
+    profile.insert(
+        "transition".to_string(),
+        serde_json::Value::String("two_party_handoff".to_string()),
+    );
+    profile.insert(
+        "receiver".to_string(),
+        serde_json::Value::String(p.receiver.clone()),
+    );
+    let mut env = base_envelope(e);
+    env.force_profile = Some(serde_json::Value::Object(profile));
+    CanonicalAction {
+        target_frame: e.grasp_frame().to_string(),
+        // the object stays near the handoff pose (symbolic in v0).
+        target_pose: PoseExpr::Ref {
+            r#ref: "held".to_string(),
+        },
+        force_budget: None,
+        timing: TimingHints {
+            nominal_duration: None,
+            timing_mode: TimingMode::Strict,
+            stop_at_goal: true,
+        },
+        tactile_target: None,
+        monitors: vec![],
+        safety_envelope: env,
+        grasp_stability: Some(StabilityMetadata::for_mode(p.receiver_grasp_mode())),
     }
 }
 
@@ -1881,6 +1938,49 @@ mod tests {
         );
         // grasp identity preserved -> no new grasp_stability (GC2 hold test vacuous).
         assert!(a.grasp_stability.is_none());
+    }
+
+    #[test]
+    fn handoff_lowers_two_party_contract_and_receiver_grasp() {
+        use crate::stability::Closure;
+        let dir =
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples/03-screw-fasten");
+        let skill =
+            Skill::parse_yaml(&std::fs::read_to_string(dir.join("skill-handoff.yaml")).unwrap())
+                .unwrap();
+        let emb = crate::embodiment::Embodiment::parse_yaml(
+            &std::fs::read_to_string(dir.join("embodiments/allegro.yaml")).unwrap(),
+        )
+        .unwrap();
+        let out = retarget(&skill, &emb).expect("retarget");
+        // locate(0), pinch(1), handoff(2), release(3).
+        assert_eq!(out.suffixes[2], "handoff");
+        let a = &out.actions[2];
+        let fp = a
+            .safety_envelope
+            .force_profile
+            .as_ref()
+            .expect("handoff carries the two-party contract");
+        // the two-party-handoff marker (the GC6 contract on the wire).
+        assert_eq!(
+            fp.get("transition").and_then(|v| v.as_str()),
+            Some("two_party_handoff")
+        );
+        // the combined-force ceiling + the per-party floor + the receiver.
+        assert_eq!(
+            fp.get("cograsp_force_budget").and_then(|v| v.as_str()),
+            Some("12 N")
+        );
+        assert_eq!(
+            fp.get("min_holding_force").and_then(|v| v.as_str()),
+            Some("2 N")
+        );
+        assert_eq!(
+            fp.get("receiver").and_then(|v| v.as_str()),
+            Some("tcp_index")
+        );
+        // the receiver forms a new grasp (so GC2 hold-tests it).
+        assert_eq!(a.grasp_stability.as_ref().unwrap().closure, Closure::Force);
     }
 
     #[test]

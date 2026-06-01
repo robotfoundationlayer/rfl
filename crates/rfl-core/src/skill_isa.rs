@@ -175,6 +175,9 @@ pub enum Primitive {
     /// `in_hand.pivot`.
     #[serde(rename = "in_hand.pivot")]
     InHandPivot(InHandPivot),
+    /// `transport.handoff`.
+    #[serde(rename = "transport.handoff")]
+    TransportHandoff(TransportHandoff),
 }
 
 impl Primitive {
@@ -189,6 +192,8 @@ impl Primitive {
             Primitive::GraspPlatform(_) => Some(GraspMode::Platform),
             // a regrasp supersedes the active grasp with its target mode (spec/01 § 3.3).
             Primitive::InHandRegrasp(r) => Some(r.target_grasp_mode()),
+            // a handoff supersedes the giver's grasp with the receiver's new grasp (§ 4.3).
+            Primitive::TransportHandoff(h) => Some(h.receiver_grasp_mode()),
             _ => None,
         }
     }
@@ -367,6 +372,37 @@ pub struct InHandPivot {
     /// The established grasp providing the pivot contact (default active).
     #[serde(default)]
     pub grasp_handle: Option<GraspHandle>,
+}
+
+/// `transport.handoff` parameters (v0 subset of `$defs/TransportHandoffParams`, § 4.3). Requires
+/// `receiver` (the partner effector). Transfers a held object from the giver's grasp to the
+/// receiver's, using two-party make-before-break. The handoff pose / tolerances carry their spec
+/// defaults and are not lowered in v0 (serde ignores them).
+#[derive(Debug, Clone, serde::Deserialize)]
+pub struct TransportHandoff {
+    /// The partner effector receiving the object (v0: a control-frame name).
+    pub receiver: String,
+    /// The grasp mode the receiver should form (v0: a mode name; `auto`/absent -> pinch).
+    #[serde(default)]
+    pub receiver_mode: Option<String>,
+    /// Max combined force during the dual-grasp window (the co-grasp ceiling).
+    #[serde(default)]
+    pub cograsp_force_budget: Option<Quantity>,
+    /// The giver's current grasp (default active).
+    #[serde(default)]
+    pub grasp_handle: Option<GraspHandle>,
+}
+
+impl TransportHandoff {
+    /// The receiver's grasp mode (`pin` / `platform` / else `pinch`; `auto`/absent -> `pinch`).
+    #[must_use]
+    pub fn receiver_grasp_mode(&self) -> GraspMode {
+        match self.receiver_mode.as_deref() {
+            Some("pin") => GraspMode::Pin,
+            Some("platform") => GraspMode::Platform,
+            _ => GraspMode::Pinch,
+        }
+    }
 }
 
 /// `transport.move_to_pose` parameters (v0 subset of `$defs/TransportMoveToPoseParams`).

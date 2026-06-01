@@ -8,7 +8,7 @@
   },
   "embodiment": {
     "id": "wonik-allegro-v4",
-    "sha256": "b3a29068a90a62bc5d9f2acaca1338863d5036400a0a84af138b3d914be42c1a"
+    "sha256": "88c27c6dc23e7baed3eb158f0fcf146a5b0e344e067bf498be75616a51bb82d4"
   },
   "report_sha256": "66a19b2483284ac43f9657a71e158954181a282a018caf8e936f9ea00cacb5a1",
   "result": "pass",
@@ -249,5 +249,5 @@
       "result": "pass"
     }
   ],
-  "content_hash": "sha256:dc902719d017a16b8f5720a107a8b8a6b2888beec43c83763731cad0ca7af8b2"
+  "content_hash": "sha256:6f4236807da53b5a735943e174664033450d72747db77ae1ce4991cfeb7d55f8"
 }
