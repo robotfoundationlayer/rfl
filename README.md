@@ -115,7 +115,7 @@ Watch this repository to follow development. Comments and design feedback welcom
 }
 ```
 
-This entry covers the [specification extract](whitepaper/RFL_SPEC_v0.1_en.pdf). To cite the companion [position paper](whitepaper/RFL_v1.0_en.pdf) instead, adjust the `title` to "The Embodiment Abstraction: A Foundation Layer for Physical AI" and the `note` to "RFL Position Paper v1.0".
+This entry covers the [specification extract](whitepaper/RFL_SPEC_v0.1_en.pdf). To cite the companion [position paper](whitepaper/RFL_v1.0_en.pdf) instead, adjust the `title` to "The Embodiment Abstraction: A Foundation Layer for Physical AI" and the `note` to "RFL Position Paper v2.0 (G-1 Hybrid stewardship edition)".
 
 ## Contact
 

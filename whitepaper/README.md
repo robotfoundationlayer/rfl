@@ -23,8 +23,8 @@ The two documents share Abstract content, Keywords, References, and Appendix A (
 | Item | Status |
 |---|---|
 | **Spec extract (English, v0.1)** | Publication-candidate state after four rounds of external review; arXiv submission prepared, awaiting endorsement |
-| **Position paper (English, v1.0)** | Drafted, sync with spec v0.1 cross-references complete |
-| **Position paper (Japanese, v1.0)** | Drafted (vault source only, not yet rendered in this repository) |
+| **Position paper (English, v2.0 — G-1 Hybrid)** | Published in this repository; sync with spec v0.1 cross-references complete |
+| **Position paper (Japanese, v2.0 — G-1 Hybrid)** | Drafted (vault source only, not yet rendered in this repository) |
 | **arXiv preprint ID** | Pending endorsement (Sergey Levine, sent 2026-05-30); will be filled once accepted |
 | **Reference implementation v0.0.1** | Targeted 2027 Q2–Q3 (single (VLA, embodiment) pair existence proof) |
 | **17 figures** | Rendered to SVG and indexed below |
@@ -87,6 +87,6 @@ For the **companion position paper**:
   title   = {The Embodiment Abstraction: A Foundation Layer for Physical AI},
   author  = {Yoichiro Hara},
   year    = {2026},
-  note    = {RFL Position Paper v1.0; project page \url{https://github.com/robotfoundationlayer}}
+  note    = {RFL Position Paper v2.0 (G-1 Hybrid stewardship edition); project page \url{https://github.com/robotfoundationlayer}}
 }
 ```
