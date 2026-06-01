@@ -629,6 +629,27 @@ impl Skill {
     pub fn parse_yaml(text: &str) -> crate::Result<Self> {
         serde_yaml::from_str(text).map_err(|e| crate::Error::SkillIsa(e.to_string()))
     }
+
+    /// Validate the composition beyond parsing (conformance Test Class 1, embodiment-independent).
+    /// v0 enforces unique let-binding names; the STB3 stability-class composition algebra
+    /// (`spec/05` § Composition validity) lands here once grasp `StabilityMetadata` exists.
+    ///
+    /// # Errors
+    /// Returns `Error::SkillIsa` if a `let` name is bound more than once.
+    pub fn validate(&self) -> crate::Result<()> {
+        let mut seen = std::collections::BTreeSet::new();
+        for stmt in &self.body.sequence {
+            if let Statement::LetBind(lb) = stmt {
+                if !seen.insert(lb.r#let.as_str()) {
+                    return Err(crate::Error::SkillIsa(format!(
+                        "duplicate let-binding '{}'",
+                        lb.r#let
+                    )));
+                }
+            }
+        }
+        Ok(())
+    }
 }
 
 #[cfg(test)]
@@ -649,6 +670,32 @@ mod parse_tests {
         assert_eq!(s.skill, "cable-insertion");
         assert!(s.objects.contains_key("connector"));
         assert_eq!(s.objects["receptacle"].r#ref, "receptacle");
+    }
+
+    #[test]
+    fn validate_accepts_unique_lets_and_rejects_duplicates() {
+        assert!(cable_skill().validate().is_ok());
+        let dup = "\
+skill: dup
+body:
+  sequence:
+    - let: x
+      from:
+        sense.locate:
+          target_ref: connector
+          modality: auto
+    - let: x
+      from:
+        sense.locate:
+          target_ref: connector
+          modality: auto
+";
+        let err = Skill::parse_yaml(dup)
+            .expect("parses")
+            .validate()
+            .unwrap_err()
+            .to_string();
+        assert!(err.contains("duplicate let-binding 'x'"), "got: {err}");
     }
 
     #[test]

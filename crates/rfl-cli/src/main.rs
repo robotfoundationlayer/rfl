@@ -88,7 +88,37 @@ fn main() -> Result<()> {
     let cli = Cli::parse();
     match cli.command {
         Command::Validate { path } => {
-            anyhow::bail!("validate not yet implemented (target: spec v0.1, 2027 Q1) — {path:?}");
+            let text = match std::fs::read_to_string(&path) {
+                Ok(t) => t,
+                Err(e) => {
+                    eprintln!("validate: read {path:?}: {e}");
+                    std::process::exit(2);
+                }
+            };
+            let skill = match rfl_core::skill_isa::Skill::parse_yaml(&text) {
+                Ok(s) => s,
+                Err(e) => {
+                    eprintln!("validate: invalid skill: {e}");
+                    std::process::exit(2);
+                }
+            };
+            if let Err(e) = skill.validate() {
+                eprintln!("validate: invalid composition: {e}");
+                std::process::exit(2);
+            }
+            let stmts = &skill.body.sequence;
+            let lets = stmts
+                .iter()
+                .filter(|s| matches!(s, rfl_core::skill_isa::Statement::LetBind(_)))
+                .count();
+            println!(
+                "VALID: skill '{}' — {} statement(s) ({} primitive call(s), {} let-bind(s))",
+                skill.skill,
+                stmts.len(),
+                stmts.len() - lets,
+                lets
+            );
+            std::process::exit(0);
         }
         Command::Retarget { skill, embodiment } => {
             let skill_text = std::fs::read_to_string(&skill)
