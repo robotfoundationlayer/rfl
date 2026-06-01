@@ -35,7 +35,9 @@ pub enum Category {
 #[derive(Debug, Clone, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 pub struct PrimitiveId(pub String);
 
+use crate::grasp_force::GraspMode;
 use crate::quantity::Quantity;
+use crate::stability::StabilityMetadata;
 use std::collections::BTreeMap;
 
 /// A reference to a let-bound value (`$defs/Ref`): a bare identifier naming a value
@@ -164,6 +166,36 @@ pub enum Primitive {
     /// `grasp.pin`.
     #[serde(rename = "grasp.pin")]
     GraspPin(GraspPin),
+}
+
+impl Primitive {
+    /// The grasp mode this primitive establishes, if it forms a grasp. Read by the
+    /// STB3 composition check to track the active grasp's stability class across a
+    /// sequence. `None` for non-grasp primitives.
+    #[must_use]
+    pub fn establishes_grasp(&self) -> Option<GraspMode> {
+        match self {
+            Primitive::GraspPinch(_) => Some(GraspMode::Pinch),
+            Primitive::GraspPin(_) => Some(GraspMode::Pin),
+            _ => None,
+        }
+    }
+
+    /// True if this primitive releases the active grasp (clears the active-grasp state).
+    #[must_use]
+    pub fn releases_grasp(&self) -> bool {
+        matches!(self, Primitive::GraspRelease(_))
+    }
+
+    /// True if this primitive freely transports a held object through space — the
+    /// successor a `surface_bound` grasp forbids (`spec/05` STB3).
+    #[must_use]
+    pub fn is_free_transport(&self) -> bool {
+        matches!(
+            self,
+            Primitive::TransportMoveToPose(_) | Primitive::TransportCarry(_)
+        )
+    }
 }
 
 /// `sense.locate` modality (`$defs/SenseLocateParams.modality`).
@@ -651,20 +683,46 @@ impl Skill {
     }
 
     /// Validate the composition beyond parsing (conformance Test Class 1, embodiment-independent).
-    /// v0 enforces unique let-binding names; the STB3 stability-class composition algebra
-    /// (`spec/05` § Composition validity) lands here once grasp `StabilityMetadata` exists.
+    /// Enforces (1) unique let-binding names and (2) the STB3 stability-class composition rule
+    /// (`spec/05` § Composition validity by stability class): a `surface_bound` grasp forbids a
+    /// free-transport successor. The rule reads each grasp's `StabilityMetadata::for_mode`, so it
+    /// cannot drift from the wire metadata. The other STB3 rows (`form_held` / `rotation_constrained`
+    /// → `in_hand`; `support` → transport + open-release) land with their grasp modes.
     ///
     /// # Errors
-    /// Returns `Error::SkillIsa` if a `let` name is bound more than once.
+    /// Returns `Error::SkillIsa` if a `let` name is bound more than once, or if a `surface_bound`
+    /// grasp is freely transported (`transport_inadmissible`).
     pub fn validate(&self) -> crate::Result<()> {
         let mut seen = std::collections::BTreeSet::new();
+        // The active grasp's mode (None when no grasp is held).
+        let mut active: Option<GraspMode> = None;
         for stmt in &self.body.sequence {
-            if let Statement::LetBind(lb) = stmt {
-                if !seen.insert(lb.r#let.as_str()) {
-                    return Err(crate::Error::SkillIsa(format!(
-                        "duplicate let-binding '{}'",
-                        lb.r#let
-                    )));
+            match stmt {
+                Statement::LetBind(lb) => {
+                    if !seen.insert(lb.r#let.as_str()) {
+                        return Err(crate::Error::SkillIsa(format!(
+                            "duplicate let-binding '{}'",
+                            lb.r#let
+                        )));
+                    }
+                }
+                Statement::Primitive(p) => {
+                    // STB3: a surface_bound grasp cannot be freely transported.
+                    if p.is_free_transport() {
+                        if let Some(mode) = active {
+                            if StabilityMetadata::for_mode(mode).flags.surface_bound {
+                                return Err(crate::Error::SkillIsa(format!(
+                                    "transport_inadmissible: a surface_bound grasp ({mode:?}) \
+                                     cannot be freely transported (spec/05 STB3)"
+                                )));
+                            }
+                        }
+                    }
+                    if let Some(mode) = p.establishes_grasp() {
+                        active = Some(mode);
+                    } else if p.releases_grasp() {
+                        active = None;
+                    }
                 }
             }
         }
@@ -716,6 +774,64 @@ body:
             .unwrap_err()
             .to_string();
         assert!(err.contains("duplicate let-binding 'x'"), "got: {err}");
+    }
+
+    #[test]
+    fn stb3_rejects_free_transport_of_a_surface_bound_pin() {
+        // grasp.pin (surface_bound) -> transport.move_to_pose: transport_inadmissible.
+        let bad = "\
+skill: pin-then-carry
+body:
+  sequence:
+    - grasp.pin:
+        target: part
+        against_surface: workbench
+        force_budget: 8 N
+    - transport.move_to_pose:
+        target_pose: { ref: dest }
+";
+        let err = Skill::parse_yaml(bad)
+            .expect("parses")
+            .validate()
+            .unwrap_err()
+            .to_string();
+        assert!(err.contains("transport_inadmissible"), "got: {err}");
+        assert!(err.contains("Pin"), "names the surface_bound mode: {err}");
+    }
+
+    #[test]
+    fn stb3_accepts_release_before_transport_and_a_pinch_transport() {
+        // a pin released before the transport is legal (active grasp cleared).
+        let released = "\
+skill: pin-release-move
+body:
+  sequence:
+    - grasp.pin:
+        target: part
+        against_surface: workbench
+        force_budget: 8 N
+    - grasp.release: {}
+    - transport.move_to_pose:
+        target_pose: { ref: dest }
+";
+        assert!(
+            Skill::parse_yaml(released)
+                .expect("parses")
+                .validate()
+                .is_ok()
+        );
+        // a pinch (NOT surface_bound) is freely transportable.
+        let pinch = "\
+skill: pinch-move
+body:
+  sequence:
+    - grasp.pinch:
+        target: part
+        force_budget: 8 N
+    - transport.move_to_pose:
+        target_pose: { ref: dest }
+";
+        assert!(Skill::parse_yaml(pinch).expect("parses").validate().is_ok());
     }
 
     #[test]

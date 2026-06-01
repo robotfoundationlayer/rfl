@@ -46,3 +46,26 @@ fn validate_rejects_a_malformed_skill() {
     );
     std::fs::remove_file(p).ok();
 }
+
+#[test]
+fn validate_rejects_a_transport_inadmissible_composition() {
+    // STB3: a surface_bound grasp.pin followed by a free transport is invalid.
+    let p = std::env::temp_dir().join(format!("rfl-stb3-skill-{}.yaml", std::process::id()));
+    std::fs::write(
+        &p,
+        "skill: pin-then-carry\nbody:\n  sequence:\n    - grasp.pin:\n        target: part\n        against_surface: workbench\n        force_budget: 8 N\n    - transport.move_to_pose:\n        target_pose: { ref: dest }\n",
+    )
+    .unwrap();
+    let out = Command::new(env!("CARGO_BIN_EXE_rfl"))
+        .arg("validate")
+        .arg(&p)
+        .output()
+        .expect("run rfl validate");
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert_eq!(out.status.code(), Some(2), "stderr: {stderr}");
+    assert!(
+        stderr.contains("transport_inadmissible"),
+        "stderr: {stderr}"
+    );
+    std::fs::remove_file(p).ok();
+}
