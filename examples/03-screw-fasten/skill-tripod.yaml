@@ -1,0 +1,31 @@
+# Example 03 — Precision tripod grasp (grasp.precision_tripod variant)
+# A three-point force closure placing three contacts in a non-degenerate triangle, so the grasp
+# resists rotation about the grasp axis — orientation stability a two-point pinch cannot give.
+# Exercises the rotation_constrained stability flag (the downstream in_hand.rotate admissibility
+# reads it). The triangle non-degeneracy check (STB1) is out of v0 scope (ε-table + un-reported
+# contact geometry). allegro + leap declare grasp.precision_tripod; the pneumatic bellows hand has
+# no distinct-finger tripod, so it is rejected at the capability gate (capability_absent).
+skill: object-tripod-grasp
+description: >
+  Locate a small part, grasp it in a three-point precision tripod (rotation-constrained), then
+  release. Demonstrates the force-closure tripod mode and its rotation_constrained flag.
+
+objects:
+  part: { ref: part, estimated_mass: 0.5 N }
+
+body:
+  sequence:
+
+    - let: part_t
+      from:
+        sense.locate:
+          target_ref: part
+          modality: auto
+
+    - grasp.precision_tripod:
+        target: part_t
+        force_budget: 5 N
+        tactile_target: auto
+
+    - grasp.release:
+        grasp_handle: active
