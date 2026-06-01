@@ -26,7 +26,7 @@ pub fn round6(x: f64) -> f64 {
 
 /// A fully-resolved sweep station pose, coordinates already rounded for
 /// deterministic emission. `orientation` is the unit quaternion as `[x, y, z, w]`.
-#[derive(Debug, Clone, serde::Serialize)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct SweepPose {
     /// Position in R^3 (metres), in the region frame.
     pub position: [f64; 3],
@@ -52,35 +52,35 @@ impl SweepPose {
 
 /// A canonical action (`spec/02` § Canonical action representation). Field order is
 /// fixed so JSON serialization is byte-deterministic (RD1c).
-#[derive(Debug, Clone, serde::Serialize)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct CanonicalAction {
     /// The controlled frame this action moves.
     pub target_frame: String,
     /// Goal pose of the controlled frame (symbolic in v0).
     pub target_pose: PoseExpr,
     /// Driven-force ceiling; absent for pure motion.
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub force_budget: Option<Quantity>,
     /// Nominal duration + timing mode + the reserved rest-at-goal flag.
     pub timing: TimingHints,
     /// Contact-confirmation criterion; absent when no contact is intended.
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub tactile_target: Option<TactileTargetOut>,
     /// StopConditions / feature events the action watches.
-    #[serde(skip_serializing_if = "Vec::is_empty")]
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub monitors: Vec<Monitor>,
     /// The safety constraints in force throughout.
     pub safety_envelope: Envelope,
     /// The grasp stability class this action establishes (grasp primitives only;
     /// `spec/01` § Grasp state model). Absent for non-grasp actions — skipped on the
     /// wire so their serialization is unchanged.
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub grasp_stability: Option<crate::stability::StabilityMetadata>,
 }
 
 /// A target-pose expression. v0 carries runtime-deferred poses symbolically; the
 /// concrete `{position, orientation}` form is reserved for resolved poses (spec/02).
-#[derive(Debug, Clone, serde::Serialize)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 #[serde(untagged)]
 pub enum PoseExpr {
     /// A let-bound sensed pose (grasp.pinch target, force.insert_fit target_fit).
@@ -127,21 +127,21 @@ pub enum PoseExpr {
 }
 
 /// An orientation-only alignment directive (`spec/02` CA2c).
-#[derive(Debug, Clone, serde::Serialize)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct AlignSpec {
     /// The reference orientation frame.
     pub target_frame: String,
     /// The controlled-frame axes constrained.
     pub axes: Vec<String>,
     /// The residual-orientation rule (always `min_geodesic_rotation` in v0).
-    pub residual: &'static str,
+    pub residual: String,
 }
 
 /// Timing hints (`spec/02` § Terminal semantics; the reserved blending flag).
-#[derive(Debug, Clone, serde::Serialize)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct TimingHints {
     /// Nominal duration; absent when planner-derived.
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub nominal_duration: Option<Quantity>,
     /// Strict vs. time-scalable execution.
     pub timing_mode: TimingMode,
@@ -150,7 +150,7 @@ pub struct TimingHints {
 }
 
 /// Execution timing mode.
-#[derive(Debug, Clone, Copy, serde::Serialize)]
+#[derive(Debug, Clone, Copy, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum TimingMode {
     /// Bit-identical realized timing (kinematic).
@@ -160,7 +160,7 @@ pub enum TimingMode {
 }
 
 /// A StopCondition / ForceEvent the action watches (`spec/02` monitors).
-#[derive(Debug, Clone, serde::Serialize)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct Monitor {
     /// The stop condition (carried from the skill's `stop_condition`).
     pub stop_condition: serde_json::Value,
@@ -168,31 +168,32 @@ pub struct Monitor {
 
 /// The safety envelope (`spec/02` § The Envelope), bounds clamped to the
 /// embodiment's limits.
-#[derive(Debug, Clone, serde::Serialize)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct Envelope {
     /// Kinematic caps (clamped to `embodiment.limits.*`).
     pub motion_bounds: MotionBounds,
     /// The force / torque trajectory bound (force category).
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub force_profile: Option<serde_json::Value>,
     /// The station-keeping contract for an interval-invariant station hold
     /// (`reach.hover` settling, `spec/01` § 1.5): `{station_tolerance, settling_time}`.
     /// The disturbance-recovery leg of the interval-invariant check (`05` ENV3) samples it.
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub station_keeping: Option<serde_json::Value>,
     /// Minimum clearance to the collision model.
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub clearance: Option<Quantity>,
     /// The requested compliance mode.
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub compliance: Option<String>,
     /// Max time to reach a safe state on a breach.
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub stop_time: Option<Quantity>,
 }
 
 /// Kinematic motion bounds (`spec/02` Envelope.motion_bounds).
-#[derive(Debug, Clone, Default, serde::Serialize)]
+#[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
+#[serde(default)]
 pub struct MotionBounds {
     /// Max linear velocity.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -239,6 +240,32 @@ impl serde::Serialize for TactileTargetOut {
     }
 }
 
+impl<'de> serde::Deserialize<'de> for TactileTargetOut {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        // Mirror of the custom Serialize: `"auto"` -> Auto, a `{proxy: ...}` object
+        // -> Proxy, anything else -> Explicit. ProxySpec's `&'static str` contents
+        // are reconstructed to fixed literals (the only consumer reads the *variant*
+        // for the fidelity tier, not the criterion text), so the proxy VARIANT
+        // round-trips even though its inner strings are not byte-preserved.
+        let v = serde_json::Value::deserialize(deserializer)?;
+        match &v {
+            serde_json::Value::String(s) if s == "auto" => Ok(TactileTargetOut::Auto),
+            serde_json::Value::Object(map) if map.contains_key("proxy") => {
+                Ok(TactileTargetOut::Proxy {
+                    proxy: ProxySpec {
+                        tier: "proxy",
+                        criterion: "reconstructed",
+                    },
+                })
+            }
+            _ => Ok(TactileTargetOut::Explicit(v)),
+        }
+    }
+}
+
 /// A force/position-proxy confirmation descriptor (`spec/04` § Graceful degradation).
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct ProxySpec {
@@ -249,10 +276,10 @@ pub struct ProxySpec {
 }
 
 /// An `execute` action Goal (`schemas/driver-interface.schema.json` ExecuteGoal).
-#[derive(Debug, Clone, serde::Serialize)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct ExecuteGoal {
     /// The message discriminant (`execute`).
-    pub message: &'static str,
+    pub message: String,
     /// The action correlation id.
     pub action_id: String,
     /// The canonical action delivered.
@@ -264,7 +291,7 @@ impl ExecuteGoal {
     #[must_use]
     pub fn wrap(action_id: impl Into<String>, canonical_action: CanonicalAction) -> Self {
         Self {
-            message: "execute",
+            message: "execute".to_string(),
             action_id: action_id.into(),
             canonical_action,
         }
@@ -291,6 +318,21 @@ pub fn to_jsonl(
         out.push('\n');
     }
     out
+}
+
+/// Parse a JSON Lines stream of `execute` messages back into goals — the inverse
+/// of [`to_jsonl`]. This is the driver-input side of the wire (the symmetric
+/// counterpart to the telemetry/status parsing a verifier does): a driver
+/// implementation consumes the canonical goals it receives this way.
+///
+/// # Errors
+/// Returns the `serde_json` error of the first malformed line.
+pub fn from_jsonl(jsonl: &str) -> Result<Vec<ExecuteGoal>, serde_json::Error> {
+    jsonl
+        .lines()
+        .filter(|l| !l.trim().is_empty())
+        .map(serde_json::from_str::<ExecuteGoal>)
+        .collect()
 }
 
 #[cfg(test)]
@@ -369,6 +411,55 @@ mod tests {
         let a = serde_json::to_string(&msg).unwrap();
         let b = serde_json::to_string(&msg).unwrap();
         assert_eq!(a, b);
+    }
+
+    #[test]
+    fn execute_message_round_trips_through_from_jsonl() {
+        // to_jsonl -> from_jsonl -> to_jsonl is a fixed point (the wire round-trips).
+        let actions = vec![sample(), sample()];
+        let jsonl = to_jsonl("s", "e", &actions, &["pinch", "insert_fit"]);
+        let goals = from_jsonl(&jsonl).expect("parse");
+        assert_eq!(goals.len(), 2);
+        assert_eq!(goals[0].action_id, "s/e/0001-pinch");
+        assert_eq!(goals[0].canonical_action.target_frame, "tcp_thumb");
+        // Re-serializing the parsed goals reproduces the byte stream.
+        let mut reser = String::new();
+        for g in &goals {
+            reser.push_str(&serde_json::to_string(g).unwrap());
+            reser.push('\n');
+        }
+        assert_eq!(reser, jsonl);
+    }
+
+    #[test]
+    fn proxy_and_stability_round_trip_through_the_wire() {
+        use crate::stability::{Closure, StabilityMetadata};
+        let mut a = sample();
+        a.tactile_target = Some(TactileTargetOut::Proxy {
+            proxy: ProxySpec {
+                tier: "proxy",
+                criterion: "force_position",
+            },
+        });
+        a.grasp_stability = Some(StabilityMetadata::for_mode(
+            crate::grasp_force::GraspMode::Pinch,
+        ));
+        let jsonl = to_jsonl("s", "e", &[a], &["pinch"]);
+        let goals = from_jsonl(&jsonl).expect("parse");
+        // The proxy VARIANT and the grasp-stability closure survive the round-trip.
+        assert!(matches!(
+            goals[0].canonical_action.tactile_target,
+            Some(TactileTargetOut::Proxy { .. })
+        ));
+        assert_eq!(
+            goals[0]
+                .canonical_action
+                .grasp_stability
+                .as_ref()
+                .unwrap()
+                .closure,
+            Closure::Force
+        );
     }
 
     #[test]

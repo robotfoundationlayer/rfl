@@ -198,28 +198,37 @@ hand that degrades to the force/position proxy badges `proxy`, never `manifold`.
 
 ## `rfl sim`
 
-The **reference simulator driver** (the supply-side reference): retarget a skill
-onto an embodiment, execute it with the nominal in-process reference driver, and
-emit a conformant driver-report JSONL (telemetry + status) on stdout. It
-*generates* the report — so it works for **any** skill, not only ones with a
-committed recording.
+The **reference simulator driver** (the supply-side reference), in two modes:
+
+**Regenerate mode** (`--skill` + `--embodiment`) — retarget the skill, execute it
+with the nominal reference driver, and emit a conformant driver-report JSONL. It
+*generates* the report, so it works for **any** skill, not only ones with a
+committed recording:
 
 ```bash
 rfl sim --skill examples/01-cable-insertion/skill.yaml \
   --embodiment examples/01-cable-insertion/embodiments/allegro.yaml > report.jsonl
-rfl certify --skill examples/01-cable-insertion/skill.yaml \
-  --embodiment examples/01-cable-insertion/embodiments/allegro.yaml --report report.jsonl
-# RESULT: PASS …
+rfl certify --skill … --embodiment … --report report.jsonl   # RESULT: PASS …
+```
+
+**Stdin mode** (no arguments) — read canonical `execute` goals from stdin
+(parsed via `rfl-core::canonical::from_jsonl`, the driver-input side of the
+wire), execute them, and emit the report. This is the live `--driver` protocol,
+so `rfl sim` is usable directly as the driver:
+
+```bash
+rfl certify --skill … --embodiment … --driver "$(command -v rfl) sim"
 ```
 
 | Exit | Meaning |
 |---|---|
 | `0` | Report emitted to stdout. |
-| `1` | Unreadable file, parse error, or a `capability_absent` retarget rejection. |
+| `1` | Unreadable file, a parse error (bad skill / goal), or a `capability_absent` retarget rejection. |
+| `2` | Exactly one of `--skill`/`--embodiment` given (pass both, or neither). |
 
-The emitted report is what a conformant driver would return, so piping it into
-`rfl certify --report` passes. (For *live* third-party certification, point
-`rfl certify --driver` at a real driver binary instead.)
+Both modes produce a byte-identical certificate for the same skill+embodiment —
+the parsed-goal path and the typed-action path agree. (For real third-party
+certification, point `--driver` at a *vendor's* driver binary instead.)
 
 ## `rfl spec-version`
 

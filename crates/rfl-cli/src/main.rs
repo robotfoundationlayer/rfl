@@ -88,15 +88,16 @@ enum Command {
         /// Path to the certificate JSON file.
         certificate: std::path::PathBuf,
     },
-    /// The reference simulator driver: retarget a skill onto an embodiment, execute it with the
-    /// nominal reference driver, and emit a conformant driver-report JSONL (telemetry + status).
+    /// The reference simulator driver. With --skill/--embodiment it retargets and executes,
+    /// emitting a conformant driver-report JSONL. With neither, it reads canonical execute goals
+    /// from stdin (the live `--driver` protocol) and emits the report for those goals.
     Sim {
-        /// Path to the skill YAML file.
+        /// Path to the skill YAML file (regenerate mode). Omit both for stdin mode.
         #[arg(long)]
-        skill: std::path::PathBuf,
-        /// Path to the embodiment descriptor YAML file.
+        skill: Option<std::path::PathBuf>,
+        /// Path to the embodiment descriptor YAML file (regenerate mode).
         #[arg(long)]
-        embodiment: std::path::PathBuf,
+        embodiment: Option<std::path::PathBuf>,
     },
     /// Print the specification version this CLI implements.
     SpecVersion,
@@ -357,10 +358,27 @@ fn main() -> Result<()> {
             std::process::exit(0);
         }
         Command::Sim { skill, embodiment } => {
-            // Retarget + execute with the nominal reference driver, then emit the
-            // driver-report JSONL (`rfl certify --report` consumes it). Reuses the
-            // same helpers the conformance suite tests.
-            let reports = rfl_conformance::run_reference_driver(&skill, &embodiment)?;
+            let reports = match (skill, embodiment) {
+                // Regenerate mode: retarget + execute with the nominal reference driver.
+                (Some(s), Some(e)) => rfl_conformance::run_reference_driver(&s, &e)?,
+                // Stdin (live `--driver`) mode: parse the canonical execute goals from
+                // stdin and execute them — the driver-input side of the wire.
+                (None, None) => {
+                    use rfl_core::driver::Driver;
+                    use std::io::Read;
+                    let mut input = String::new();
+                    std::io::stdin().read_to_string(&mut input)?;
+                    let goals = rfl_core::canonical::from_jsonl(&input)?;
+                    let mut driver = rfl_conformance::ReferenceDriver::default();
+                    goals.iter().map(|g| driver.execute(g)).collect()
+                }
+                _ => {
+                    eprintln!(
+                        "sim: pass both --skill and --embodiment (regenerate), or neither (read goals from stdin)"
+                    );
+                    std::process::exit(2);
+                }
+            };
             print!("{}", rfl_conformance::reports_to_jsonl(&reports));
             Ok(())
         }

@@ -999,7 +999,7 @@ fn lower_reach_align(p: &ReachAlign, e: &Embodiment) -> CanonicalAction {
             align: AlignSpec {
                 target_frame: p.target_frame.clone(),
                 axes,
-                residual: "min_geodesic_rotation",
+                residual: "min_geodesic_rotation".to_string(),
             },
         },
         force_budget: None,

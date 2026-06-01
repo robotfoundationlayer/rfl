@@ -63,6 +63,52 @@ fn sim_report_certifies_for_the_cable_example() {
 }
 
 #[test]
+fn sim_stdin_mode_parses_goals_and_drives() {
+    // The live `--driver` path: retarget -> canonical goals -> `rfl sim` (no args,
+    // reads goals from stdin) parses + executes them -> a report that certifies.
+    let d = examples().join("01-cable-insertion");
+    let skill = d.join("skill.yaml");
+    let emb = d.join("embodiments/allegro.yaml");
+    let goals = Command::new(env!("CARGO_BIN_EXE_rfl"))
+        .args(["retarget"])
+        .arg(&skill)
+        .arg("--embodiment")
+        .arg(&emb)
+        .output()
+        .expect("run rfl retarget");
+    assert!(goals.status.success());
+
+    let mut sim = std::process::Command::new(env!("CARGO_BIN_EXE_rfl"))
+        .arg("sim")
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .spawn()
+        .expect("spawn rfl sim");
+    use std::io::Write;
+    sim.stdin.take().unwrap().write_all(&goals.stdout).unwrap();
+    let sim_out = sim.wait_with_output().expect("rfl sim");
+    assert!(sim_out.status.success(), "rfl sim (stdin) failed");
+
+    let report = std::env::temp_dir().join(format!("rfl-sim-stdin-{}.jsonl", std::process::id()));
+    std::fs::write(&report, &sim_out.stdout).unwrap();
+    let certify = Command::new(env!("CARGO_BIN_EXE_rfl"))
+        .args(["certify", "--skill"])
+        .arg(&skill)
+        .arg("--embodiment")
+        .arg(&emb)
+        .arg("--report")
+        .arg(&report)
+        .output()
+        .expect("run rfl certify");
+    let stdout = String::from_utf8_lossy(&certify.stdout);
+    assert!(
+        certify.status.success() && stdout.contains("RESULT: PASS"),
+        "{stdout}"
+    );
+    std::fs::remove_file(report).ok();
+}
+
+#[test]
 fn sim_report_certifies_for_a_skill_with_no_committed_report() {
     // skill-power has no committed driver-report; the reference sim generates one.
     let d = examples().join("03-screw-fasten");

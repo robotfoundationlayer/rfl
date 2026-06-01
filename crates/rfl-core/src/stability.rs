@@ -20,7 +20,7 @@ use crate::grasp_force::GraspMode;
 use crate::quantity::Quantity;
 
 /// The closure type that retains a held object (`spec/01` grasp-mode table).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Closure {
     /// Squeezing / friction retains the object (pinch, power, pin).
@@ -32,7 +32,7 @@ pub enum Closure {
 }
 
 /// How a single object DOF is secured by a grasp (`spec/01`).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum DofSecuring {
     /// Geometrically fixed by enclosing form; not movable in-hand.
@@ -45,7 +45,7 @@ pub enum DofSecuring {
 
 /// The directions along which a grasp is stable. Pinch/power are stable in every
 /// direction (`Omnidirectional`); directional grasps (hook) name a stable set.
-#[derive(Debug, Clone, PartialEq, serde::Serialize)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 #[serde(untagged)]
 pub enum StableDirections {
     /// Stable in all directions — serialized as the string `"omnidirectional"`.
@@ -63,7 +63,7 @@ impl StableDirections {
 }
 
 /// The single-variant literal backing the `"omnidirectional"` serialization.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum OmniLiteral {
     /// Serializes to the string `"omnidirectional"`.
@@ -75,7 +75,8 @@ pub enum OmniLiteral {
 // The four bools are the spec's exact flag set {extrinsic, surface_bound, compliant,
 // rotation_constrained}; per-field `skip_serializing_if` is why a struct beats a bitset.
 #[allow(clippy::struct_excessive_bools)]
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, serde::Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, serde::Serialize, serde::Deserialize)]
+#[serde(default)]
 pub struct StabilityFlags {
     /// Opposed by an environment surface (pin) rather than self-contained.
     #[serde(skip_serializing_if = "is_false")]
@@ -107,7 +108,7 @@ fn is_false(b: &bool) -> bool {
 
 /// The stability class a grasp establishes (`spec/01` § Grasp state model). Read by
 /// downstream lowering and the STB/GC conformance obligations (`spec/05`).
-#[derive(Debug, Clone, PartialEq, serde::Serialize)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct StabilityMetadata {
     /// The closure type.
     pub closure: Closure,
@@ -116,14 +117,14 @@ pub struct StabilityMetadata {
     /// The directions along which the grasp is stable.
     pub stable_directions: StableDirections,
     /// Static admissibility flags; omitted entirely when none is set.
-    #[serde(skip_serializing_if = "StabilityFlags::is_empty")]
+    #[serde(default, skip_serializing_if = "StabilityFlags::is_empty")]
     pub flags: StabilityFlags,
     /// A caged object's in-enclosure freedom (`envelope_cage`); absent otherwise.
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub residual_mobility: Option<Quantity>,
     /// The grip floor below which the object drops; weight-dependent, so absent
     /// when the held object's mass is unknown at lowering time.
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub min_holding_force: Option<Quantity>,
 }
 
