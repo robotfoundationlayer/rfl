@@ -35,6 +35,7 @@
 pub mod canonical;
 pub mod driver;
 pub mod embodiment;
+pub mod geometry;
 pub mod grasp_force;
 pub mod pose;
 pub mod quantity;

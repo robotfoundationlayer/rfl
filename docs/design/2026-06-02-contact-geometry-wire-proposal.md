@@ -1,6 +1,10 @@
 # PROPOSAL: a contact-geometry wire extension to unblock STB1 / STB2 / supported()
 
-Status: **PROPOSAL — awaiting spec-owner approval** (adds normative wire; not implemented)
+Status: **PROPOSAL — awaiting spec-owner approval for the WIRE.** The
+wire-independent **geometry core is IMPLEMENTED** (`rfl-core::geometry` 2026-06-02:
+`triangle_area` / `tripod_non_degenerate` [STB1] + `com_over_polygon` [STB2 /
+`supported()`], 6 unit tests incl. a tilted-plane case). Only the normative
+telemetry field + the conformance benches that consume it await approval.
 
 ## Why this is a proposal, not an increment
 
@@ -81,6 +85,10 @@ CoM-outside-polygon release).
 3. Whether `object_com` belongs in telemetry (driver-measured) or is carried from
    the skill's `ObjectTarget.center_of_mass` (authored). (Proposed: prefer the
    authored value, fall back to telemetry.)
+4. **Site ordering** — are `sites` reported in polygon-boundary order, or as an
+   unordered set the check must convex-hull? (Proposed: boundary order, the
+   simpler driver contract; the implemented `com_over_polygon` assumes it. An
+   unordered contract would add a 2D-hull step.)
 
 On approval, STB1 + the platform CoM check + `grasp.release` `supported()` land as
 one geometry increment (the area / point-in-polygon math + the
