@@ -10,7 +10,7 @@
     "id": "wonik-allegro-v4",
     "sha256": "5afd2de40c19a108bacb5d1b312d8f80db5d8c82ba3394a19ddb0bc61a0a4cdd"
   },
-  "report_sha256": "3e97af797a2445b0f6367eb8b5f13c6966c170099d2bada08692096175943d2d",
+  "report_sha256": "66a19b2483284ac43f9657a71e158954181a282a018caf8e936f9ea00cacb5a1",
   "result": "pass",
   "covered": [
     "class3_driver_protocol"
@@ -57,6 +57,10 @@
         {
           "name": "hold_test",
           "result": "pass"
+        },
+        {
+          "name": "flip_bounded_window",
+          "result": "pass"
         }
       ],
       "passed": true
@@ -102,6 +106,10 @@
         {
           "name": "hold_test",
           "result": "pass"
+        },
+        {
+          "name": "flip_bounded_window",
+          "result": "pass"
         }
       ],
       "passed": true
@@ -145,6 +153,10 @@
         },
         {
           "name": "hold_test",
+          "result": "pass"
+        },
+        {
+          "name": "flip_bounded_window",
           "result": "pass"
         }
       ],
@@ -190,6 +202,10 @@
         {
           "name": "hold_test",
           "result": "pass"
+        },
+        {
+          "name": "flip_bounded_window",
+          "result": "pass"
         }
       ],
       "passed": true
@@ -201,5 +217,5 @@
       "result": "pass"
     }
   ],
-  "content_hash": "sha256:db05df550c90f18f9d94069a31e6352b217e0dec5c368570451987d283908508"
+  "content_hash": "sha256:c07836014af48d410100b858d1e01c291639f78a12206996baa04b70f7925f39"
 }

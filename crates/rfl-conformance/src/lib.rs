@@ -206,6 +206,25 @@ impl Driver for ReferenceDriver {
         if is_flip {
             self.momentary_release_seen = true;
         }
+        // GC5 (bounded continuity-exception, spec/05): for a flip the nominal driver measures
+        // an unsecured window within the declared max_release_time and confirms the re-catch.
+        // v0 models the measured window as 80% of the bound (no physics, the ENV3 / GC2 posture).
+        if let Some((bound, unit)) = ca
+            .safety_envelope
+            .force_profile
+            .as_ref()
+            .and_then(|fp| fp.get("max_release_time"))
+            .and_then(serde_json::Value::as_str)
+            .and_then(|s| {
+                rfl_core::quantity::Quantity(s.to_string())
+                    .parse()
+                    .map(|(v, u)| (v, u.to_string()))
+            })
+        {
+            let measured = rfl_core::quantity::Quantity::from_si(bound * 0.8, &unit);
+            evidence.push(format!("unsecured_window:{}", measured.0));
+            evidence.push("recatch_confirmed".to_string());
+        }
         // Freed-part disposition (spec/04 TM21c): a freeing operation (force.unscrew, carrying
         // force_profile.on_disengagement) discloses where the freed part went — retained, or
         // released into a declared safe zone. Absent for every non-freeing action.
@@ -284,6 +303,9 @@ pub enum Fault {
     /// The hold-test perturbation profile replaced with one wrong for the closure
     /// (`level_gentle` on a force-closure grasp — violates GC2 hold-test closure).
     WrongHoldTest,
+    /// The flip's measured unsecured window driven over `max_release_time` (the object held
+    /// unsecured too long — violates GC5 bounded continuity-exception).
+    FlipWindowExceeded,
 }
 
 /// Wraps the nominal `ReferenceDriver` and injects one `Fault` into every report it
@@ -358,6 +380,30 @@ impl Driver for FaultyDriver {
                     for e in &mut v.evidence {
                         if e.starts_with("hold_test:") {
                             *e = "hold_test:level_gentle".to_string();
+                        }
+                    }
+                }
+            }
+            Fault::FlipWindowExceeded => {
+                // Drive the measured unsecured window over the declared bound (held unsecured
+                // too long), violating GC5. The bound is read back from the goal's force_profile.
+                let bound = goal
+                    .canonical_action
+                    .safety_envelope
+                    .force_profile
+                    .as_ref()
+                    .and_then(|fp| fp.get("max_release_time"))
+                    .and_then(serde_json::Value::as_str)
+                    .and_then(|s| {
+                        rfl_core::quantity::Quantity(s.to_string())
+                            .parse()
+                            .map(|(v, u)| (v, u.to_string()))
+                    });
+                if let (Some((bound, unit)), Some(v)) = (bound, report.status.verdict.as_mut()) {
+                    let over = rfl_core::quantity::Quantity::from_si(bound * 1.5, &unit);
+                    for e in &mut v.evidence {
+                        if e.starts_with("unsecured_window:") {
+                            *e = format!("unsecured_window:{}", over.0);
                         }
                     }
                 }
@@ -1546,6 +1592,59 @@ pub fn check_hold_test(goal: &ExecuteGoal, report: &DriverReport) -> CheckOutcom
     }
 }
 
+/// Verify the GC5 bounded-continuity-exception obligation (`spec/05` § Bounded continuity-
+/// exception): `in_hand.flip` suspends grasp continuity, but the suspension is bounded — the
+/// measured unsecured window must be `≤ max_release_time` and the re-catch confirmed. Keyed on
+/// the action carrying a `max_release_time` bound (only a flip does), so vacuous-pass for every
+/// other action. A non-`Succeeded` flip is the controlled-failure path (`recatch_failed` →
+/// safe drop), verified elsewhere, so it is vacuous here.
+#[must_use]
+pub fn check_flip_bounded_window(goal: &ExecuteGoal, report: &DriverReport) -> CheckOutcome {
+    let Some((bound, _)) = goal
+        .canonical_action
+        .safety_envelope
+        .force_profile
+        .as_ref()
+        .and_then(|fp| fp.get("max_release_time"))
+        .and_then(serde_json::Value::as_str)
+        .and_then(|s| {
+            rfl_core::quantity::Quantity(s.to_string())
+                .parse()
+                .map(|(v, u)| (v, u.to_string()))
+        })
+    else {
+        return CheckOutcome::Pass; // not a bounded-exception action
+    };
+    if report.status.outcome != rfl_core::driver::Outcome::Succeeded {
+        return CheckOutcome::Pass; // controlled-failure (safe-drop) path is verified elsewhere
+    }
+    let evidence = report.status.verdict.as_ref().map(|v| &v.evidence);
+    let measured = evidence.and_then(|ev| {
+        ev.iter()
+            .find_map(|e| e.strip_prefix("unsecured_window:"))
+            .and_then(|s| {
+                rfl_core::quantity::Quantity(s.to_string())
+                    .parse()
+                    .map(|(v, _)| v)
+            })
+    });
+    let Some(measured) = measured else {
+        return CheckOutcome::Fail(
+            "a successful flip must report its measured unsecured window".to_string(),
+        );
+    };
+    if measured > bound {
+        return CheckOutcome::Fail(format!(
+            "unsecured window {measured} exceeds max_release_time {bound}"
+        ));
+    }
+    let recatch = evidence.is_some_and(|ev| ev.iter().any(|e| e == "recatch_confirmed"));
+    if !recatch {
+        return CheckOutcome::Fail("a successful flip must confirm the re-catch".to_string());
+    }
+    CheckOutcome::Pass
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1913,6 +2012,110 @@ mod tests {
         );
         assert_eq!(
             check_hold_test(&goal(Some(GraspMode::Pinch)), &report(Outcome::Failed, &[])),
+            CheckOutcome::Pass
+        );
+    }
+
+    #[test]
+    fn flip_bounded_window_must_stay_within_max_release_time() {
+        use rfl_core::canonical::{
+            CanonicalAction, Envelope, MotionBounds, PoseExpr, TimingHints, TimingMode,
+        };
+        use rfl_core::driver::{Outcome, RealizedPose, Status, Verdict};
+        // a flip goal carries max_release_time; a non-flip goal does not.
+        let goal = |bounded: bool| {
+            let force_profile = bounded.then(
+                || serde_json::json!({ "max_release_time": "0.3 s", "safe_drop_zone": "tray" }),
+            );
+            let ca = CanonicalAction {
+                target_frame: "grip".into(),
+                target_pose: PoseExpr::AxisRelative {
+                    direction: serde_json::json!("+x"),
+                    distance: rfl_core::quantity::Quantity("0 mm".into()),
+                },
+                force_budget: None,
+                timing: TimingHints {
+                    nominal_duration: None,
+                    timing_mode: TimingMode::Strict,
+                    stop_at_goal: true,
+                },
+                tactile_target: None,
+                monitors: vec![],
+                safety_envelope: Envelope {
+                    motion_bounds: MotionBounds::default(),
+                    force_profile,
+                    station_keeping: None,
+                    clearance: None,
+                    compliance: None,
+                    stop_time: None,
+                },
+                grasp_stability: None,
+            };
+            ExecuteGoal::wrap("s/e/0003-flip".to_string(), ca)
+        };
+        let report = |outcome: Outcome, evidence: &[&str]| DriverReport {
+            telemetry: vec![],
+            status: Status {
+                message: "status",
+                action_id: "s/e/0003-flip".to_string(),
+                outcome,
+                verdict: Some(Verdict {
+                    value: true,
+                    confidence: 1.0,
+                    evidence: evidence.iter().map(|s| (*s).to_string()).collect(),
+                }),
+                fidelity_tier: None,
+                final_pose: Some(RealizedPose::placeholder()),
+                failure_class: None,
+                failure_detail: None,
+                stop_latency: None,
+                safety_flags: None,
+            },
+        };
+        // window within bound + recatch confirmed -> pass.
+        assert_eq!(
+            check_flip_bounded_window(
+                &goal(true),
+                &report(
+                    Outcome::Succeeded,
+                    &["unsecured_window:0.24 s", "recatch_confirmed"]
+                )
+            ),
+            CheckOutcome::Pass
+        );
+        // window over the 0.3 s bound -> fail (the bite).
+        assert!(matches!(
+            check_flip_bounded_window(
+                &goal(true),
+                &report(
+                    Outcome::Succeeded,
+                    &["unsecured_window:0.45 s", "recatch_confirmed"]
+                )
+            ),
+            CheckOutcome::Fail(_)
+        ));
+        // no measured window, and no recatch confirmation -> fail.
+        assert!(matches!(
+            check_flip_bounded_window(
+                &goal(true),
+                &report(Outcome::Succeeded, &["recatch_confirmed"])
+            ),
+            CheckOutcome::Fail(_)
+        ));
+        assert!(matches!(
+            check_flip_bounded_window(
+                &goal(true),
+                &report(Outcome::Succeeded, &["unsecured_window:0.24 s"])
+            ),
+            CheckOutcome::Fail(_)
+        ));
+        // a non-flip action (no bound), and a non-Succeeded flip (controlled failure), are vacuous.
+        assert_eq!(
+            check_flip_bounded_window(&goal(false), &report(Outcome::Succeeded, &[])),
+            CheckOutcome::Pass
+        );
+        assert_eq!(
+            check_flip_bounded_window(&goal(true), &report(Outcome::Failed, &[])),
             CheckOutcome::Pass
         );
     }

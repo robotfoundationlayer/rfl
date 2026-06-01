@@ -57,6 +57,10 @@
         {
           "name": "hold_test",
           "result": "pass"
+        },
+        {
+          "name": "flip_bounded_window",
+          "result": "pass"
         }
       ],
       "passed": true
@@ -102,6 +106,10 @@
         {
           "name": "hold_test",
           "result": "pass"
+        },
+        {
+          "name": "flip_bounded_window",
+          "result": "pass"
         }
       ],
       "passed": true
@@ -146,6 +154,10 @@
         {
           "name": "hold_test",
           "result": "pass"
+        },
+        {
+          "name": "flip_bounded_window",
+          "result": "pass"
         }
       ],
       "passed": true
@@ -184,6 +196,10 @@
         },
         {
           "name": "hold_test",
+          "result": "pass"
+        },
+        {
+          "name": "flip_bounded_window",
           "result": "pass"
         }
       ],
@@ -229,6 +245,10 @@
         {
           "name": "hold_test",
           "result": "pass"
+        },
+        {
+          "name": "flip_bounded_window",
+          "result": "pass"
         }
       ],
       "passed": true
@@ -272,6 +292,10 @@
         },
         {
           "name": "hold_test",
+          "result": "pass"
+        },
+        {
+          "name": "flip_bounded_window",
           "result": "pass"
         }
       ],
@@ -317,6 +341,10 @@
         {
           "name": "hold_test",
           "result": "pass"
+        },
+        {
+          "name": "flip_bounded_window",
+          "result": "pass"
         }
       ],
       "passed": true
@@ -361,6 +389,10 @@
         {
           "name": "hold_test",
           "result": "pass"
+        },
+        {
+          "name": "flip_bounded_window",
+          "result": "pass"
         }
       ],
       "passed": true
@@ -372,5 +404,5 @@
       "result": "pass"
     }
   ],
-  "content_hash": "sha256:f5218b25838de7806ccf3d1d1ff606f436c7c4c7f772f6440025ca2619457506"
+  "content_hash": "sha256:ec0f15a581a8028cae91f48eb9042d1336749cf4e830c41fa94f803224a2b22c"
 }

@@ -12,9 +12,9 @@ use rfl_core::driver::DriverReport;
 
 use crate::{
     CheckOutcome, EnvelopeClass, check_actuation, check_audit_honesty, check_audit_record,
-    check_engagement, check_envelope, check_freed_part_disposition, check_hold_test,
-    check_irreversible, check_momentary_release, check_support_safe_state, envelope_class_for,
-    suffix_of,
+    check_engagement, check_envelope, check_flip_bounded_window, check_freed_part_disposition,
+    check_hold_test, check_irreversible, check_momentary_release, check_support_safe_state,
+    envelope_class_for, suffix_of,
 };
 
 /// A named check outcome.
@@ -85,6 +85,10 @@ pub fn verify_action(goal: &ExecuteGoal, report: &DriverReport) -> ActionVerdict
     checks.push(NamedCheck {
         name: "hold_test",
         outcome: check_hold_test(goal, report),
+    });
+    checks.push(NamedCheck {
+        name: "flip_bounded_window",
+        outcome: check_flip_bounded_window(goal, report),
     });
     let passed = checks
         .iter()
@@ -192,6 +196,42 @@ mod tests {
         assert!(!v.passed);
         let ht = v.checks.iter().find(|c| c.name == "hold_test").unwrap();
         assert!(matches!(ht.outcome, CheckOutcome::Fail(_)));
+    }
+
+    #[test]
+    fn nominal_flip_passes_bounded_window_but_over_window_fails() {
+        let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples/03-screw-fasten");
+        let skill = dir.join("skill-flip.yaml");
+        let emb = dir.join("embodiments/allegro.yaml");
+        // nominal: the flip's measured unsecured window stays within max_release_time -> GC5 pass.
+        let nominal = drive(ReferenceDriver::default(), &skill, &emb).unwrap();
+        let (g, r) = &nominal[2]; // locate(0), pinch(1), flip(2), release(3)
+        assert_eq!(g.action_id.rsplit('-').next(), Some("flip"));
+        let v = verify_action(g, r);
+        let bw = v
+            .checks
+            .iter()
+            .find(|c| c.name == "flip_bounded_window")
+            .unwrap();
+        assert!(
+            matches!(bw.outcome, CheckOutcome::Pass),
+            "checks: {:?}",
+            v.checks
+                .iter()
+                .map(|c| (c.name, &c.outcome))
+                .collect::<Vec<_>>()
+        );
+        // adversarial: a driver that held the object unsecured past the bound -> GC5 fails.
+        let over = drive(FaultyDriver::new(Fault::FlipWindowExceeded), &skill, &emb).unwrap();
+        let (g, r) = &over[2];
+        let v = verify_action(g, r);
+        assert!(!v.passed);
+        let bw = v
+            .checks
+            .iter()
+            .find(|c| c.name == "flip_bounded_window")
+            .unwrap();
+        assert!(matches!(bw.outcome, CheckOutcome::Fail(_)));
     }
 
     #[test]
