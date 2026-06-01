@@ -45,6 +45,10 @@
         {
           "name": "audit_honesty",
           "result": "pass"
+        },
+        {
+          "name": "audit_record",
+          "result": "pass"
         }
       ],
       "passed": true
@@ -78,6 +82,10 @@
         {
           "name": "audit_honesty",
           "result": "pass"
+        },
+        {
+          "name": "audit_record",
+          "result": "pass"
         }
       ],
       "passed": true
@@ -109,6 +117,10 @@
         },
         {
           "name": "audit_honesty",
+          "result": "pass"
+        },
+        {
+          "name": "audit_record",
           "result": "pass"
         }
       ],
@@ -142,6 +154,10 @@
         {
           "name": "audit_honesty",
           "result": "pass"
+        },
+        {
+          "name": "audit_record",
+          "result": "pass"
         }
       ],
       "passed": true
@@ -153,5 +169,5 @@
       "result": "pass"
     }
   ],
-  "content_hash": "sha256:eac1458cfe81152a8a14caff95a5419bb59950b80a4a30e08a0084d00ade09c8"
+  "content_hash": "sha256:040d304be790cce6f710ffccedb4acbcdec9c0062c708eb37e8720526113c26a"
 }

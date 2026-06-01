@@ -1440,6 +1440,20 @@ pub fn check_momentary_release(pairs: &[(ExecuteGoal, DriverReport)]) -> CheckOu
     CheckOutcome::Pass
 }
 
+/// Verify the AUD1 audit-record obligation (`spec/05`): every primitive result contributes an
+/// audit record — a `verdict` with evidence. A status with no verdict, or a verdict with no
+/// evidence, leaves the L4 / L8 loops nothing to read.
+#[must_use]
+pub fn check_audit_record(report: &DriverReport) -> CheckOutcome {
+    match &report.status.verdict {
+        None => CheckOutcome::Fail("no audit record: status carries no verdict".to_string()),
+        Some(v) if v.evidence.is_empty() => {
+            CheckOutcome::Fail("audit record has no evidence".to_string())
+        }
+        Some(_) => CheckOutcome::Pass,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -2384,5 +2398,47 @@ mod tests {
         // no flip -> vacuous Pass.
         let no_flip = vec![pair("pinch", false), pair("release", false)];
         assert_eq!(check_momentary_release(&no_flip), CheckOutcome::Pass);
+    }
+
+    #[test]
+    fn check_audit_record_requires_a_verdict_with_evidence() {
+        use rfl_core::driver::{Outcome, RealizedPose, Status, Verdict};
+        let report = |verdict: Option<Verdict>| DriverReport {
+            telemetry: vec![],
+            status: Status {
+                message: "status",
+                action_id: "s/e/0001-x".to_string(),
+                outcome: Outcome::Succeeded,
+                verdict,
+                fidelity_tier: None,
+                final_pose: Some(RealizedPose::placeholder()),
+                failure_class: None,
+                failure_detail: None,
+                stop_latency: None,
+                safety_flags: None,
+            },
+        };
+        let with_evidence = Verdict {
+            value: true,
+            confidence: 1.0,
+            evidence: vec!["nominal".to_string()],
+        };
+        assert_eq!(
+            check_audit_record(&report(Some(with_evidence))),
+            CheckOutcome::Pass
+        );
+        assert!(matches!(
+            check_audit_record(&report(None)),
+            CheckOutcome::Fail(_)
+        ));
+        let no_evidence = Verdict {
+            value: true,
+            confidence: 1.0,
+            evidence: vec![],
+        };
+        assert!(matches!(
+            check_audit_record(&report(Some(no_evidence))),
+            CheckOutcome::Fail(_)
+        ));
     }
 }

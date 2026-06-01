@@ -45,6 +45,10 @@
         {
           "name": "audit_honesty",
           "result": "pass"
+        },
+        {
+          "name": "audit_record",
+          "result": "pass"
         }
       ],
       "passed": true
@@ -78,6 +82,10 @@
         {
           "name": "audit_honesty",
           "result": "pass"
+        },
+        {
+          "name": "audit_record",
+          "result": "pass"
         }
       ],
       "passed": true
@@ -110,6 +118,10 @@
         {
           "name": "audit_honesty",
           "result": "pass"
+        },
+        {
+          "name": "audit_record",
+          "result": "pass"
         }
       ],
       "passed": true
@@ -136,6 +148,10 @@
         },
         {
           "name": "audit_honesty",
+          "result": "pass"
+        },
+        {
+          "name": "audit_record",
           "result": "pass"
         }
       ],
@@ -169,6 +185,10 @@
         {
           "name": "audit_honesty",
           "result": "pass"
+        },
+        {
+          "name": "audit_record",
+          "result": "pass"
         }
       ],
       "passed": true
@@ -200,6 +220,10 @@
         },
         {
           "name": "audit_honesty",
+          "result": "pass"
+        },
+        {
+          "name": "audit_record",
           "result": "pass"
         }
       ],
@@ -233,6 +257,10 @@
         {
           "name": "audit_honesty",
           "result": "pass"
+        },
+        {
+          "name": "audit_record",
+          "result": "pass"
         }
       ],
       "passed": true
@@ -265,6 +293,10 @@
         {
           "name": "audit_honesty",
           "result": "pass"
+        },
+        {
+          "name": "audit_record",
+          "result": "pass"
         }
       ],
       "passed": true
@@ -276,5 +308,5 @@
       "result": "pass"
     }
   ],
-  "content_hash": "sha256:4c9ff53d12b4acb7bd9a053200b984bb69be7a3d3d160b0fb6f213f8d6400453"
+  "content_hash": "sha256:50ad949b2312488bd42d2a8a12274fb96276d2a3323a62529035db1672dab975"
 }

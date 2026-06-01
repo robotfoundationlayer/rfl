@@ -11,9 +11,9 @@ use rfl_core::canonical::ExecuteGoal;
 use rfl_core::driver::DriverReport;
 
 use crate::{
-    CheckOutcome, EnvelopeClass, check_actuation, check_audit_honesty, check_engagement,
-    check_envelope, check_freed_part_disposition, check_irreversible, check_momentary_release,
-    envelope_class_for, suffix_of,
+    CheckOutcome, EnvelopeClass, check_actuation, check_audit_honesty, check_audit_record,
+    check_engagement, check_envelope, check_freed_part_disposition, check_irreversible,
+    check_momentary_release, envelope_class_for, suffix_of,
 };
 
 /// A named check outcome.
@@ -72,6 +72,10 @@ pub fn verify_action(goal: &ExecuteGoal, report: &DriverReport) -> ActionVerdict
     checks.push(NamedCheck {
         name: "audit_honesty",
         outcome: check_audit_honesty(goal, report),
+    });
+    checks.push(NamedCheck {
+        name: "audit_record",
+        outcome: check_audit_record(report),
     });
     let passed = checks
         .iter()
