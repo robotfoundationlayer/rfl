@@ -39,7 +39,10 @@ natural emitter is the **planner / VLM tier** — the Code-as-Policies / SayCan 
 VLM" archetype that emits a typed skill program. A general frontier LLM/VLM is exactly that
 archetype. Also not proven: that emitted skills are behaviorally optimal or execute on real
 hardware (that is the closed-loop capstone / Milchick); semantic correctness beyond schema +
-retarget + light checks; that any specific deployed robot product emits RFL.
+retarget + light checks; that any specific deployed robot product emits RFL. Note too that
+the **primary claim is spec-conformance** (schema-validity over all 50 primitives), not
+retargetability: the reference engine implements only 18/50 primitives, so a valid emission
+beyond that set is an engine coverage gap, not a model failure (§ 6).
 
 **Stating the layer boundary honestly is part of the artifact.** The claim is narrow and
 defensible: the planner tier can target the ISA. It is not "today's deployed motor-control
@@ -137,46 +140,72 @@ the world; it does not give it the embodiment.
 
 ## 6. The validation harness (the gates)
 
-For each emitted `skill_yaml`, against each target descriptor:
+**Gate ordering is deliberate.** "Valid Skill ISA" means *conforms to the spec* — all 50
+primitives + the algebra — and the machine-readable form of that is the **full**
+`skill-isa.schema.json`. The reference **retarget engine implements only 18 of the 50
+primitives** (`crates/rfl-core/src/skill_isa.rs` `enum Primitive`: `sense.locate`/`inspect`,
+`grasp.pinch`/`release`, `transport.move_to_pose`/`carry`, `reach.align`/`retract`/`scan`/`hover`,
+`force.insert_fit`/`screw`/`unscrew`/`press_button`/`wipe`/`snap_engage`/`cut`, `in_hand.flip`).
+A valid `place.put_down` emission fails retarget purely because the *engine* is incomplete —
+**not** because the *model* erred. Conflating the two would penalize the model for the
+reference implementation's coverage and undercount the proof. Therefore:
 
-1. **Schema (secondary gate).** `jsonschema` Draft 2020-12 against a **vendored, commit-pinned**
-   copy of `schemas/skill-isa.schema.json` (the source commit hash recorded in the vendored
-   file's header). Redundant with — but independent of — the engine; also exercises the
-   schema's typed slices (e.g. `grasp.pinch`).
-2. **Retarget (primary gate).** `rfl.retarget(skill_yaml, descriptor_yaml)` via the published
-   binding. Outcomes:
-   - **retarget_ok** — produces canonical-action JSONL (one `execute` per line; correlation
-     field `action_id`). The skill is well-formed AND retargetable: the proof.
-   - **capability_rejected** — `RetargetError` whose message matches `capability_absent`. The
-     emission is *valid*; this descriptor simply lacks a capability the task needs. Recorded as
-     an embodiment mismatch, **not** an emission failure.
-   - **malformed** — any other parse/retarget error. A real emission failure.
-3. **Light semantic checks.** Emitted `objects:` ⊆ scene objects; body references resolve;
-   primitive category is plausible for the task. Soft signals, not hard gates (we do not
-   over-claim automated semantic verification).
+For each emitted `skill_yaml`:
 
-**Output = a pass-rate table** (task × descriptor × mode × {pass@1, pass@k, rejected,
-malformed}). That table, committed under `results/`, is the published artifact.
+1. **Schema (PRIMARY validity gate).** `jsonschema` Draft 2020-12 against a **vendored,
+   commit-pinned** full `skill-isa.schema.json` (source commit recorded via a `$comment`).
+   This is the spec-grounded definition of "valid Skill ISA" (all 50 primitives + the algebra;
+   exercises the typed slices, e.g. `grasp.pinch`). **`schema_ok` is the headline metric** —
+   it does not depend on engine coverage.
+2. **Retarget (SECONDARY, coverage-bounded).** For each target descriptor,
+   `rfl.retarget(skill_yaml, descriptor_yaml)` via the published binding. **4-way** outcome,
+   discriminated by `primitives_used(skill) ⊆ ENGINE_18` (a list transcribed from
+   `skill_isa.rs`):
+   - **retarget_ok** — canonical-action JSONL (one `execute` per line; correlation field
+     `action_id`). Valid AND lowerable AND the descriptor declares the capability: the strongest
+     single result.
+   - **capability_rejected** — `RetargetError` containing `capability_absent`. Valid; the
+     descriptor lacks a capability the task needs. An embodiment mismatch, **not** a failure.
+   - **beyond_engine** — error AND the skill uses ≥1 primitive ∉ `ENGINE_18`. The emission is
+     valid Skill ISA the reference engine has not yet implemented: an **engine coverage gap**,
+     reported (per § Quality: no silent caps), **not** a model failure.
+   - **malformed** — error, all primitives ∈ `ENGINE_18`, not `capability_absent`. A genuine
+     emission/semantic failure.
+3. **Light semantic checks.** Emitted `objects:` ⊆ scene objects; body references resolve.
+   Soft signals, not hard gates (we do not over-claim automated semantic verification).
+
+**Output = two tables** committed under `results/`: (a) the headline **`schema_ok` pass@1 /
+pass@k** per task × mode (the demand-side claim); (b) the **retarget outcome** breakdown per
+task × descriptor × mode (`{ok, capability_rejected, beyond_engine, malformed}`), which doubles
+as an honest map of reference-engine coverage.
 
 ## 7. Task suite (~6 novel tasks, spanning categories)
 
 Chosen to (a) avoid the `examples/` skills (cable-insertion / surface-scan / screw-fasten) so
-nothing is template-copied, and (b) span categories incl. tasks some descriptors must reject:
+nothing is template-copied, and (b) deliberately mix two groups so the proof yields **both**
+strong `retarget_ok` results and honest engine-coverage gaps:
 
-| Task | Exercises | Note |
-|---|---|---|
-| pour | `grasp.power` + `transport.move_to_pose` (tilt pose) + `place.put_down` | reorientation; `place.*` absent from examples |
-| open-drawer | grasp handle + `force.pull` | `force.pull` not in examples; rejects on no-F/T descriptors |
-| stack-blocks | `grasp.pinch` + transport + `place.stack` | alignment; `place.*` novel |
-| hand-over | grasp + transport + `place.hand_to` | controlled release on contact; `place.*` novel |
-| sort-by-weight | `sense.locate` + grasp + `sense.weigh` + `branch`(mass) + place | exercises `sense.weigh` + the three-valued `branch` |
-| pick-place-light | `grasp.pinch` + transport + `place.put_down` | cross-validates Milchick |
+- **Group A — lowerable on the current 18-primitive engine** (yields `retarget_ok`): proves the
+  full schema → retarget → canonical chain on a real descriptor.
+- **Group B — valid full-spec emission beyond the 18-set** (yields `schema_ok` + `beyond_engine`):
+  proves the model hits the *spec* on primitives the reference engine hasn't reached yet.
 
-The `examples/` skills already demonstrate `force.{insert_fit,screw,unscrew,cut,press_button,snap_engage,wipe}`,
-`in_hand.flip`, `transport.carry`, `reach.scan`/`hover`, and `sense.inspect`; this suite deliberately
-avoids them, leaning on the **`place.*`** category (entirely absent from the examples), **`sense.weigh`**,
-the three-valued **`branch`**, and **`force.pull`**. The `force.pull` task deliberately retarget-rejects on
-`pincherx-100` (no F/T) — proving the negative-space gate from the demand side.
+| Task | Group | Exercises | Note |
+|---|---|---|---|
+| relocate-part | A | `sense.locate` → `grasp.pinch` → `transport.move_to_pose` → `grasp.release` → `reach.retract` | all 18-set; retarget_ok; cross-validates Milchick |
+| seat-fuse | A | `sense.locate` → `grasp.pinch` → `transport.move_to_pose` → `force.insert_fit` | 18-set, novel scenario (fuse-in-holder, not the cable example) |
+| latch-buckle | A | grasp + transport + `force.snap_engage` | 18-set, novel scenario (not example 03's snap) |
+| pour | B | `grasp.pinch` + `transport.move_to_pose` (tilt) + `place.put_down` | `place.*` not in the 18-set → beyond_engine |
+| stack-blocks | B | `grasp.pinch` + transport + `place.stack` | `place.*` beyond_engine |
+| sort-by-weight | B | `sense.locate` + grasp + `sense.weigh` + `branch`(mass) + `place.put_down` | `sense.weigh` + three-valued `branch` + `place.*` beyond_engine |
+
+The Group-A tasks are novel *scenarios* built from the engine's implemented set (so they fully
+retarget), not copies of the example skills. The Group-B tasks lean on the **`place.*`** category
+(entirely absent from both examples and the engine), **`sense.weigh`**, and the three-valued
+**`branch`** — all valid Skill ISA the model must emit correctly (schema gate) and all
+`beyond_engine` at retarget (the honest coverage map). The capability-mismatch path (a valid,
+engine-implemented skill a descriptor cannot satisfy) is exercised by retargeting the Group-A
+`force.insert_fit` task onto `pincherx-100` (no F/T) → `capability_absent`.
 
 ## 8. Honest caveats (the substance of the proof)
 
@@ -277,6 +306,13 @@ contract, but the *input* skill now comes from a real model instead of a fixture
 - **The published binding** — `rfl.retarget(skill_yaml, descriptor_yaml) -> str` and
   `rfl.RetargetError`, from `bindings/python/src/lib.rs`; the canonical correlation field is
   `action_id` (confirmed at `canonical.rs`).
+- **`ENGINE_18`** — the engine's implemented-primitive set (the `beyond_engine` discriminator),
+  transcribed from `crates/rfl-core/src/skill_isa.rs` `enum Primitive` at a recorded commit:
+  `sense.locate`/`inspect`, `grasp.pinch`/`release`, `transport.move_to_pose`/`carry`,
+  `reach.align`/`retract`/`scan`/`hover`, `force.insert_fit`/`screw`/`unscrew`/`press_button`/
+  `wipe`/`snap_engage`/`cut`, `in_hand.flip`. Also confirm which algebra combinators retarget
+  (examples use `sequence` + `let`; `branch`/`parallel`/`reactive`/`repeat` are likely
+  `beyond_engine`).
 - **The schema + descriptors** — copy `schemas/skill-isa.schema.json` and the
   `examples/01-cable-insertion/embodiments/*.yaml` (+ Milchick's `pincherx-100.yaml`) from a
   recorded `rfl` commit hash, written into the vendored files' headers.
