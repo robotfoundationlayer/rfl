@@ -22,6 +22,8 @@ pub enum GraspMode {
     Pinch,
     /// Extrinsic force-closure pin against an external surface (`spec/01` § 2.7).
     Pin,
+    /// Support closure: an object borne in balance over a support polygon (`spec/01` § 2.6).
+    Platform,
 }
 
 impl GraspMode {
@@ -33,6 +35,10 @@ impl GraspMode {
     pub fn k_holding(self) -> f64 {
         match self {
             GraspMode::Pinch | GraspMode::Pin => 2.0,
+            // N/A for support closure: a borne object is not gripped, so there is no
+            // grip-per-weight factor. Present for the exhaustive match; unused by
+            // lowering (platform emits no min_holding_force).
+            GraspMode::Platform => 1.0,
         }
     }
 
@@ -42,6 +48,8 @@ impl GraspMode {
     pub fn k_reaction(self) -> f64 {
         match self {
             GraspMode::Pinch | GraspMode::Pin => 2.0,
+            // N/A for support closure (see `k_holding`).
+            GraspMode::Platform => 1.0,
         }
     }
 
@@ -51,6 +59,7 @@ impl GraspMode {
         match self {
             GraspMode::Pinch => "payload_grasp_pinch",
             GraspMode::Pin => "payload_grasp_pin",
+            GraspMode::Platform => "payload_support",
         }
     }
 }

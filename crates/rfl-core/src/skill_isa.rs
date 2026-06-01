@@ -166,6 +166,9 @@ pub enum Primitive {
     /// `grasp.pin`.
     #[serde(rename = "grasp.pin")]
     GraspPin(GraspPin),
+    /// `grasp.platform`.
+    #[serde(rename = "grasp.platform")]
+    GraspPlatform(GraspPlatform),
 }
 
 impl Primitive {
@@ -177,6 +180,7 @@ impl Primitive {
         match self {
             Primitive::GraspPinch(_) => Some(GraspMode::Pinch),
             Primitive::GraspPin(_) => Some(GraspMode::Pin),
+            Primitive::GraspPlatform(_) => Some(GraspMode::Platform),
             _ => None,
         }
     }
@@ -294,6 +298,20 @@ pub struct GraspPin {
     /// Normal force pressing the object onto the surface.
     pub force_budget: Quantity,
     /// Contact-confirmation criterion (default auto = effector contact + surface reaction).
+    #[serde(default = "tactile_auto")]
+    pub tactile_target: TactileTargetArg,
+}
+
+/// `grasp.platform` parameters (v0 subset of `$defs/GraspPlatformParams`, § 2.6). Requires
+/// `target` and `load_budget`. Support closure: the object is borne in balance over a support
+/// polygon. The support-polygon geometry (`support_pose` / `support_normal`) is v0-deferred.
+#[derive(Debug, Clone, serde::Deserialize)]
+pub struct GraspPlatform {
+    /// The object target to support (a let-reference in the reference skill).
+    pub target: Ref,
+    /// Max supported weight (clamped to `payload_support`).
+    pub load_budget: Quantity,
+    /// Contact-confirmation criterion (default auto = distributed load + CoM in polygon).
     #[serde(default = "tactile_auto")]
     pub tactile_target: TactileTargetArg,
 }

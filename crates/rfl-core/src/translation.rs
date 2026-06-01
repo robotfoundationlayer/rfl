@@ -19,9 +19,10 @@ use crate::grasp_force::{self, GraspMode};
 use crate::quantity::Quantity;
 use crate::skill_isa::{
     Axes, Axis, Compliance, DisturbanceArg, ForceCut, ForceInsertFit, ForcePressButton, ForceScrew,
-    ForceSnapEngage, ForceUnscrew, ForceWipe, GraspPin, GraspPinch, GraspRelease, InHandFlip,
-    Primitive, ReachAlign, ReachHover, ReachRetract, ReachScan, ScanPattern, SenseInspect, Skill,
-    StabilityMarginArg, Statement, TactileTargetArg, TransportCarry, TransportMoveToPose,
+    ForceSnapEngage, ForceUnscrew, ForceWipe, GraspPin, GraspPinch, GraspPlatform, GraspRelease,
+    InHandFlip, Primitive, ReachAlign, ReachHover, ReachRetract, ReachScan, ScanPattern,
+    SenseInspect, Skill, StabilityMarginArg, Statement, TactileTargetArg, TransportCarry,
+    TransportMoveToPose,
 };
 use crate::stability::StabilityMetadata;
 use std::collections::BTreeMap;
@@ -129,6 +130,7 @@ fn check_capability(prim: &Primitive, e: &Embodiment) -> crate::Result<()> {
         Primitive::SenseLocate(_) => "sense.locate",
         Primitive::GraspPinch(_) => "grasp.pinch",
         Primitive::GraspPin(_) => "grasp.pin",
+        Primitive::GraspPlatform(_) => "grasp.platform",
         // A category key implies the base primitive: `transport` = transport.move_to_pose.
         Primitive::TransportMoveToPose(_) => "transport",
         // transport.carry is a DISTINCT capability beyond the base transport gate
@@ -180,6 +182,7 @@ fn lower(
         Primitive::SenseLocate(p) => (lower_sense_locate(p, e), "locate"),
         Primitive::GraspPinch(p) => (lower_grasp_pinch(p, e, ctx, weights), "pinch"),
         Primitive::GraspPin(p) => (lower_grasp_pin(p, e), "pin"),
+        Primitive::GraspPlatform(p) => (lower_grasp_platform(p, e), "platform"),
         Primitive::TransportMoveToPose(p) => (lower_transport_move_to_pose(p, e, ctx), "transport"),
         Primitive::TransportCarry(p) => (lower_transport_carry(p, e, ctx), "carry"),
         Primitive::ReachAlign(p) => (lower_reach_align(p, e), "align"),
@@ -365,6 +368,51 @@ fn lower_grasp_pin(p: &GraspPin, e: &Embodiment) -> CanonicalAction {
         monitors: vec![],
         safety_envelope: env,
         grasp_stability: Some(StabilityMetadata::for_mode(GraspMode::Pin)),
+    }
+}
+
+/// Lower `grasp.platform` (`spec/01` § 2.6): bear a target's weight in balance over a
+/// support polygon (support closure — neither gripped nor enclosed). The § 2.6 support-
+/// specific safe state (a balanced object cannot be open-released; on breach, lower the
+/// support minimizing fall height) is emitted as `force_profile.safe_state =
+/// "controlled_lowering"` — the STB2 anchor the conformance suite reads. The support
+/// stability class (`StabilityMetadata::for_mode(Platform)`) declares `closure: support`,
+/// which the STB3 check reads to forbid a free-transport successor. No `ctx.held` (a
+/// supported object is borne, not a freely-carried grip load) and no `min_holding_force`.
+fn lower_grasp_platform(p: &GraspPlatform, e: &Embodiment) -> CanonicalAction {
+    let load_budget = clamp_force(&p.load_budget, "payload_support", e);
+    let tactile_target = Some(match (&p.tactile_target, e.tactile_sensing()) {
+        (TactileTargetArg::Auto(_), true) => TactileTargetOut::Auto,
+        (TactileTargetArg::Auto(_), false) => TactileTargetOut::Proxy {
+            proxy: ProxySpec {
+                tier: "proxy",
+                criterion: "borne_load_confirmation",
+            },
+        },
+        (TactileTargetArg::Other(v), _) => {
+            TactileTargetOut::Explicit(serde_json::to_value(v).unwrap_or(serde_json::Value::Null))
+        }
+    });
+    let mut env = base_envelope(e);
+    env.force_profile = Some(serde_json::json!({
+        "load_budget": load_budget.0,
+        "safe_state": "controlled_lowering",
+    }));
+    CanonicalAction {
+        target_frame: e.grasp_frame().to_string(),
+        target_pose: PoseExpr::Ref {
+            r#ref: p.target.clone(),
+        },
+        force_budget: None,
+        timing: TimingHints {
+            nominal_duration: None,
+            timing_mode: TimingMode::Strict,
+            stop_at_goal: true,
+        },
+        tactile_target,
+        monitors: vec![],
+        safety_envelope: env,
+        grasp_stability: Some(StabilityMetadata::for_mode(GraspMode::Platform)),
     }
 }
 
@@ -1427,6 +1475,29 @@ mod tests {
         assert!(json.contains("\"surface_bound\":true"), "got {json}");
         assert!(
             json.contains("\"against_surface\":\"workbench\""),
+            "got {json}"
+        );
+    }
+
+    #[test]
+    fn platform_emits_support_closure_and_controlled_lowering_safe_state() {
+        use crate::stability::Closure;
+        let emb = load("allegro").1;
+        let yaml = "skill: t\nbody:\n  sequence:\n    - grasp.platform:\n        target: tray\n        load_budget: 10 N\n";
+        let skill = Skill::parse_yaml(yaml).expect("parse grasp.platform");
+        let Statement::Primitive(Primitive::GraspPlatform(p)) = &skill.body.sequence[0] else {
+            panic!("expected grasp.platform at index 0");
+        };
+        let a = super::lower_grasp_platform(p, &emb);
+        let st = a
+            .grasp_stability
+            .as_ref()
+            .expect("platform carries grasp_stability");
+        assert_eq!(st.closure, Closure::Support);
+        let json = serde_json::to_string(&a).unwrap();
+        assert!(json.contains("\"closure\":\"support\""), "got {json}");
+        assert!(
+            json.contains("\"safe_state\":\"controlled_lowering\""),
             "got {json}"
         );
     }

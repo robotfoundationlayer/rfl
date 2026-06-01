@@ -165,6 +165,20 @@ impl StabilityMetadata {
                 residual_mobility: None,
                 min_holding_force: None,
             },
+            // platform: support closure — the object is borne in balance over a support
+            // polygon, stable against the support normal, no flags (its transport-
+            // forbidding comes from the support closure itself, not a flag).
+            GraspMode::Platform => StabilityMetadata {
+                closure: Closure::Support,
+                secured_dof: BTreeMap::from([(
+                    "support_normal".to_string(),
+                    DofSecuring::BalanceHeld,
+                )]),
+                stable_directions: StableDirections::Set(vec!["support_normal".to_string()]),
+                flags: StabilityFlags::default(),
+                residual_mobility: None,
+                min_holding_force: None,
+            },
         }
     }
 }
@@ -207,6 +221,20 @@ mod tests {
             json.contains("\"stable_directions\":[\"against_surface.normal\"]"),
             "json: {json}"
         );
+    }
+
+    #[test]
+    fn for_mode_platform_is_support_closure_balance_held_no_flags() {
+        let m = StabilityMetadata::for_mode(GraspMode::Platform);
+        assert_eq!(m.closure, Closure::Support);
+        assert_eq!(
+            m.secured_dof.get("support_normal"),
+            Some(&DofSecuring::BalanceHeld)
+        );
+        assert!(m.flags.is_empty()); // support forbids transport via closure, not a flag
+        let json = serde_json::to_string(&m).unwrap();
+        assert!(json.contains("\"closure\":\"support\""), "json: {json}");
+        assert!(!json.contains("flags"), "support has no flags: {json}");
     }
 
     #[test]
