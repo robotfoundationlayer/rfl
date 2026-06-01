@@ -7,7 +7,7 @@ The project's argument is published in **two complementary documents**, both che
 | Document | Audience | Pages | Genre |
 |---|---|---|---|
 | [`RFL_SPEC_v0.1_en.pdf`](RFL_SPEC_v0.1_en.pdf) | Academic peers, implementers, arXiv reviewers | **62** | **Specification proposal** (academic register) |
-| [`RFL_v1.0_en.pdf`](RFL_v1.0_en.pdf) | Industry stakeholders, prospective partners, ecosystem readers | **80** | **Position paper — G-1 Hybrid stewardship** (specification + network-effect analysis + Lead Customer Program) |
+| [`RFL_v1.0_en.pdf`](RFL_v1.0_en.pdf) | Industry stakeholders, prospective partners, ecosystem readers | **83** | **Position paper — G-1 Hybrid stewardship** (specification + network-effect analysis + Lead Customer Program) |
 
 ### Which to read
 
@@ -65,7 +65,7 @@ The 17 figures referenced from the white paper are rendered as standalone SVG fi
 8. Comparative Analysis — ARM, CUDA, USB, ROS 2, LeRobot, contemporary cohort
 9. Call to Action — Lead Customer recruitment
 
-Appendices: Data Sources and Methodology, TactileManifold formal specification, Supermodularity and Master Equation derivations.
+Appendices: Data Sources and Methodology, TactileManifold formal specification, Supermodularity and Master Equation derivations, Frequently Raised Objections (real-time determinism, abstraction and peak performance, ROS 2 positioning, and liability).
 
 ## Citation
 
