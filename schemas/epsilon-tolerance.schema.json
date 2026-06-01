@@ -1,0 +1,46 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://rfl.dev/schemas/epsilon-tolerance.schema.json",
+  "title": "RFL Per-skill ε-tolerance table",
+  "description": "The Class 2-loose conformance tolerances (spec/02 RD2c, spec/05): for each contact-dynamics primitive (every force.* + in_hand.pivot passive drive), the per-quantity tolerance ε its realized execution is held to under a named metric. Values are `null` until measured (the data-dependent pre-freeze item); the structure is fixed now so a conformant runner can read it. Anti-drift invariant C9 (schemas/validate.py) checks the key set is exactly the contact-dynamics primitive set derived from skill-isa.",
+  "type": "object",
+  "required": ["epsilon_tolerances"],
+  "additionalProperties": false,
+  "properties": {
+    "epsilon_tolerances": {
+      "description": "Keyed by Skill ISA primitive id (a contact-dynamics primitive). Each value is a map of measured-quantity name to its tolerance entry.",
+      "type": "object",
+      "minProperties": 1,
+      "propertyNames": { "pattern": "^[a-z_]+\\.[a-z_]+$" },
+      "additionalProperties": {
+        "description": "The per-quantity tolerances for one primitive.",
+        "type": "object",
+        "minProperties": 1,
+        "additionalProperties": { "$ref": "#/$defs/ToleranceEntry" }
+      }
+    }
+  },
+  "$defs": {
+    "ToleranceEntry": {
+      "description": "One measured quantity's tolerance: the comparison metric and the bound (null = not yet measured).",
+      "type": "object",
+      "required": ["metric", "tolerance"],
+      "additionalProperties": false,
+      "properties": {
+        "metric": {
+          "description": "How realized vs canonical are compared for this quantity. geodesic_se3 / geodesic_so3 for poses/orientations (m + rad / rad), l2_norm for vector quantities (e.g. wrench), abs for scalars.",
+          "enum": ["geodesic_se3", "geodesic_so3", "l2_norm", "abs"]
+        },
+        "tolerance": {
+          "description": "The ε bound in the quantity's units, or null until measured. A null tolerance means the loose check is not yet gradeable for this quantity (never silently a pass).",
+          "type": ["number", "null"],
+          "minimum": 0
+        },
+        "unit": {
+          "description": "Optional unit hint for the tolerance (e.g. \"m\", \"rad\", \"N\", \"N*m\").",
+          "type": "string"
+        }
+      }
+    }
+  }
+}

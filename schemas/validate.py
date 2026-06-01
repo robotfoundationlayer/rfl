@@ -59,6 +59,7 @@ def main() -> int:
     adapter = load_schema("tactile-manifold/adapter.schema.json")
     certificate = load_schema("certificate.schema.json")
     extension = load_schema("extension-registry.schema.json")
+    epsilon = load_schema("epsilon-tolerance.schema.json")
 
     print("Schema well-formedness (JSON Schema Draft 2020-12)")
     for label, schema in (
@@ -68,6 +69,7 @@ def main() -> int:
         ("tactile-manifold adapter", adapter),
         ("certificate", certificate),
         ("extension-registry", extension),
+        ("epsilon-tolerance", epsilon),
     ):
         try:
             Draft202012Validator.check_schema(schema)
@@ -102,6 +104,11 @@ def main() -> int:
         errs = list(cert_validator.iter_errors(json.loads(cert_file.read_text())))
         label = f"{cert_file.parent.name}/{cert_file.name}"
         check(f"{label} vs certificate-schema", not errs, errs[0].message if errs else "")
+
+    eps_validator = Draft202012Validator(epsilon)
+    eps_table = yaml.safe_load((SCHEMAS / "epsilon-tolerances.yaml").read_text())
+    errs = list(eps_validator.iter_errors(eps_table))
+    check("epsilon-tolerances.yaml vs epsilon-tolerance", not errs, errs[0].message if errs else "")
 
     print("\nCross-schema consistency (anti-drift)")
 
@@ -210,6 +217,16 @@ def main() -> int:
                   path.parent.parent.name == entry["namespace"]
                   and path.parent.name == f"v{entry['version']}",
                   "directory does not match namespace/v<MAJOR>")
+
+    # C9 — the ε-tolerance table's key set is exactly the contact-dynamics
+    # primitive set (every force.* + in_hand.pivot passive drive, spec/02 RD2c),
+    # derived from skill-isa at check time. So a new force primitive forces a
+    # table entry (completeness) and a stray key is rejected (no orphan rows).
+    contact_dynamics = {p for p in prim if p.startswith("force.")} | {"in_hand.pivot"}
+    eps_keys = set(eps_table.get("epsilon_tolerances", {}))
+    eps_drift = contact_dynamics ^ eps_keys
+    check("C9 epsilon-table keys == contact-dynamics primitives", not eps_drift,
+          f"symmetric difference {sorted(eps_drift)}")
 
     print()
     if failures:

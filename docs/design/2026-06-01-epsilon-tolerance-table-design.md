@@ -1,6 +1,10 @@
 # Per-skill ε-tolerance table — format + measurement harness design
 
-Status: format design-complete; **values BLOCKED on measurement data**
+Status: **FORMAT IMPLEMENTED 2026-06-02** (`schemas/epsilon-tolerance.schema.json`
++ `schemas/epsilon-tolerances.yaml`, all 11 contact-dynamics primitives with
+`null` tolerances; `validate.py` C9 checks the key set is exactly the
+contact-dynamics primitive set derived from skill-isa); **values still BLOCKED on
+measurement data** (the harness below). Design retained as the record.
 
 ## What it is
 
