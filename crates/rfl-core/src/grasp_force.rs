@@ -85,7 +85,12 @@ pub fn dynamic_a_max(weight_n: f64, payload_n: f64) -> f64 {
 /// only), exactly as `dynamic_a_max` surfaces an over-payload weight. A v0 reference choice,
 /// pinned by golden, non-normative (the same posture as `dynamic_a_max` / `k_holding`).
 #[must_use]
-pub fn carry_a_max(weight_n: f64, payload_n: f64, disturbance_n: f64, stability_margin: f64) -> f64 {
+pub fn carry_a_max(
+    weight_n: f64,
+    payload_n: f64,
+    disturbance_n: f64,
+    stability_margin: f64,
+) -> f64 {
     let effective_payload = payload_n / (1.0 + stability_margin) - disturbance_n;
     (G0 * (effective_payload / weight_n - 1.0)).max(0.0)
 }

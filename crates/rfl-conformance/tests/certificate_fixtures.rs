@@ -54,21 +54,30 @@ fn example_fixtures_are_current() {
 
         if bless {
             std::fs::write(&report_path, &report).unwrap();
-            let cert =
-                rfl_conformance::certify::run(&skill, &emb, &report_path).unwrap().certificate;
+            let cert = rfl_conformance::certify::run(&skill, &emb, &report_path)
+                .unwrap()
+                .certificate;
             std::fs::write(&cert_path, rfl_conformance::certificate::to_json(&cert)).unwrap();
             continue;
         }
 
         let committed_report = std::fs::read_to_string(&report_path)
             .unwrap_or_else(|_| panic!("{} present (run RFL_BLESS=1 to generate)", c.report));
-        assert_eq!(committed_report, report, "{} stale; run RFL_BLESS=1 cargo test", c.report);
+        assert_eq!(
+            committed_report, report,
+            "{} stale; run RFL_BLESS=1 cargo test",
+            c.report
+        );
 
-        let fresh = rfl_conformance::certify::run(&skill, &emb, &report_path).unwrap().certificate;
+        let fresh = rfl_conformance::certify::run(&skill, &emb, &report_path)
+            .unwrap()
+            .certificate;
         let committed: serde_json::Value =
             serde_json::from_str(&std::fs::read_to_string(&cert_path).unwrap()).unwrap();
         assert_eq!(
-            committed.get("content_hash").and_then(serde_json::Value::as_str),
+            committed
+                .get("content_hash")
+                .and_then(serde_json::Value::as_str),
             Some(fresh.content_hash.as_str()),
             "{} stale; run RFL_BLESS=1 cargo test",
             c.cert

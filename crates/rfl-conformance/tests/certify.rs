@@ -7,7 +7,7 @@
 use std::path::{Path, PathBuf};
 
 use rfl_conformance::certify::{self, CertResult};
-use rfl_conformance::{drive, reports_to_jsonl, run_reference_driver, Fault, FaultyDriver};
+use rfl_conformance::{Fault, FaultyDriver, drive, reports_to_jsonl, run_reference_driver};
 
 fn example_dir() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples/01-cable-insertion")
@@ -106,7 +106,10 @@ fn certificate_records_per_action_fidelity_tier() {
     let pinch = actions.iter().find(|a| a.suffix == "pinch").unwrap();
     assert_eq!(pinch.fidelity_tier.as_deref(), Some("manifold"));
     // a pure reach has no confirmation tier.
-    let reach = actions.iter().find(|a| a.suffix == "align" || a.suffix == "retract").unwrap();
+    let reach = actions
+        .iter()
+        .find(|a| a.suffix == "align" || a.suffix == "retract")
+        .unwrap();
     assert_eq!(reach.fidelity_tier, None);
     std::fs::remove_file(report).ok();
 }
@@ -120,12 +123,26 @@ fn certifies_proxy_fidelity_on_pneumatic() {
     let report = temp_report("pneumatic", &reports_to_jsonl(&reports));
 
     let outcome = certify::run(&skill, &emb, &report).expect("valid run");
-    assert_eq!(outcome.result, CertResult::Pass, "honest proxy must still pass");
+    assert_eq!(
+        outcome.result,
+        CertResult::Pass,
+        "honest proxy must still pass"
+    );
     // pneumatic-6f has no tactile sensing -> grasp.pinch confirms at proxy tier.
-    let pinch = outcome.certificate.body.actions.iter().find(|a| a.suffix == "pinch").unwrap();
+    let pinch = outcome
+        .certificate
+        .body
+        .actions
+        .iter()
+        .find(|a| a.suffix == "pinch")
+        .unwrap();
     assert_eq!(pinch.fidelity_tier.as_deref(), Some("proxy"));
     // and the audit-honesty check passed for it (a proxy claim against a proxy lowering).
-    let audit = pinch.checks.iter().find(|c| c.name == "audit_honesty").unwrap();
+    let audit = pinch
+        .checks
+        .iter()
+        .find(|c| c.name == "audit_honesty")
+        .unwrap();
     assert_eq!(audit.result, "pass");
     std::fs::remove_file(report).ok();
 }
@@ -143,7 +160,12 @@ fn certifies_flip_sequence_momentary_release() {
     // the skill contains an in_hand.flip -> a flip action is present (the sequence check has
     // something to trace), making momentary_release non-vacuous.
     assert!(
-        outcome.certificate.body.actions.iter().any(|a| a.suffix == "flip"),
+        outcome
+            .certificate
+            .body
+            .actions
+            .iter()
+            .any(|a| a.suffix == "flip"),
         "skill-flip should retarget to a flip action"
     );
     let seq = outcome
@@ -165,8 +187,14 @@ fn certificate_is_deterministic() {
     let reports = run_reference_driver(&skill, &emb).unwrap();
     let report = temp_report("determinism", &reports_to_jsonl(&reports));
 
-    let a = certify::run(&skill, &emb, &report).unwrap().certificate.content_hash;
-    let b = certify::run(&skill, &emb, &report).unwrap().certificate.content_hash;
+    let a = certify::run(&skill, &emb, &report)
+        .unwrap()
+        .certificate
+        .content_hash;
+    let b = certify::run(&skill, &emb, &report)
+        .unwrap()
+        .certificate
+        .content_hash;
     assert_eq!(a, b);
     std::fs::remove_file(report).ok();
 }

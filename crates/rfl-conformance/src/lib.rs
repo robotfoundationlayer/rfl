@@ -36,7 +36,12 @@ pub fn retarget_example_to_jsonl(
     let emb =
         rfl_core::embodiment::Embodiment::parse_yaml(&std::fs::read_to_string(embodiment_path)?)?;
     let out = rfl_core::translation::retarget(&skill, &emb)?;
-    Ok(rfl_core::canonical::to_jsonl(&skill.skill, &emb.id, &out.actions, &out.suffixes))
+    Ok(rfl_core::canonical::to_jsonl(
+        &skill.skill,
+        &emb.id,
+        &out.actions,
+        &out.suffixes,
+    ))
 }
 
 use rfl_core::canonical::{ExecuteGoal, TactileTargetOut};
@@ -73,21 +78,33 @@ impl Driver for ReferenceDriver {
         // (within budget) — so the C2 / E3 envelope checkers have something to sample.
         // Echo the commanded force_budget, or — on a wipe with no budget — the normal_force
         // band setpoint (force.wipe), so the ForceTrajectory band leg has an in-band sample.
-        let force_mag = ca.force_budget.as_ref().and_then(|q| q.parse().map(|(v, _)| v)).or_else(|| {
-            ca.safety_envelope
-                .force_profile
-                .as_ref()
-                .and_then(|fp| fp.get("normal_force"))
-                .and_then(serde_json::Value::as_str)
-                .and_then(|s| rfl_core::quantity::Quantity(s.to_string()).parse().map(|(v, _)| v))
-        });
+        let force_mag = ca
+            .force_budget
+            .as_ref()
+            .and_then(|q| q.parse().map(|(v, _)| v))
+            .or_else(|| {
+                ca.safety_envelope
+                    .force_profile
+                    .as_ref()
+                    .and_then(|fp| fp.get("normal_force"))
+                    .and_then(serde_json::Value::as_str)
+                    .and_then(|s| {
+                        rfl_core::quantity::Quantity(s.to_string())
+                            .parse()
+                            .map(|(v, _)| v)
+                    })
+            });
         let torque_mag = ca
             .safety_envelope
             .force_profile
             .as_ref()
             .and_then(|fp| fp.get("torque"))
             .and_then(serde_json::Value::as_str)
-            .and_then(|s| rfl_core::quantity::Quantity(s.to_string()).parse().map(|(v, _)| v));
+            .and_then(|s| {
+                rfl_core::quantity::Quantity(s.to_string())
+                    .parse()
+                    .map(|(v, _)| v)
+            });
         let wrench = if force_mag.is_some() || torque_mag.is_some() {
             Some(Wrench {
                 force: [0.0, 0.0, force_mag.unwrap_or(0.0)],
@@ -181,9 +198,15 @@ impl Driver for ReferenceDriver {
         // force_profile.on_disengagement) discloses where the freed part went — retained, or
         // released into a declared safe zone. Absent for every non-freeing action.
         let safety_flags = ca.safety_envelope.force_profile.as_ref().and_then(|fp| {
-            if let Some(od) = fp.get("on_disengagement").and_then(serde_json::Value::as_str) {
+            if let Some(od) = fp
+                .get("on_disengagement")
+                .and_then(serde_json::Value::as_str)
+            {
                 let (disposition, zone) = if od == "drop_safe" {
-                    ("safe_zone_release", Some(serde_json::json!({ "zone": "discard_bin" })))
+                    (
+                        "safe_zone_release",
+                        Some(serde_json::json!({ "zone": "discard_bin" })),
+                    )
                 } else {
                     ("retained", None)
                 };
@@ -261,7 +284,10 @@ impl FaultyDriver {
     /// A faulty driver injecting `fault`.
     #[must_use]
     pub fn new(fault: Fault) -> Self {
-        FaultyDriver { inner: ReferenceDriver::default(), fault }
+        FaultyDriver {
+            inner: ReferenceDriver::default(),
+            fault,
+        }
     }
 }
 
@@ -272,8 +298,7 @@ impl Driver for FaultyDriver {
             Fault::UnderSecure => {
                 for t in &mut report.telemetry {
                     if t.securing_force.is_some() {
-                        t.securing_force =
-                            Some(rfl_core::quantity::Quantity("0.1 N".to_string()));
+                        t.securing_force = Some(rfl_core::quantity::Quantity("0.1 N".to_string()));
                     }
                 }
             }
@@ -346,7 +371,11 @@ impl DisturbanceDriver {
     /// A disturbance driver injecting `injected_n` newtons with the given response policy.
     #[must_use]
     pub fn new(injected_n: f64, response: DisturbanceResponse) -> Self {
-        DisturbanceDriver { inner: ReferenceDriver::default(), injected_n, response }
+        DisturbanceDriver {
+            inner: ReferenceDriver::default(),
+            injected_n,
+            response,
+        }
     }
 }
 
@@ -360,7 +389,11 @@ impl Driver for DisturbanceDriver {
             .as_ref()
             .and_then(|fp| fp.get("disturbance_budget"))
             .and_then(serde_json::Value::as_str)
-            .and_then(|s| rfl_core::quantity::Quantity(s.to_string()).parse().map(|(v, _)| v));
+            .and_then(|s| {
+                rfl_core::quantity::Quantity(s.to_string())
+                    .parse()
+                    .map(|(v, _)| v)
+            });
         // No budget (non-carry) or injected within budget: the invariant holds (nominal report).
         let Some(budget) = budget else { return report };
         if self.injected_n <= budget {
@@ -421,7 +454,10 @@ impl HoverSettlingDriver {
     /// A hover settling driver with the given response policy.
     #[must_use]
     pub fn new(response: HoverResponse) -> Self {
-        HoverSettlingDriver { inner: ReferenceDriver::default(), response }
+        HoverSettlingDriver {
+            inner: ReferenceDriver::default(),
+            response,
+        }
     }
 }
 
@@ -435,7 +471,11 @@ impl Driver for HoverSettlingDriver {
             .as_ref()
             .and_then(|sk| sk.get("station_tolerance"))
             .and_then(serde_json::Value::as_str)
-            .and_then(|s| rfl_core::quantity::Quantity(s.to_string()).parse().map(|(v, _)| v));
+            .and_then(|s| {
+                rfl_core::quantity::Quantity(s.to_string())
+                    .parse()
+                    .map(|(v, _)| v)
+            });
         let Some(tol) = tol else { return report }; // non-hover: passthrough
         let over = tol + 3.0; // above tolerance (the impulse / failed recovery)
         let under = tol / 2.0; // within tolerance (recovered)
@@ -468,7 +508,11 @@ impl Driver for HoverSettlingDriver {
                     .as_ref()
                     .and_then(|q| q.parse().map(|(v, _)| v))
                     .unwrap_or(0.1);
-                let factor = if matches!(self.response, HoverResponse::AbortsTooSlow) { 5.0 } else { 0.5 };
+                let factor = if matches!(self.response, HoverResponse::AbortsTooSlow) {
+                    5.0
+                } else {
+                    0.5
+                };
                 report.status.stop_latency =
                     Some(rfl_core::quantity::Quantity::from_si(stop * factor, "s"));
             }
@@ -508,7 +552,10 @@ impl PressButtonDriver {
     /// A press-button driver with the given actuation outcome.
     #[must_use]
     pub fn new(response: PressButtonResponse) -> Self {
-        PressButtonDriver { inner: ReferenceDriver::default(), response }
+        PressButtonDriver {
+            inner: ReferenceDriver::default(),
+            response,
+        }
     }
 }
 
@@ -564,7 +611,10 @@ impl SnapEngageDriver {
     /// A snap-engage driver with the given engagement outcome.
     #[must_use]
     pub fn new(response: SnapEngageResponse) -> Self {
-        SnapEngageDriver { inner: ReferenceDriver::default(), response }
+        SnapEngageDriver {
+            inner: ReferenceDriver::default(),
+            response,
+        }
     }
 }
 
@@ -621,7 +671,10 @@ impl CutDriver {
     /// A cut driver with the given outcome.
     #[must_use]
     pub fn new(response: CutResponse) -> Self {
-        CutDriver { inner: ReferenceDriver::default(), response }
+        CutDriver {
+            inner: ReferenceDriver::default(),
+            response,
+        }
     }
 }
 
@@ -678,7 +731,10 @@ impl FreeingDriver {
     /// A freeing driver with the given disclosure policy.
     #[must_use]
     pub fn new(response: FreeingResponse) -> Self {
-        FreeingDriver { inner: ReferenceDriver::default(), response }
+        FreeingDriver {
+            inner: ReferenceDriver::default(),
+            response,
+        }
     }
 }
 
@@ -734,7 +790,10 @@ impl FlipDriver {
     /// A flip driver with the given audit-trail response.
     #[must_use]
     pub fn new(response: FlipResponse) -> Self {
-        FlipDriver { inner: ReferenceDriver::default(), response }
+        FlipDriver {
+            inner: ReferenceDriver::default(),
+            response,
+        }
     }
 }
 
@@ -799,10 +858,12 @@ pub fn run_reference_driver(
     skill_path: &Path,
     embodiment_path: &Path,
 ) -> anyhow::Result<Vec<DriverReport>> {
-    Ok(drive(ReferenceDriver::default(), skill_path, embodiment_path)?
-        .into_iter()
-        .map(|(_, report)| report)
-        .collect())
+    Ok(
+        drive(ReferenceDriver::default(), skill_path, embodiment_path)?
+            .into_iter()
+            .map(|(_, report)| report)
+            .collect(),
+    )
 }
 
 /// Render a report stream as JSON Lines (each telemetry sample, then the status, per
@@ -882,7 +943,11 @@ fn securing_floor_violation(goal: &ExecuteGoal, report: &DriverReport) -> Option
         .as_ref()
         .and_then(|fp| fp.get("min_holding_force"))
         .and_then(serde_json::Value::as_str)
-        .and_then(|s| rfl_core::quantity::Quantity(s.to_string()).parse().map(|(v, _)| v))?;
+        .and_then(|s| {
+            rfl_core::quantity::Quantity(s.to_string())
+                .parse()
+                .map(|(v, _)| v)
+        })?;
     for t in &report.telemetry {
         if let Some(sf) = t.securing_force.as_ref().and_then(quantity_mag) {
             if sf < floor {
@@ -899,15 +964,27 @@ fn securing_floor_violation(goal: &ExecuteGoal, report: &DriverReport) -> Option
 /// failure reason; else `None`. Vacuous when `station_keeping` is absent (carry / bare hover
 /// unaffected — the held-floor pattern). Requires >= 1 tail sample (non-vacuous).
 fn station_keeping_violation(goal: &ExecuteGoal, report: &DriverReport) -> Option<String> {
-    let sk = goal.canonical_action.safety_envelope.station_keeping.as_ref()?;
+    let sk = goal
+        .canonical_action
+        .safety_envelope
+        .station_keeping
+        .as_ref()?;
     let tol = sk
         .get("station_tolerance")
         .and_then(serde_json::Value::as_str)
-        .and_then(|s| rfl_core::quantity::Quantity(s.to_string()).parse().map(|(v, _)| v))?;
+        .and_then(|s| {
+            rfl_core::quantity::Quantity(s.to_string())
+                .parse()
+                .map(|(v, _)| v)
+        })?;
     let settle = sk
         .get("settling_time")
         .and_then(serde_json::Value::as_str)
-        .and_then(|s| rfl_core::quantity::Quantity(s.to_string()).parse().map(|(v, _)| v))?;
+        .and_then(|s| {
+            rfl_core::quantity::Quantity(s.to_string())
+                .parse()
+                .map(|(v, _)| v)
+        })?;
     let deadline = report.telemetry.first()?.t + settle;
     let mut tail_seen = false;
     for t in &report.telemetry {
@@ -916,9 +993,17 @@ fn station_keeping_violation(goal: &ExecuteGoal, report: &DriverReport) -> Optio
         }
         tail_seen = true;
         match t.station_error.as_ref().and_then(quantity_mag) {
-            None => return Some(format!("settled-tail sample at t={} missing station_error", t.t)),
+            None => {
+                return Some(format!(
+                    "settled-tail sample at t={} missing station_error",
+                    t.t
+                ));
+            }
             Some(err) if err > tol => {
-                return Some(format!("station_error {err} > station_tolerance {tol} at t={}", t.t));
+                return Some(format!(
+                    "station_error {err} > station_tolerance {tol} at t={}",
+                    t.t
+                ));
             }
             _ => {}
         }
@@ -935,24 +1020,40 @@ fn station_keeping_violation(goal: &ExecuteGoal, report: &DriverReport) -> Optio
 /// `normal_force` band (insert_fit / screw / press_button) — the two-sided counterpart of the
 /// securing floor, on contact wrench.
 fn contact_band_violation(goal: &ExecuteGoal, report: &DriverReport) -> Option<String> {
-    let fp = goal.canonical_action.safety_envelope.force_profile.as_ref()?;
+    let fp = goal
+        .canonical_action
+        .safety_envelope
+        .force_profile
+        .as_ref()?;
     let setpoint = fp
         .get("normal_force")
         .and_then(serde_json::Value::as_str)
-        .and_then(|s| rfl_core::quantity::Quantity(s.to_string()).parse().map(|(v, _)| v))?;
+        .and_then(|s| {
+            rfl_core::quantity::Quantity(s.to_string())
+                .parse()
+                .map(|(v, _)| v)
+        })?;
     let tol = fp
         .get("normal_force_tolerance")
         .and_then(serde_json::Value::as_str)
-        .and_then(|s| rfl_core::quantity::Quantity(s.to_string()).parse().map(|(v, _)| v))?;
+        .and_then(|s| {
+            rfl_core::quantity::Quantity(s.to_string())
+                .parse()
+                .map(|(v, _)| v)
+        })?;
     let (lo, hi) = (setpoint - tol, setpoint + tol);
     for t in &report.telemetry {
         if let Some(w) = &t.wrench {
             let mag = w.force.iter().map(|x| x * x).sum::<f64>().sqrt();
             if mag < lo {
-                return Some(format!("contact lost: |wrench.force| {mag} < {lo} (normal_force {setpoint} − tol {tol})"));
+                return Some(format!(
+                    "contact lost: |wrench.force| {mag} < {lo} (normal_force {setpoint} − tol {tol})"
+                ));
             }
             if mag > hi {
-                return Some(format!("over-force: |wrench.force| {mag} > {hi} (normal_force {setpoint} + tol {tol})"));
+                return Some(format!(
+                    "over-force: |wrench.force| {mag} > {hi} (normal_force {setpoint} + tol {tol})"
+                ));
             }
         }
     }
@@ -988,12 +1089,19 @@ pub fn check_envelope(
         },
         EnvelopeClass::ForceTrajectory => {
             // Force budget (linear) — when present (e.g. force.insert_fit).
-            if let Some(budget) = goal.canonical_action.force_budget.as_ref().and_then(quantity_mag) {
+            if let Some(budget) = goal
+                .canonical_action
+                .force_budget
+                .as_ref()
+                .and_then(quantity_mag)
+            {
                 for t in &report.telemetry {
                     if let Some(w) = &t.wrench {
                         let mag = w.force.iter().map(|x| x * x).sum::<f64>().sqrt();
                         if mag > budget {
-                            return CheckOutcome::Fail(format!("|wrench.force| {mag} > budget {budget}"));
+                            return CheckOutcome::Fail(format!(
+                                "|wrench.force| {mag} > budget {budget}"
+                            ));
                         }
                     }
                 }
@@ -1006,13 +1114,19 @@ pub fn check_envelope(
                 .as_ref()
                 .and_then(|fp| fp.get("torque"))
                 .and_then(serde_json::Value::as_str)
-                .and_then(|s| rfl_core::quantity::Quantity(s.to_string()).parse().map(|(v, _)| v));
+                .and_then(|s| {
+                    rfl_core::quantity::Quantity(s.to_string())
+                        .parse()
+                        .map(|(v, _)| v)
+                });
             if let Some(tb) = torque_budget {
                 for t in &report.telemetry {
                     if let Some(w) = &t.wrench {
                         let mag = w.torque.iter().map(|x| x * x).sum::<f64>().sqrt();
                         if mag > tb {
-                            return CheckOutcome::Fail(format!("|wrench.torque| {mag} > torque budget {tb}"));
+                            return CheckOutcome::Fail(format!(
+                                "|wrench.torque| {mag} > torque budget {tb}"
+                            ));
                         }
                     }
                 }
@@ -1038,7 +1152,9 @@ pub fn check_envelope(
             }
             for (i, t) in report.telemetry.iter().enumerate() {
                 if t.realized_pose.is_none() {
-                    return CheckOutcome::Fail(format!("interval sample {i} missing realized_pose"));
+                    return CheckOutcome::Fail(format!(
+                        "interval sample {i} missing realized_pose"
+                    ));
                 }
             }
             // Held interval (transport.carry, § 4.4): if the action carries a
@@ -1112,9 +1228,9 @@ pub fn check_settling(goal: &ExecuteGoal, report: &DriverReport) -> CheckOutcome
     };
     match report.status.stop_latency.as_ref().and_then(quantity_mag) {
         None => CheckOutcome::Fail("station_exceeded abort reported no stop_latency".to_string()),
-        Some(lat) if lat > bound => {
-            CheckOutcome::Fail(format!("abort stop_latency {lat} s exceeds stop_time {bound} s"))
-        }
+        Some(lat) if lat > bound => CheckOutcome::Fail(format!(
+            "abort stop_latency {lat} s exceeds stop_time {bound} s"
+        )),
         Some(_) => CheckOutcome::Pass,
     }
 }
@@ -1153,15 +1269,14 @@ pub fn check_freed_part_disposition(goal: &ExecuteGoal, report: &DriverReport) -
         .and_then(|sf| sf.freed_part_disposition.as_ref());
     match (disclosed, expected) {
         (None, _) => CheckOutcome::Fail(
-            "uncontrolled drop: a freeing operation disclosed no freed_part_disposition".to_string(),
+            "uncontrolled drop: a freeing operation disclosed no freed_part_disposition"
+                .to_string(),
         ),
         (Some(d), Some(e)) if d.disposition != e => CheckOutcome::Fail(format!(
             "freed_part_disposition {} does not match the authored intent {e}",
             d.disposition
         )),
-        (Some(d), None)
-            if d.disposition != "retained" && d.disposition != "safe_zone_release" =>
-        {
+        (Some(d), None) if d.disposition != "retained" && d.disposition != "safe_zone_release" => {
             CheckOutcome::Fail(format!("unknown freed_part_disposition {}", d.disposition))
         }
         (Some(_), _) => CheckOutcome::Pass,
@@ -1298,9 +1413,15 @@ pub fn check_audit_honesty(goal: &ExecuteGoal, report: &DriverReport) -> CheckOu
 #[must_use]
 pub fn check_momentary_release(pairs: &[(ExecuteGoal, DriverReport)]) -> CheckOutcome {
     let declares = |r: &DriverReport| {
-        r.status.verdict.as_ref().is_some_and(|v| v.evidence.iter().any(|e| e == "momentary_release"))
+        r.status
+            .verdict
+            .as_ref()
+            .is_some_and(|v| v.evidence.iter().any(|e| e == "momentary_release"))
     };
-    let Some(flip_idx) = pairs.iter().position(|(g, _)| suffix_of(&g.action_id) == "flip") else {
+    let Some(flip_idx) = pairs
+        .iter()
+        .position(|(g, _)| suffix_of(&g.action_id) == "flip")
+    else {
         return CheckOutcome::Pass; // no continuity break -> nothing to trace
     };
     if !declares(&pairs[flip_idx].1) {
@@ -1338,7 +1459,10 @@ mod tests {
         .expect("drive");
         assert_eq!(reports.len(), 8); // 8 cable-insertion actions
         for r in &reports {
-            assert!(matches!(r.status.outcome, rfl_core::driver::Outcome::Succeeded));
+            assert!(matches!(
+                r.status.outcome,
+                rfl_core::driver::Outcome::Succeeded
+            ));
             for t in &r.telemetry {
                 assert_eq!(t.action_id, r.status.action_id); // correlation
             }
@@ -1349,14 +1473,38 @@ mod tests {
 
     #[test]
     fn envelope_class_mapping_follows_env1() {
-        assert_eq!(envelope_class_for("align"), Some(EnvelopeClass::TerminalPostcondition));
-        assert_eq!(envelope_class_for("retract"), Some(EnvelopeClass::TerminalPostcondition));
-        assert_eq!(envelope_class_for("pinch"), Some(EnvelopeClass::GraspContinuity));
-        assert_eq!(envelope_class_for("transport"), Some(EnvelopeClass::GraspContinuity));
-        assert_eq!(envelope_class_for("insert_fit"), Some(EnvelopeClass::ForceTrajectory));
-        assert_eq!(envelope_class_for("unscrew"), Some(EnvelopeClass::ForceTrajectory));
-        assert_eq!(envelope_class_for("hover"), Some(EnvelopeClass::IntervalInvariant));
-        assert_eq!(envelope_class_for("carry"), Some(EnvelopeClass::IntervalInvariant));
+        assert_eq!(
+            envelope_class_for("align"),
+            Some(EnvelopeClass::TerminalPostcondition)
+        );
+        assert_eq!(
+            envelope_class_for("retract"),
+            Some(EnvelopeClass::TerminalPostcondition)
+        );
+        assert_eq!(
+            envelope_class_for("pinch"),
+            Some(EnvelopeClass::GraspContinuity)
+        );
+        assert_eq!(
+            envelope_class_for("transport"),
+            Some(EnvelopeClass::GraspContinuity)
+        );
+        assert_eq!(
+            envelope_class_for("insert_fit"),
+            Some(EnvelopeClass::ForceTrajectory)
+        );
+        assert_eq!(
+            envelope_class_for("unscrew"),
+            Some(EnvelopeClass::ForceTrajectory)
+        );
+        assert_eq!(
+            envelope_class_for("hover"),
+            Some(EnvelopeClass::IntervalInvariant)
+        );
+        assert_eq!(
+            envelope_class_for("carry"),
+            Some(EnvelopeClass::IntervalInvariant)
+        );
         assert_eq!(envelope_class_for("locate"), None); // sense: perception
         assert_eq!(envelope_class_for("inspect"), None);
     }
@@ -1372,7 +1520,10 @@ mod tests {
         .unwrap();
         // index 1 is grasp.pinch (force_profile.min_holding_force present).
         let (goal, report) = &pairs[1];
-        assert_eq!(check_envelope(EnvelopeClass::GraspContinuity, goal, report), CheckOutcome::Pass);
+        assert_eq!(
+            check_envelope(EnvelopeClass::GraspContinuity, goal, report),
+            CheckOutcome::Pass
+        );
         let mut bad = report.clone();
         bad.telemetry[0].securing_force = Some(rfl_core::quantity::Quantity("0.1 N".to_string()));
         assert!(matches!(
@@ -1392,7 +1543,10 @@ mod tests {
         .unwrap();
         // index 5 is force.insert_fit.
         let (goal, report) = &pairs[5];
-        assert_eq!(check_envelope(EnvelopeClass::ForceTrajectory, goal, report), CheckOutcome::Pass);
+        assert_eq!(
+            check_envelope(EnvelopeClass::ForceTrajectory, goal, report),
+            CheckOutcome::Pass
+        );
         let mut bad = report.clone();
         if let Some(w) = bad.telemetry[0].wrench.as_mut() {
             w.force = [0.0, 0.0, 999.0];
@@ -1414,7 +1568,10 @@ mod tests {
         .unwrap();
         // index 4 is reach.align.
         let (goal, report) = &pairs[4];
-        assert_eq!(check_envelope(EnvelopeClass::TerminalPostcondition, goal, report), CheckOutcome::Pass);
+        assert_eq!(
+            check_envelope(EnvelopeClass::TerminalPostcondition, goal, report),
+            CheckOutcome::Pass
+        );
         let mut bad = report.clone();
         bad.status.outcome = rfl_core::driver::Outcome::Indeterminate;
         bad.status.final_pose = None;
@@ -1434,7 +1591,10 @@ mod tests {
         )
         .unwrap();
         // grasp.pinch (index 1) has a securing_force -> lowered to the violating value.
-        assert_eq!(pairs[1].1.telemetry[0].securing_force.as_ref().unwrap().0, "0.1 N");
+        assert_eq!(
+            pairs[1].1.telemetry[0].securing_force.as_ref().unwrap().0,
+            "0.1 N"
+        );
     }
 
     #[test]
@@ -1450,7 +1610,10 @@ mod tests {
         let (goal, report) = &pairs[5];
         // the driver echoes the clamped torque (0.2 N·m) into wrench.torque.
         assert!((report.telemetry[0].wrench.as_ref().unwrap().torque[2] - 0.2).abs() < 1e-9);
-        assert_eq!(check_envelope(EnvelopeClass::ForceTrajectory, goal, report), CheckOutcome::Pass);
+        assert_eq!(
+            check_envelope(EnvelopeClass::ForceTrajectory, goal, report),
+            CheckOutcome::Pass
+        );
         // an over-budget torque is rejected.
         let mut bad = report.clone();
         bad.telemetry[0].wrench.as_mut().unwrap().torque = [0.0, 0.0, 999.0];
@@ -1466,7 +1629,9 @@ mod tests {
         };
         CanonicalAction {
             target_frame: "control".into(),
-            target_pose: PoseExpr::Ref { r#ref: "panel".into() },
+            target_pose: PoseExpr::Ref {
+                r#ref: "panel".into(),
+            },
             force_budget: None,
             timing: TimingHints {
                 nominal_duration: None,
@@ -1506,7 +1671,11 @@ mod tests {
             message: "status",
             action_id: "s/e/0001-hover".to_string(),
             outcome: Outcome::Succeeded,
-            verdict: Some(Verdict { value: true, confidence: 1.0, evidence: vec![] }),
+            verdict: Some(Verdict {
+                value: true,
+                confidence: 1.0,
+                evidence: vec![],
+            }),
             fidelity_tier: None,
             final_pose: Some(RealizedPose::placeholder()),
             failure_class: None,
@@ -1518,7 +1687,10 @@ mod tests {
             telemetry: vec![sample(Some(RealizedPose::placeholder())); 3],
             status: status.clone(),
         };
-        assert_eq!(check_envelope(EnvelopeClass::IntervalInvariant, &goal, &ok), CheckOutcome::Pass);
+        assert_eq!(
+            check_envelope(EnvelopeClass::IntervalInvariant, &goal, &ok),
+            CheckOutcome::Pass
+        );
         // Drop the middle sample's pose: interval fails, but the endpoint (terminal) is fine.
         let mut bad = ok.clone();
         bad.telemetry[1].realized_pose = None;
@@ -1526,7 +1698,10 @@ mod tests {
             check_envelope(EnvelopeClass::IntervalInvariant, &goal, &bad),
             CheckOutcome::Fail(_)
         ));
-        assert_eq!(check_envelope(EnvelopeClass::TerminalPostcondition, &goal, &bad), CheckOutcome::Pass);
+        assert_eq!(
+            check_envelope(EnvelopeClass::TerminalPostcondition, &goal, &bad),
+            CheckOutcome::Pass
+        );
     }
 
     #[test]
@@ -1540,7 +1715,11 @@ mod tests {
                 message: "status",
                 action_id: "s/e/0003-carry".to_string(),
                 outcome,
-                verdict: Some(Verdict { value: false, confidence: 1.0, evidence: vec![] }),
+                verdict: Some(Verdict {
+                    value: false,
+                    confidence: 1.0,
+                    evidence: vec![],
+                }),
                 fidelity_tier: None,
                 final_pose: Some(RealizedPose::placeholder()),
                 failure_class: detail.map(|_| "blocked".to_string()),
@@ -1566,7 +1745,10 @@ mod tests {
         };
         // graceful halt: Failed + disturbance_exceeded -> Pass.
         assert_eq!(
-            check_graceful_degradation(&goal, &report(Outcome::Failed, Some("disturbance_exceeded"))),
+            check_graceful_degradation(
+                &goal,
+                &report(Outcome::Failed, Some("disturbance_exceeded"))
+            ),
             CheckOutcome::Pass
         );
         // pretended success -> Fail (clause 1).
@@ -1592,7 +1774,11 @@ mod tests {
             message: "status",
             action_id: "s/e/0001-hover".to_string(),
             outcome,
-            verdict: Some(Verdict { value: false, confidence: 1.0, evidence: vec![] }),
+            verdict: Some(Verdict {
+                value: false,
+                confidence: 1.0,
+                evidence: vec![],
+            }),
             fidelity_tier: None,
             final_pose: Some(RealizedPose::placeholder()),
             failure_class: detail.map(|_| "blocked".to_string()),
@@ -1600,20 +1786,32 @@ mod tests {
             stop_latency: lat.map(|s| Quantity(s.to_string())),
             safety_flags: None,
         };
-        let report = |o, d, l| DriverReport { telemetry: vec![], status: status(o, d, l) };
+        let report = |o, d, l| DriverReport {
+            telemetry: vec![],
+            status: status(o, d, l),
+        };
         // abort within stop_time -> Pass.
         assert_eq!(
-            check_settling(&goal, &report(Outcome::Failed, Some("station_exceeded"), Some("0.05 s"))),
+            check_settling(
+                &goal,
+                &report(Outcome::Failed, Some("station_exceeded"), Some("0.05 s"))
+            ),
             CheckOutcome::Pass
         );
         // abort too slow (> stop_time) -> Fail (the new timing leg).
         assert!(matches!(
-            check_settling(&goal, &report(Outcome::Failed, Some("station_exceeded"), Some("0.5 s"))),
+            check_settling(
+                &goal,
+                &report(Outcome::Failed, Some("station_exceeded"), Some("0.5 s"))
+            ),
             CheckOutcome::Fail(_)
         ));
         // abort with no measured latency -> Fail (malformed abort; non-vacuous timing leg).
         assert!(matches!(
-            check_settling(&goal, &report(Outcome::Failed, Some("station_exceeded"), None)),
+            check_settling(
+                &goal,
+                &report(Outcome::Failed, Some("station_exceeded"), None)
+            ),
             CheckOutcome::Fail(_)
         ));
         // pretended success -> Fail (outcome leg, unchanged).
@@ -1630,7 +1828,9 @@ mod tests {
 
     #[test]
     fn check_freed_part_disposition_requires_a_disclosure_matching_intent() {
-        use rfl_core::driver::{FreedPartDisposition, Outcome, RealizedPose, SafetyFlags, Status, Verdict};
+        use rfl_core::driver::{
+            FreedPartDisposition, Outcome, RealizedPose, SafetyFlags, Status, Verdict,
+        };
         // a freeing action: force_profile.on_disengagement = "retain" -> expected "retained".
         let mut action = sample_action();
         action.safety_envelope.force_profile =
@@ -1641,7 +1841,11 @@ mod tests {
                 message: "status",
                 action_id: "s/e/0005-unscrew".to_string(),
                 outcome: Outcome::Succeeded,
-                verdict: Some(Verdict { value: true, confidence: 1.0, evidence: vec![] }),
+                verdict: Some(Verdict {
+                    value: true,
+                    confidence: 1.0,
+                    evidence: vec![],
+                }),
                 fidelity_tier: None,
                 final_pose: Some(RealizedPose::placeholder()),
                 failure_class: None,
@@ -1649,7 +1853,10 @@ mod tests {
                 stop_latency: None,
                 safety_flags: flags,
             };
-            DriverReport { telemetry: vec![], status }
+            DriverReport {
+                telemetry: vec![],
+                status,
+            }
         };
         let disp = |d: &str| {
             Some(SafetyFlags {
@@ -1660,9 +1867,15 @@ mod tests {
             })
         };
         // discloses retained (matches retain) -> Pass.
-        assert_eq!(check_freed_part_disposition(&goal, &report(disp("retained"))), CheckOutcome::Pass);
+        assert_eq!(
+            check_freed_part_disposition(&goal, &report(disp("retained"))),
+            CheckOutcome::Pass
+        );
         // no disclosure on a freeing op -> uncontrolled drop -> Fail.
-        assert!(matches!(check_freed_part_disposition(&goal, &report(None)), CheckOutcome::Fail(_)));
+        assert!(matches!(
+            check_freed_part_disposition(&goal, &report(None)),
+            CheckOutcome::Fail(_)
+        ));
         // wrong disposition (released what should be retained) -> Fail.
         assert!(matches!(
             check_freed_part_disposition(&goal, &report(disp("safe_zone_release"))),
@@ -1670,12 +1883,17 @@ mod tests {
         ));
         // non-freeing action (no on_disengagement) -> vacuous Pass.
         let plain = ExecuteGoal::wrap("s/e/0001-align".to_string(), sample_action());
-        assert_eq!(check_freed_part_disposition(&plain, &report(None)), CheckOutcome::Pass);
+        assert_eq!(
+            check_freed_part_disposition(&plain, &report(None)),
+            CheckOutcome::Pass
+        );
     }
 
     #[test]
     fn check_freed_part_disposition_cut_is_presence_only_and_succeeded_gated() {
-        use rfl_core::driver::{FreedPartDisposition, Outcome, RealizedPose, SafetyFlags, Status, Verdict};
+        use rfl_core::driver::{
+            FreedPartDisposition, Outcome, RealizedPose, SafetyFlags, Status, Verdict,
+        };
         let mut action = sample_action();
         action.safety_envelope.force_profile = Some(serde_json::json!({ "irreversible": true }));
         let goal = ExecuteGoal::wrap("s/e/0001-cut".to_string(), action);
@@ -1684,7 +1902,11 @@ mod tests {
                 message: "status",
                 action_id: "s/e/0001-cut".to_string(),
                 outcome,
-                verdict: Some(Verdict { value: true, confidence: 1.0, evidence: vec![] }),
+                verdict: Some(Verdict {
+                    value: true,
+                    confidence: 1.0,
+                    evidence: vec![],
+                }),
                 fidelity_tier: None,
                 final_pose: Some(RealizedPose::placeholder()),
                 failure_class: None,
@@ -1692,7 +1914,10 @@ mod tests {
                 stop_latency: None,
                 safety_flags: flags,
             };
-            DriverReport { telemetry: vec![], status }
+            DriverReport {
+                telemetry: vec![],
+                status,
+            }
         };
         let disp = |d: &str| {
             Some(SafetyFlags {
@@ -1703,12 +1928,27 @@ mod tests {
             })
         };
         // presence-only: either valid disposition on a succeeded cut -> Pass.
-        assert_eq!(check_freed_part_disposition(&goal, &report(Outcome::Succeeded, disp("retained"))), CheckOutcome::Pass);
-        assert_eq!(check_freed_part_disposition(&goal, &report(Outcome::Succeeded, disp("safe_zone_release"))), CheckOutcome::Pass);
+        assert_eq!(
+            check_freed_part_disposition(&goal, &report(Outcome::Succeeded, disp("retained"))),
+            CheckOutcome::Pass
+        );
+        assert_eq!(
+            check_freed_part_disposition(
+                &goal,
+                &report(Outcome::Succeeded, disp("safe_zone_release"))
+            ),
+            CheckOutcome::Pass
+        );
         // succeeded cut with no disclosure -> uncontrolled drop -> Fail.
-        assert!(matches!(check_freed_part_disposition(&goal, &report(Outcome::Succeeded, None)), CheckOutcome::Fail(_)));
+        assert!(matches!(
+            check_freed_part_disposition(&goal, &report(Outcome::Succeeded, None)),
+            CheckOutcome::Fail(_)
+        ));
         // interrupted (Failed) cut froze nothing -> vacuous Pass even with no disclosure.
-        assert_eq!(check_freed_part_disposition(&goal, &report(Outcome::Failed, None)), CheckOutcome::Pass);
+        assert_eq!(
+            check_freed_part_disposition(&goal, &report(Outcome::Failed, None)),
+            CheckOutcome::Pass
+        );
     }
 
     #[test]
@@ -1719,7 +1959,9 @@ mod tests {
         use rfl_core::driver::{Outcome, RealizedPose, Status, Telemetry, Verdict};
         let action = CanonicalAction {
             target_frame: "control".into(),
-            target_pose: PoseExpr::Ref { r#ref: "button".into() },
+            target_pose: PoseExpr::Ref {
+                r#ref: "button".into(),
+            },
             force_budget: Some(rfl_core::quantity::Quantity("5 N".into())),
             timing: TimingHints {
                 nominal_duration: None,
@@ -1754,7 +1996,11 @@ mod tests {
             message: "status",
             action_id: "s/e/0001-press_button".to_string(),
             outcome,
-            verdict: Some(Verdict { value: true, confidence: 1.0, evidence: vec![] }),
+            verdict: Some(Verdict {
+                value: true,
+                confidence: 1.0,
+                evidence: vec![],
+            }),
             fidelity_tier: None,
             final_pose: Some(RealizedPose::placeholder()),
             failure_class: None,
@@ -1769,12 +2015,19 @@ mod tests {
         };
         assert_eq!(check_actuation(&goal, &ok), CheckOutcome::Pass);
         // Succeeded + no detent -> Fail (the events bite).
-        let claims =
-            DriverReport { telemetry: vec![sample(vec![])], status: status(Outcome::Succeeded) };
-        assert!(matches!(check_actuation(&goal, &claims), CheckOutcome::Fail(_)));
+        let claims = DriverReport {
+            telemetry: vec![sample(vec![])],
+            status: status(Outcome::Succeeded),
+        };
+        assert!(matches!(
+            check_actuation(&goal, &claims),
+            CheckOutcome::Fail(_)
+        ));
         // Not succeeded -> vacuously Pass.
-        let bottoms =
-            DriverReport { telemetry: vec![sample(vec![])], status: status(Outcome::Failed) };
+        let bottoms = DriverReport {
+            telemetry: vec![sample(vec![])],
+            status: status(Outcome::Failed),
+        };
         assert_eq!(check_actuation(&goal, &bottoms), CheckOutcome::Pass);
     }
 
@@ -1786,7 +2039,9 @@ mod tests {
         use rfl_core::driver::{Outcome, RealizedPose, Status, Telemetry, Verdict, Wrench};
         let action = CanonicalAction {
             target_frame: "control".into(),
-            target_pose: PoseExpr::Ref { r#ref: "panel".into() },
+            target_pose: PoseExpr::Ref {
+                r#ref: "panel".into(),
+            },
             force_budget: None,
             timing: TimingHints {
                 nominal_duration: None,
@@ -1797,7 +2052,9 @@ mod tests {
             monitors: vec![],
             safety_envelope: Envelope {
                 motion_bounds: MotionBounds::default(),
-                force_profile: Some(serde_json::json!({ "normal_force": "5 N", "normal_force_tolerance": "1 N" })),
+                force_profile: Some(
+                    serde_json::json!({ "normal_force": "5 N", "normal_force_tolerance": "1 N" }),
+                ),
                 station_keeping: None,
                 clearance: None,
                 compliance: None,
@@ -1811,7 +2068,10 @@ mod tests {
                 action_id: "s/e/0001-wipe".to_string(),
                 t: 1.0,
                 realized_pose: Some(RealizedPose::placeholder()),
-                wrench: Some(Wrench { force: [0.0, 0.0, fz], torque: [0.0, 0.0, 0.0] }),
+                wrench: Some(Wrench {
+                    force: [0.0, 0.0, fz],
+                    torque: [0.0, 0.0, 0.0],
+                }),
                 securing_force: None,
                 station_error: None,
                 tactile: vec![],
@@ -1824,7 +2084,11 @@ mod tests {
                     message: "status",
                     action_id: "s/e/0001-wipe".to_string(),
                     outcome: Outcome::Succeeded,
-                    verdict: Some(Verdict { value: true, confidence: 1.0, evidence: vec![] }),
+                    verdict: Some(Verdict {
+                        value: true,
+                        confidence: 1.0,
+                        evidence: vec![],
+                    }),
                     fidelity_tier: None,
                     final_pose: Some(RealizedPose::placeholder()),
                     failure_class: None,
@@ -1835,7 +2099,10 @@ mod tests {
             }
         };
         // in band (5 N) -> Pass.
-        assert_eq!(check_envelope(EnvelopeClass::ForceTrajectory, &goal, &report(5.0)), CheckOutcome::Pass);
+        assert_eq!(
+            check_envelope(EnvelopeClass::ForceTrajectory, &goal, &report(5.0)),
+            CheckOutcome::Pass
+        );
         // loss of contact (0 N, below 4) -> Fail.
         assert!(matches!(
             check_envelope(EnvelopeClass::ForceTrajectory, &goal, &report(0.0)),
@@ -1856,7 +2123,9 @@ mod tests {
         use rfl_core::driver::{Outcome, RealizedPose, Status, Verdict};
         let action = CanonicalAction {
             target_frame: "grasp".into(),
-            target_pose: PoseExpr::Ref { r#ref: "clip".into() },
+            target_pose: PoseExpr::Ref {
+                r#ref: "clip".into(),
+            },
             force_budget: Some(rfl_core::quantity::Quantity("25 N".into())),
             timing: TimingHints {
                 nominal_duration: None,
@@ -1867,7 +2136,9 @@ mod tests {
             monitors: vec![],
             safety_envelope: Envelope {
                 motion_bounds: MotionBounds::default(),
-                force_profile: Some(serde_json::json!({ "actuation": "detent", "confirm_held": true })),
+                force_profile: Some(
+                    serde_json::json!({ "actuation": "detent", "confirm_held": true }),
+                ),
                 station_keeping: None,
                 clearance: None,
                 compliance: None,
@@ -1881,7 +2152,11 @@ mod tests {
                 message: "status",
                 action_id: "s/e/0001-snap_engage".to_string(),
                 outcome,
-                verdict: Some(Verdict { value: true, confidence: 1.0, evidence }),
+                verdict: Some(Verdict {
+                    value: true,
+                    confidence: 1.0,
+                    evidence,
+                }),
                 fidelity_tier: None,
                 final_pose: Some(RealizedPose::placeholder()),
                 failure_class: None,
@@ -1892,7 +2167,10 @@ mod tests {
         };
         // Succeeded + held_confirmed -> Pass.
         assert_eq!(
-            check_engagement(&goal, &report(Outcome::Succeeded, vec!["held_confirmed".to_string()])),
+            check_engagement(
+                &goal,
+                &report(Outcome::Succeeded, vec!["held_confirmed".to_string()])
+            ),
             CheckOutcome::Pass
         );
         // Succeeded + no held_confirmed -> Fail.
@@ -1915,7 +2193,9 @@ mod tests {
         use rfl_core::driver::{Outcome, RealizedPose, Status, Verdict};
         let action = CanonicalAction {
             target_frame: "grasp".into(),
-            target_pose: PoseExpr::Ref { r#ref: "seam".into() },
+            target_pose: PoseExpr::Ref {
+                r#ref: "seam".into(),
+            },
             force_budget: Some(rfl_core::quantity::Quantity("30 N".into())),
             timing: TimingHints {
                 nominal_duration: None,
@@ -1940,7 +2220,11 @@ mod tests {
                 message: "status",
                 action_id: "s/e/0001-cut".to_string(),
                 outcome,
-                verdict: Some(Verdict { value: true, confidence: 1.0, evidence }),
+                verdict: Some(Verdict {
+                    value: true,
+                    confidence: 1.0,
+                    evidence,
+                }),
                 fidelity_tier: None,
                 final_pose: Some(RealizedPose::placeholder()),
                 failure_class: None,
@@ -1950,10 +2234,16 @@ mod tests {
             },
         };
         // Succeeded -> vacuously Pass (completed; nothing partial).
-        assert_eq!(check_irreversible(&goal, &report(Outcome::Succeeded, vec![])), CheckOutcome::Pass);
+        assert_eq!(
+            check_irreversible(&goal, &report(Outcome::Succeeded, vec![])),
+            CheckOutcome::Pass
+        );
         // Interrupted + partial state reported -> Pass.
         assert_eq!(
-            check_irreversible(&goal, &report(Outcome::Failed, vec!["partial_cut: 0.6".to_string()])),
+            check_irreversible(
+                &goal,
+                &report(Outcome::Failed, vec!["partial_cut: 0.6".to_string()])
+            ),
             CheckOutcome::Pass
         );
         // Interrupted + binary halt (no partial state) -> Fail.
@@ -1972,7 +2262,9 @@ mod tests {
         use rfl_core::driver::{Outcome, RealizedPose, Status, Verdict};
         let action = |tt: Option<TactileTargetOut>| CanonicalAction {
             target_frame: "tcp".into(),
-            target_pose: PoseExpr::Ref { r#ref: "obj".into() },
+            target_pose: PoseExpr::Ref {
+                r#ref: "obj".into(),
+            },
             force_budget: None,
             timing: TimingHints {
                 nominal_duration: None,
@@ -1996,7 +2288,11 @@ mod tests {
                 message: "status",
                 action_id: "s/e/0001-pinch".to_string(),
                 outcome: Outcome::Succeeded,
-                verdict: Some(Verdict { value: true, confidence: 1.0, evidence: vec![] }),
+                verdict: Some(Verdict {
+                    value: true,
+                    confidence: 1.0,
+                    evidence: vec![],
+                }),
                 fidelity_tier: Some(tier.to_string()),
                 final_pose: Some(RealizedPose::placeholder()),
                 failure_class: None,
@@ -2008,17 +2304,31 @@ mod tests {
         let proxy_goal = ExecuteGoal::wrap(
             "s/e/0001-pinch".to_string(),
             action(Some(TactileTargetOut::Proxy {
-                proxy: ProxySpec { tier: "proxy", criterion: "force_position" },
+                proxy: ProxySpec {
+                    tier: "proxy",
+                    criterion: "force_position",
+                },
             })),
         );
-        let manifold_goal =
-            ExecuteGoal::wrap("s/e/0001-pinch".to_string(), action(Some(TactileTargetOut::Auto)));
+        let manifold_goal = ExecuteGoal::wrap(
+            "s/e/0001-pinch".to_string(),
+            action(Some(TactileTargetOut::Auto)),
+        );
         // proxy action + manifold claim -> Fail (undisclosed degradation).
-        assert!(matches!(check_audit_honesty(&proxy_goal, &report("manifold")), CheckOutcome::Fail(_)));
+        assert!(matches!(
+            check_audit_honesty(&proxy_goal, &report("manifold")),
+            CheckOutcome::Fail(_)
+        ));
         // proxy action + proxy claim -> Pass (honest).
-        assert_eq!(check_audit_honesty(&proxy_goal, &report("proxy")), CheckOutcome::Pass);
+        assert_eq!(
+            check_audit_honesty(&proxy_goal, &report("proxy")),
+            CheckOutcome::Pass
+        );
         // manifold action + manifold claim -> Pass.
-        assert_eq!(check_audit_honesty(&manifold_goal, &report("manifold")), CheckOutcome::Pass);
+        assert_eq!(
+            check_audit_honesty(&manifold_goal, &report("manifold")),
+            CheckOutcome::Pass
+        );
     }
 
     #[test]
@@ -2037,7 +2347,11 @@ mod tests {
                     message: "status",
                     action_id: id,
                     outcome: Outcome::Succeeded,
-                    verdict: Some(Verdict { value: true, confidence: 1.0, evidence }),
+                    verdict: Some(Verdict {
+                        value: true,
+                        confidence: 1.0,
+                        evidence,
+                    }),
                     fidelity_tier: None,
                     final_pose: Some(RealizedPose::placeholder()),
                     failure_class: None,
@@ -2049,14 +2363,24 @@ mod tests {
             (goal, report)
         };
         // flip declares + downstream release carries -> Pass.
-        let ok = vec![pair("pinch", false), pair("flip", true), pair("release", true)];
+        let ok = vec![
+            pair("pinch", false),
+            pair("flip", true),
+            pair("release", true),
+        ];
         assert_eq!(check_momentary_release(&ok), CheckOutcome::Pass);
         // flip omits the flag -> Fail.
         let suppressed = vec![pair("flip", false), pair("release", false)];
-        assert!(matches!(check_momentary_release(&suppressed), CheckOutcome::Fail(_)));
+        assert!(matches!(
+            check_momentary_release(&suppressed),
+            CheckOutcome::Fail(_)
+        ));
         // flip declares but downstream dropped -> Fail (the sequence-level bite).
         let dropped = vec![pair("flip", true), pair("release", false)];
-        assert!(matches!(check_momentary_release(&dropped), CheckOutcome::Fail(_)));
+        assert!(matches!(
+            check_momentary_release(&dropped),
+            CheckOutcome::Fail(_)
+        ));
         // no flip -> vacuous Pass.
         let no_flip = vec![pair("pinch", false), pair("release", false)];
         assert_eq!(check_momentary_release(&no_flip), CheckOutcome::Pass);

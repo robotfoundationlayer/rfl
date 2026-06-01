@@ -29,14 +29,24 @@ fn keygen_sign_verify_reports_signer() {
     assert!(public.contains("public_key "), "stdout: {public}");
 
     // sign the committed certificate -> stdout.
-    let sg = rfl().arg("sign").arg("--key").arg(&key).arg(example_cert()).output().expect("sign");
+    let sg = rfl()
+        .arg("sign")
+        .arg("--key")
+        .arg(&key)
+        .arg(example_cert())
+        .output()
+        .expect("sign");
     assert!(sg.status.success(), "sign exit {:?}", sg.status.code());
     std::fs::write(&signed, &sg.stdout).unwrap();
 
     // verify the signed cert -> exit 0 + "signed by".
     let vf = rfl().arg("verify").arg(&signed).output().expect("verify");
     let out = String::from_utf8_lossy(&vf.stdout);
-    assert!(vf.status.success(), "verify exit {:?}, stdout: {out}", vf.status.code());
+    assert!(
+        vf.status.success(),
+        "verify exit {:?}, stdout: {out}",
+        vf.status.code()
+    );
     assert!(out.contains("signed by"), "stdout: {out}");
 
     // length-preserving sig tamper: flip the first hex digit of the signature -> exit 1.
@@ -46,8 +56,17 @@ fn keygen_sign_verify_reports_signer() {
     let mut bytes = s.into_bytes();
     bytes[at] = if bytes[at] == b'0' { b'1' } else { b'0' };
     std::fs::write(&tampered_path, &bytes).unwrap();
-    let vf2 = rfl().arg("verify").arg(&tampered_path).output().expect("verify tampered");
-    assert_eq!(vf2.status.code(), Some(1), "stdout: {}", String::from_utf8_lossy(&vf2.stdout));
+    let vf2 = rfl()
+        .arg("verify")
+        .arg(&tampered_path)
+        .output()
+        .expect("verify tampered");
+    assert_eq!(
+        vf2.status.code(),
+        Some(1),
+        "stdout: {}",
+        String::from_utf8_lossy(&vf2.stdout)
+    );
 
     for p in [key, signed, tampered_path] {
         std::fs::remove_file(p).ok();

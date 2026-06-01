@@ -40,7 +40,11 @@ impl SweepPose {
     pub fn from_pose(p: &crate::pose::Pose6D) -> Self {
         let q = p.orientation.coords; // [x, y, z, w]
         SweepPose {
-            position: [round6(p.position[0]), round6(p.position[1]), round6(p.position[2])],
+            position: [
+                round6(p.position[0]),
+                round6(p.position[1]),
+                round6(p.position[2]),
+            ],
             orientation: [round6(q[0]), round6(q[1]), round6(q[2]), round6(q[3])],
         }
     }
@@ -254,7 +258,11 @@ impl ExecuteGoal {
     /// Wrap a canonical action with its correlation id.
     #[must_use]
     pub fn wrap(action_id: impl Into<String>, canonical_action: CanonicalAction) -> Self {
-        Self { message: "execute", action_id: action_id.into(), canonical_action }
+        Self {
+            message: "execute",
+            action_id: action_id.into(),
+            canonical_action,
+        }
     }
 }
 
@@ -310,7 +318,9 @@ mod tests {
     fn sample() -> CanonicalAction {
         CanonicalAction {
             target_frame: "tcp_thumb".into(),
-            target_pose: PoseExpr::Ref { r#ref: "receptacle_t".into() },
+            target_pose: PoseExpr::Ref {
+                r#ref: "receptacle_t".into(),
+            },
             force_budget: Some(Quantity("15 N".into())),
             timing: TimingHints {
                 nominal_duration: None,
@@ -352,7 +362,12 @@ mod tests {
     #[test]
     fn jsonl_joins_actions_one_per_line() {
         let actions = vec![sample(), sample()];
-        let jsonl = to_jsonl("cable-insertion", "wonik-allegro-v4", &actions, &["pinch", "insert_fit"]);
+        let jsonl = to_jsonl(
+            "cable-insertion",
+            "wonik-allegro-v4",
+            &actions,
+            &["pinch", "insert_fit"],
+        );
         assert_eq!(jsonl.lines().count(), 2);
         assert!(jsonl.lines().next().unwrap().contains("0001-pinch"));
         assert!(jsonl.lines().nth(1).unwrap().contains("0002-insert_fit"));

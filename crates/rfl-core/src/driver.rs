@@ -31,7 +31,10 @@ impl RealizedPose {
     /// The deterministic placeholder pose (identity orientation at the origin).
     #[must_use]
     pub fn placeholder() -> Self {
-        RealizedPose { position: [0.0, 0.0, 0.0], orientation: [0.0, 0.0, 0.0, 1.0] }
+        RealizedPose {
+            position: [0.0, 0.0, 0.0],
+            orientation: [0.0, 0.0, 0.0, 1.0],
+        }
     }
 }
 

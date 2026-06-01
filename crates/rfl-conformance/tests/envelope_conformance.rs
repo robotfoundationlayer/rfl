@@ -7,12 +7,12 @@
 //! REJECTED by the matching checker — the non-circular proof that the suite bites.
 
 use rfl_conformance::{
-    check_actuation, check_audit_honesty, check_engagement, check_envelope,
+    CheckOutcome, CutDriver, CutResponse, DisturbanceDriver, DisturbanceResponse, EnvelopeClass,
+    Fault, FaultyDriver, FlipDriver, FlipResponse, FreeingDriver, FreeingResponse, HoverResponse,
+    HoverSettlingDriver, PressButtonDriver, PressButtonResponse, ReferenceDriver, SnapEngageDriver,
+    SnapEngageResponse, check_actuation, check_audit_honesty, check_engagement, check_envelope,
     check_freed_part_disposition, check_graceful_degradation, check_irreversible,
-    check_momentary_release, check_settling, drive, envelope_class_for, CheckOutcome, CutDriver,
-    CutResponse, DisturbanceDriver, DisturbanceResponse, EnvelopeClass, Fault, FaultyDriver,
-    FlipDriver, FlipResponse, FreeingDriver, FreeingResponse, HoverResponse, HoverSettlingDriver,
-    PressButtonDriver, PressButtonResponse, ReferenceDriver, SnapEngageDriver, SnapEngageResponse,
+    check_momentary_release, check_settling, drive, envelope_class_for,
 };
 use std::path::{Path, PathBuf};
 
@@ -119,7 +119,10 @@ fn nominal_transport_grasp_continuity_is_non_vacuous() {
         report.telemetry.iter().any(|t| t.securing_force.is_some()),
         "transport telemetry must carry securing_force"
     );
-    assert_eq!(check_envelope(EnvelopeClass::GraspContinuity, goal, report), CheckOutcome::Pass);
+    assert_eq!(
+        check_envelope(EnvelopeClass::GraspContinuity, goal, report),
+        CheckOutcome::Pass
+    );
 }
 
 #[test]
@@ -160,7 +163,10 @@ fn nominal_screw_passes_force_trajectory() {
     // force.screw is action index 5.
     let (goal, report) = &pairs[5];
     assert_eq!(suffix_of(&goal.action_id), "screw");
-    assert_eq!(check_envelope(EnvelopeClass::ForceTrajectory, goal, report), CheckOutcome::Pass);
+    assert_eq!(
+        check_envelope(EnvelopeClass::ForceTrajectory, goal, report),
+        CheckOutcome::Pass
+    );
 }
 
 #[test]
@@ -193,7 +199,10 @@ fn nominal_unscrew_passes_force_trajectory() {
     // force.unscrew is action index 5.
     let (goal, report) = &pairs[5];
     assert_eq!(suffix_of(&goal.action_id), "unscrew");
-    assert_eq!(check_envelope(EnvelopeClass::ForceTrajectory, goal, report), CheckOutcome::Pass);
+    assert_eq!(
+        check_envelope(EnvelopeClass::ForceTrajectory, goal, report),
+        CheckOutcome::Pass
+    );
 }
 
 #[test]
@@ -227,7 +236,10 @@ fn nominal_unscrew_discloses_freed_part_disposition() {
     .expect("drive");
     let (goal, report) = &pairs[5];
     assert_eq!(suffix_of(&goal.action_id), "unscrew");
-    assert_eq!(check_freed_part_disposition(goal, report), CheckOutcome::Pass);
+    assert_eq!(
+        check_freed_part_disposition(goal, report),
+        CheckOutcome::Pass
+    );
 }
 
 #[test]
@@ -241,7 +253,10 @@ fn unscrew_uncontrolled_drop_fails_disposition() {
     .expect("drive");
     let (goal, report) = &pairs[5];
     assert_eq!(suffix_of(&goal.action_id), "unscrew");
-    assert!(matches!(check_freed_part_disposition(goal, report), CheckOutcome::Fail(_)));
+    assert!(matches!(
+        check_freed_part_disposition(goal, report),
+        CheckOutcome::Fail(_)
+    ));
 }
 
 #[test]
@@ -254,7 +269,10 @@ fn unscrew_false_disposition_fails() {
     )
     .expect("drive");
     let (goal, report) = &pairs[5];
-    assert!(matches!(check_freed_part_disposition(goal, report), CheckOutcome::Fail(_)));
+    assert!(matches!(
+        check_freed_part_disposition(goal, report),
+        CheckOutcome::Fail(_)
+    ));
 }
 
 #[test]
@@ -268,7 +286,10 @@ fn nominal_cut_discloses_disposition() {
     .expect("drive");
     let (goal, report) = &pairs[0];
     assert_eq!(suffix_of(&goal.action_id), "cut");
-    assert_eq!(check_freed_part_disposition(goal, report), CheckOutcome::Pass);
+    assert_eq!(
+        check_freed_part_disposition(goal, report),
+        CheckOutcome::Pass
+    );
 }
 
 #[test]
@@ -282,7 +303,10 @@ fn cut_uncontrolled_drop_fails_disposition() {
     .expect("drive");
     let (goal, report) = &pairs[0];
     assert_eq!(suffix_of(&goal.action_id), "cut");
-    assert!(matches!(check_freed_part_disposition(goal, report), CheckOutcome::Fail(_)));
+    assert!(matches!(
+        check_freed_part_disposition(goal, report),
+        CheckOutcome::Fail(_)
+    ));
 }
 
 #[test]
@@ -297,7 +321,10 @@ fn cut_accepts_either_disposition_presence_only() {
     )
     .expect("drive");
     let (goal, report) = &pairs[0];
-    assert_eq!(check_freed_part_disposition(goal, report), CheckOutcome::Pass);
+    assert_eq!(
+        check_freed_part_disposition(goal, report),
+        CheckOutcome::Pass
+    );
 }
 
 #[test]
@@ -312,8 +339,15 @@ fn nominal_hover_passes_interval_invariant() {
     // reach.hover is action index 0; the driver samples the interval (3 samples).
     let (goal, report) = &pairs[0];
     assert_eq!(suffix_of(&goal.action_id), "hover");
-    assert_eq!(report.telemetry.len(), 3, "the interval must be sampled (non-vacuous)");
-    assert_eq!(check_envelope(EnvelopeClass::IntervalInvariant, goal, report), CheckOutcome::Pass);
+    assert_eq!(
+        report.telemetry.len(),
+        3,
+        "the interval must be sampled (non-vacuous)"
+    );
+    assert_eq!(
+        check_envelope(EnvelopeClass::IntervalInvariant, goal, report),
+        CheckOutcome::Pass
+    );
 }
 
 #[test]
@@ -354,8 +388,15 @@ fn carry_invariant_holds_under_sub_budget_disturbance() {
     .expect("drive");
     let (goal, report) = &pairs[2]; // locate, pinch, carry
     assert_eq!(suffix_of(&goal.action_id), "carry");
-    assert_eq!(report.telemetry.len(), 3, "interval-sampled under perturbation");
-    assert_eq!(check_envelope(EnvelopeClass::IntervalInvariant, goal, report), CheckOutcome::Pass);
+    assert_eq!(
+        report.telemetry.len(),
+        3,
+        "interval-sampled under perturbation"
+    );
+    assert_eq!(
+        check_envelope(EnvelopeClass::IntervalInvariant, goal, report),
+        CheckOutcome::Pass
+    );
 }
 
 #[test]
@@ -389,7 +430,10 @@ fn over_budget_drop_fails_graceful_degradation() {
     )
     .expect("drive");
     let (goal, report) = &pairs[2];
-    assert!(matches!(check_graceful_degradation(goal, report), CheckOutcome::Fail(_)));
+    assert!(matches!(
+        check_graceful_degradation(goal, report),
+        CheckOutcome::Fail(_)
+    ));
 }
 
 #[test]
@@ -403,7 +447,10 @@ fn over_budget_false_success_fails_graceful_degradation() {
     )
     .expect("drive");
     let (goal, report) = &pairs[2];
-    assert!(matches!(check_graceful_degradation(goal, report), CheckOutcome::Fail(_)));
+    assert!(matches!(
+        check_graceful_degradation(goal, report),
+        CheckOutcome::Fail(_)
+    ));
 }
 
 #[test]
@@ -421,7 +468,10 @@ fn nominal_carry_passes_interval_with_held_floor() {
     let (goal, report) = &pairs[2];
     assert_eq!(suffix_of(&goal.action_id), "carry");
     assert_eq!(report.telemetry.len(), 3, "carry is interval-sampled");
-    assert_eq!(check_envelope(EnvelopeClass::IntervalInvariant, goal, report), CheckOutcome::Pass);
+    assert_eq!(
+        check_envelope(EnvelopeClass::IntervalInvariant, goal, report),
+        CheckOutcome::Pass
+    );
     // non-vacuous: the held floor IS present and IS being checked over the interval.
     assert!(report.telemetry[0].securing_force.is_some());
 }
@@ -483,9 +533,16 @@ fn hover_recovers_within_settling_passes_interval() {
     .expect("drive");
     let (goal, report) = &pairs[0];
     assert_eq!(suffix_of(&goal.action_id), "hover");
-    assert_eq!(report.telemetry.len(), 3, "interval-sampled under perturbation");
+    assert_eq!(
+        report.telemetry.len(),
+        3,
+        "interval-sampled under perturbation"
+    );
     // sample 0 exceeds tolerance (grace window) but the settled tail recovered.
-    assert_eq!(check_envelope(EnvelopeClass::IntervalInvariant, goal, report), CheckOutcome::Pass);
+    assert_eq!(
+        check_envelope(EnvelopeClass::IntervalInvariant, goal, report),
+        CheckOutcome::Pass
+    );
 }
 
 #[test]
@@ -535,8 +592,14 @@ fn hover_over_envelope_abort_too_slow_fails_timing() {
     let (goal, report) = &pairs[0];
     // non-circular: the abort is honest (Failed + station_exceeded) yet overruns stop_time,
     // so the timing leg fails while the outcome leg alone would have passed.
-    assert_eq!(report.status.failure_detail.as_deref(), Some("station_exceeded"));
-    assert!(matches!(check_settling(goal, report), CheckOutcome::Fail(_)));
+    assert_eq!(
+        report.status.failure_detail.as_deref(),
+        Some("station_exceeded")
+    );
+    assert!(matches!(
+        check_settling(goal, report),
+        CheckOutcome::Fail(_)
+    ));
 }
 
 #[test]
@@ -549,7 +612,10 @@ fn hover_over_envelope_false_success_fails_settling() {
     )
     .expect("drive");
     let (goal, report) = &pairs[0];
-    assert!(matches!(check_settling(goal, report), CheckOutcome::Fail(_)));
+    assert!(matches!(
+        check_settling(goal, report),
+        CheckOutcome::Fail(_)
+    ));
 }
 
 // --- force.press_button event-gated actuation (spec/01 § 6.6) --------------------------------
@@ -565,7 +631,10 @@ fn nominal_press_button_passes_actuation_and_force_trajectory() {
     .expect("drive");
     let (goal, report) = &pairs[0];
     assert_eq!(suffix_of(&goal.action_id), "press_button");
-    assert_eq!(check_envelope(EnvelopeClass::ForceTrajectory, goal, report), CheckOutcome::Pass);
+    assert_eq!(
+        check_envelope(EnvelopeClass::ForceTrajectory, goal, report),
+        CheckOutcome::Pass
+    );
     assert_eq!(check_actuation(goal, report), CheckOutcome::Pass);
 }
 
@@ -581,8 +650,14 @@ fn press_button_bottoming_out_is_honest() {
     let (goal, report) = &pairs[0];
     // no detent fired, force held: not a success, and check_actuation does not falsely fail it.
     assert_eq!(check_actuation(goal, report), CheckOutcome::Pass);
-    assert_eq!(check_envelope(EnvelopeClass::ForceTrajectory, goal, report), CheckOutcome::Pass);
-    assert!(!matches!(report.status.outcome, rfl_core::driver::Outcome::Succeeded));
+    assert_eq!(
+        check_envelope(EnvelopeClass::ForceTrajectory, goal, report),
+        CheckOutcome::Pass
+    );
+    assert!(!matches!(
+        report.status.outcome,
+        rfl_core::driver::Outcome::Succeeded
+    ));
 }
 
 #[test]
@@ -596,7 +671,10 @@ fn press_button_false_actuation_fails() {
     .expect("drive");
     let (goal, report) = &pairs[0];
     // claims success but emitted no detent -> the events channel bites.
-    assert!(matches!(check_actuation(goal, report), CheckOutcome::Fail(_)));
+    assert!(matches!(
+        check_actuation(goal, report),
+        CheckOutcome::Fail(_)
+    ));
 }
 
 #[test]
@@ -629,7 +707,10 @@ fn nominal_wipe_holds_the_contact_band() {
     let (goal, report) = &pairs[0];
     assert_eq!(suffix_of(&goal.action_id), "wipe");
     // nominal wrench echoes the 5 N setpoint -> in [4, 6] band.
-    assert_eq!(check_envelope(EnvelopeClass::ForceTrajectory, goal, report), CheckOutcome::Pass);
+    assert_eq!(
+        check_envelope(EnvelopeClass::ForceTrajectory, goal, report),
+        CheckOutcome::Pass
+    );
 }
 
 #[test]
@@ -679,7 +760,10 @@ fn nominal_snap_engage_passes_all_legs() {
     .expect("drive");
     let (goal, report) = &pairs[0];
     assert_eq!(suffix_of(&goal.action_id), "snap_engage");
-    assert_eq!(check_envelope(EnvelopeClass::ForceTrajectory, goal, report), CheckOutcome::Pass);
+    assert_eq!(
+        check_envelope(EnvelopeClass::ForceTrajectory, goal, report),
+        CheckOutcome::Pass
+    );
     assert_eq!(check_actuation(goal, report), CheckOutcome::Pass); // reused detent leg
     assert_eq!(check_engagement(goal, report), CheckOutcome::Pass); // the new confirm_held leg
 }
@@ -695,9 +779,15 @@ fn snap_engage_no_snap_is_honest() {
     .expect("drive");
     let (goal, report) = &pairs[0];
     // no snap fired, force held: not a success; the checks do not falsely fail it.
-    assert!(!matches!(report.status.outcome, rfl_core::driver::Outcome::Succeeded));
+    assert!(!matches!(
+        report.status.outcome,
+        rfl_core::driver::Outcome::Succeeded
+    ));
     assert_eq!(check_engagement(goal, report), CheckOutcome::Pass);
-    assert_eq!(check_envelope(EnvelopeClass::ForceTrajectory, goal, report), CheckOutcome::Pass);
+    assert_eq!(
+        check_envelope(EnvelopeClass::ForceTrajectory, goal, report),
+        CheckOutcome::Pass
+    );
 }
 
 #[test]
@@ -711,7 +801,10 @@ fn snap_engage_unconfirmed_hold_fails() {
     .expect("drive");
     let (goal, report) = &pairs[0];
     // claims success (snap detected) but the connection was never confirmed held -> the bite.
-    assert!(matches!(check_engagement(goal, report), CheckOutcome::Fail(_)));
+    assert!(matches!(
+        check_engagement(goal, report),
+        CheckOutcome::Fail(_)
+    ));
 }
 
 #[test]
@@ -743,7 +836,10 @@ fn nominal_cut_passes() {
     .expect("drive");
     let (goal, report) = &pairs[0];
     assert_eq!(suffix_of(&goal.action_id), "cut");
-    assert_eq!(check_envelope(EnvelopeClass::ForceTrajectory, goal, report), CheckOutcome::Pass);
+    assert_eq!(
+        check_envelope(EnvelopeClass::ForceTrajectory, goal, report),
+        CheckOutcome::Pass
+    );
     assert_eq!(check_irreversible(goal, report), CheckOutcome::Pass); // Succeeded -> vacuous
 }
 
@@ -758,7 +854,10 @@ fn cut_partial_state_reported_is_honest() {
     .expect("drive");
     let (goal, report) = &pairs[0];
     // interrupted, but the precise partial state is reported -> honest.
-    assert!(!matches!(report.status.outcome, rfl_core::driver::Outcome::Succeeded));
+    assert!(!matches!(
+        report.status.outcome,
+        rfl_core::driver::Outcome::Succeeded
+    ));
     assert_eq!(check_irreversible(goal, report), CheckOutcome::Pass);
 }
 
@@ -773,7 +872,10 @@ fn cut_binary_halt_fails() {
     .expect("drive");
     let (goal, report) = &pairs[0];
     // interrupted irreversible op reported a binary failure without the partial state -> the bite.
-    assert!(matches!(check_irreversible(goal, report), CheckOutcome::Fail(_)));
+    assert!(matches!(
+        check_irreversible(goal, report),
+        CheckOutcome::Fail(_)
+    ));
 }
 
 #[test]
@@ -821,7 +923,10 @@ fn false_manifold_claim_on_proxy_fails() {
     .expect("drive");
     let (goal, report) = &pairs[1];
     // claims manifold on a proxy-degraded action -> undisclosed degradation (the bite).
-    assert!(matches!(check_audit_honesty(goal, report), CheckOutcome::Fail(_)));
+    assert!(matches!(
+        check_audit_honesty(goal, report),
+        CheckOutcome::Fail(_)
+    ));
 }
 
 #[test]
@@ -866,7 +971,10 @@ fn flip_suppressed_fails() {
     )
     .expect("drive");
     // the flip omits momentary_release -> transparency violation.
-    assert!(matches!(check_momentary_release(&pairs), CheckOutcome::Fail(_)));
+    assert!(matches!(
+        check_momentary_release(&pairs),
+        CheckOutcome::Fail(_)
+    ));
 }
 
 #[test]
@@ -880,5 +988,8 @@ fn flip_propagation_dropped_fails() {
     .expect("drive");
     // the flip declares it but the downstream release drops the propagated flag -> the
     // sequence-level bite (each report looks fine in isolation).
-    assert!(matches!(check_momentary_release(&pairs), CheckOutcome::Fail(_)));
+    assert!(matches!(
+        check_momentary_release(&pairs),
+        CheckOutcome::Fail(_)
+    ));
 }

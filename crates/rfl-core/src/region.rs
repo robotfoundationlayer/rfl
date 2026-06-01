@@ -49,7 +49,14 @@ mod tests {
     fn parses_surface_region() {
         let yaml = "kind: surface\nframe: panel\nsize_u: 200 mm\nsize_v: 150 mm\n";
         let r: ScanRegion = serde_yaml::from_str(yaml).unwrap();
-        let ScanRegion::Surface { frame, size_u, size_v } = r else { panic!("expected surface") };
+        let ScanRegion::Surface {
+            frame,
+            size_u,
+            size_v,
+        } = r
+        else {
+            panic!("expected surface")
+        };
         assert_eq!(frame, "panel");
         assert_eq!(size_u.0, "200 mm");
         assert_eq!(size_v.0, "150 mm");
@@ -59,7 +66,9 @@ mod tests {
     fn parses_waypoints_region() {
         let yaml = "kind: waypoints\nframe: task\nposes:\n  - position: [0.1, 0.0, 0.2]\n    orientation: [1.0, 0.0, 0.0, 0.0]\n";
         let r: ScanRegion = serde_yaml::from_str(yaml).unwrap();
-        let ScanRegion::Waypoints { frame, poses } = r else { panic!("expected waypoints") };
+        let ScanRegion::Waypoints { frame, poses } = r else {
+            panic!("expected waypoints")
+        };
         assert_eq!(frame, "task");
         assert_eq!(poses.len(), 1);
         assert_eq!(poses[0].position, [0.1, 0.0, 0.2]);

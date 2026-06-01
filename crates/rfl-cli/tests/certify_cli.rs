@@ -32,7 +32,11 @@ fn certify_nominal_run_exits_zero() {
         .expect("run rfl certify");
 
     let stdout = String::from_utf8_lossy(&out.stdout);
-    assert!(out.status.success(), "exit {:?}, stdout: {stdout}", out.status.code());
+    assert!(
+        out.status.success(),
+        "exit {:?}, stdout: {stdout}",
+        out.status.code()
+    );
     assert!(stdout.contains("RESULT: PASS"), "stdout: {stdout}");
     std::fs::remove_file(report).ok();
 }

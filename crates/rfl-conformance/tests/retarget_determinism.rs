@@ -39,14 +39,18 @@ fn golden_pneumatic() {
 #[test]
 fn generation_is_byte_identical() {
     for stem in ["allegro", "leap", "pneumatic-6f"] {
-        assert_eq!(jsonl_for(stem), jsonl_for(stem), "non-deterministic for {stem}");
+        assert_eq!(
+            jsonl_for(stem),
+            jsonl_for(stem),
+            "non-deterministic for {stem}"
+        );
     }
 }
 
 #[test]
 fn every_line_is_a_valid_execute_message() {
-    let schema_path = Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../../schemas/driver-interface.schema.json");
+    let schema_path =
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("../../schemas/driver-interface.schema.json");
     let schema: serde_json::Value =
         serde_json::from_reader(std::fs::File::open(&schema_path).unwrap()).unwrap();
 

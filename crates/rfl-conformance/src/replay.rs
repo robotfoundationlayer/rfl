@@ -19,7 +19,7 @@
 
 use std::collections::BTreeMap;
 
-use anyhow::{anyhow, bail, Context, Result};
+use anyhow::{Context, Result, anyhow, bail};
 use rfl_core::driver::{
     DriverReport, FreedPartDisposition, Outcome, RealizedPose, SafetyFlags, Status, Telemetry,
     Verdict, Wrench,
@@ -124,7 +124,10 @@ fn to_telemetry(t: TelemetryIn) -> Telemetry {
         action_id: t.action_id,
         t: t.t,
         realized_pose: t.realized_pose.map(|_| RealizedPose::placeholder()),
-        wrench: t.wrench.map(|w| Wrench { force: w.force, torque: w.torque }),
+        wrench: t.wrench.map(|w| Wrench {
+            force: w.force,
+            torque: w.torque,
+        }),
         securing_force: t.securing_force.map(Quantity),
         station_error: t.station_error.map(Quantity),
         tactile: vec![],
@@ -201,7 +204,10 @@ pub fn replay_report(jsonl: &str) -> Result<BTreeMap<String, DriverReport>> {
             .map_err(|e| anyhow!("line {n}: schema violation: {e}"))?;
         match serde_json::from_value::<ReportLine>(v) {
             Ok(ReportLine::Telemetry(t)) => {
-                acc.entry(t.action_id.clone()).or_default().telemetry.push(to_telemetry(t));
+                acc.entry(t.action_id.clone())
+                    .or_default()
+                    .telemetry
+                    .push(to_telemetry(t));
             }
             Ok(ReportLine::Status(s)) => {
                 let slot = acc.entry(s.action_id.clone()).or_default();
@@ -219,7 +225,13 @@ pub fn replay_report(jsonl: &str) -> Result<BTreeMap<String, DriverReport>> {
         let status = p
             .status
             .ok_or_else(|| anyhow!("action {id} has telemetry but no terminal status"))?;
-        out.insert(id, DriverReport { telemetry: p.telemetry, status });
+        out.insert(
+            id,
+            DriverReport {
+                telemetry: p.telemetry,
+                status,
+            },
+        );
     }
     Ok(out)
 }
@@ -257,7 +269,8 @@ mod tests {
     #[test]
     fn rejects_unknown_field() {
         // an extra key the schema forbids (additionalProperties:false), caught by boon.
-        let bad = r#"{"message":"status","action_id":"a/b/0001-x","outcome":"succeeded","bogus":1}"#;
+        let bad =
+            r#"{"message":"status","action_id":"a/b/0001-x","outcome":"succeeded","bogus":1}"#;
         assert!(replay_report(bad).is_err());
     }
 

@@ -40,7 +40,9 @@ fn live_driver_emitting_committed_report_certifies_pass() {
         serde_json::from_str(&std::fs::read_to_string(dir.join("certificate.json")).unwrap())
             .unwrap();
     assert_eq!(
-        committed.get("content_hash").and_then(serde_json::Value::as_str),
+        committed
+            .get("content_hash")
+            .and_then(serde_json::Value::as_str),
         Some(outcome.certificate.content_hash.as_str())
     );
     std::fs::remove_file(mock).ok();
@@ -86,6 +88,9 @@ fn live_driver_timeout_is_invalid_run_and_returns_promptly() {
         Duration::from_secs(1),
     );
     assert!(r.is_err());
-    assert!(start.elapsed() < Duration::from_secs(10), "driver should have been killed promptly");
+    assert!(
+        start.elapsed() < Duration::from_secs(10),
+        "driver should have been killed promptly"
+    );
     std::fs::remove_file(mock).ok();
 }

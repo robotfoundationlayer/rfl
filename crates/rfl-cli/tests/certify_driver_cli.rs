@@ -18,8 +18,11 @@ fn certify_driver_live_run_exits_zero() {
     let dir = example_dir();
     let report = dir.join("driver-report.jsonl");
     let mock = std::env::temp_dir().join(format!("rfl-cli-mock-{}.sh", std::process::id()));
-    std::fs::write(&mock, format!("#!/bin/sh\ncat >/dev/null\ncat '{}'\n", report.display()))
-        .unwrap();
+    std::fs::write(
+        &mock,
+        format!("#!/bin/sh\ncat >/dev/null\ncat '{}'\n", report.display()),
+    )
+    .unwrap();
     std::fs::set_permissions(&mock, std::fs::Permissions::from_mode(0o755)).unwrap();
 
     let out = Command::new(env!("CARGO_BIN_EXE_rfl"))
@@ -33,7 +36,11 @@ fn certify_driver_live_run_exits_zero() {
         .expect("run rfl certify --driver");
 
     let stdout = String::from_utf8_lossy(&out.stdout);
-    assert!(out.status.success(), "exit {:?}, stdout: {stdout}", out.status.code());
+    assert!(
+        out.status.success(),
+        "exit {:?}, stdout: {stdout}",
+        out.status.code()
+    );
     assert!(stdout.contains("RESULT: PASS"), "stdout: {stdout}");
     std::fs::remove_file(mock).ok();
 }

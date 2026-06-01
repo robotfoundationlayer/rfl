@@ -47,7 +47,10 @@ pub fn raster(
         };
         for j in cols {
             let u = (j as f64 + 0.5) * size_u / n_u as f64;
-            poses.push(Pose6D { position: [u, v, standoff], orientation });
+            poses.push(Pose6D {
+                position: [u, v, standoff],
+                orientation,
+            });
         }
     }
     poses
@@ -123,7 +126,10 @@ pub fn spiral(
     // Degenerate guard: zero spacing (a flat FOV) would never advance — emit only
     // the centroid station.
     if s <= 0.0 {
-        poses.push(Pose6D { position: [cu, cv, standoff], orientation });
+        poses.push(Pose6D {
+            position: [cu, cv, standoff],
+            orientation,
+        });
         return poses;
     }
     let mut i = 0usize;
@@ -156,7 +162,14 @@ mod tests {
     #[test]
     fn allegro_raster_has_nine_poses() {
         // U=0.20, V=0.15, standoff=0.10, overlap=0.2, fov 60x45 deg.
-        let poses = raster(0.20, 0.15, 0.10, 0.2, 60_f64.to_radians(), 45_f64.to_radians());
+        let poses = raster(
+            0.20,
+            0.15,
+            0.10,
+            0.2,
+            60_f64.to_radians(),
+            45_f64.to_radians(),
+        );
         assert_eq!(poses.len(), 9); // n_u=3, n_v=3
         assert_eq!(round6(poses[0].position[0]), 0.033333);
         assert_eq!(round6(poses[0].position[1]), 0.025);
@@ -168,15 +181,36 @@ mod tests {
 
     #[test]
     fn raster_is_serpentine() {
-        let poses = raster(0.20, 0.15, 0.10, 0.2, 60_f64.to_radians(), 45_f64.to_radians());
+        let poses = raster(
+            0.20,
+            0.15,
+            0.10,
+            0.2,
+            60_f64.to_radians(),
+            45_f64.to_radians(),
+        );
         assert!(poses[0].position[0] < poses[2].position[0]); // row 0 ascending
         assert!(poses[3].position[0] > poses[5].position[0]); // row 1 descending
     }
 
     #[test]
     fn leap_and_pneumatic_have_different_counts() {
-        let leap = raster(0.20, 0.15, 0.10, 0.2, 70_f64.to_radians(), 55_f64.to_radians());
-        let pneu = raster(0.20, 0.15, 0.10, 0.2, 65_f64.to_radians(), 50_f64.to_radians());
+        let leap = raster(
+            0.20,
+            0.15,
+            0.10,
+            0.2,
+            70_f64.to_radians(),
+            55_f64.to_radians(),
+        );
+        let pneu = raster(
+            0.20,
+            0.15,
+            0.10,
+            0.2,
+            65_f64.to_radians(),
+            50_f64.to_radians(),
+        );
         assert_eq!(leap.len(), 4); // 2x2
         assert_eq!(pneu.len(), 6); // 2x3
     }
@@ -195,7 +229,14 @@ mod tests {
     #[test]
     fn spiral_first_station_is_the_centroid() {
         // i=0 sits at theta=0, r=0 => the surface centroid (U/2, V/2), z=standoff.
-        let poses = spiral(0.20, 0.15, 0.10, 0.2, 60_f64.to_radians(), 45_f64.to_radians());
+        let poses = spiral(
+            0.20,
+            0.15,
+            0.10,
+            0.2,
+            60_f64.to_radians(),
+            45_f64.to_radians(),
+        );
         assert_eq!(round6(poses[0].position[0]), 0.10);
         assert_eq!(round6(poses[0].position[1]), 0.075);
         assert_eq!(round6(poses[0].position[2]), 0.10);
@@ -206,13 +247,27 @@ mod tests {
         // 60x45 deg FOV, standoff 0.10, overlap 0.2 -> s=0.0662742; stations to the
         // half-diagonal R=0.125 give i=0..11. Analytic value; a mismatch means
         // recheck the arc-length math, not a blind update.
-        let poses = spiral(0.20, 0.15, 0.10, 0.2, 60_f64.to_radians(), 45_f64.to_radians());
+        let poses = spiral(
+            0.20,
+            0.15,
+            0.10,
+            0.2,
+            60_f64.to_radians(),
+            45_f64.to_radians(),
+        );
         assert_eq!(poses.len(), 12);
     }
 
     #[test]
     fn spiral_radius_is_non_decreasing() {
-        let poses = spiral(0.20, 0.15, 0.10, 0.2, 60_f64.to_radians(), 45_f64.to_radians());
+        let poses = spiral(
+            0.20,
+            0.15,
+            0.10,
+            0.2,
+            60_f64.to_radians(),
+            45_f64.to_radians(),
+        );
         let (cu, cv) = (0.10_f64, 0.075_f64);
         let mut prev = -1.0_f64;
         for p in &poses {
@@ -224,9 +279,30 @@ mod tests {
 
     #[test]
     fn spiral_count_varies_per_fov() {
-        let allegro = spiral(0.20, 0.15, 0.10, 0.2, 60_f64.to_radians(), 45_f64.to_radians());
-        let leap = spiral(0.20, 0.15, 0.10, 0.2, 70_f64.to_radians(), 55_f64.to_radians());
-        let pneu = spiral(0.20, 0.15, 0.10, 0.2, 65_f64.to_radians(), 50_f64.to_radians());
+        let allegro = spiral(
+            0.20,
+            0.15,
+            0.10,
+            0.2,
+            60_f64.to_radians(),
+            45_f64.to_radians(),
+        );
+        let leap = spiral(
+            0.20,
+            0.15,
+            0.10,
+            0.2,
+            70_f64.to_radians(),
+            55_f64.to_radians(),
+        );
+        let pneu = spiral(
+            0.20,
+            0.15,
+            0.10,
+            0.2,
+            65_f64.to_radians(),
+            50_f64.to_radians(),
+        );
         // Smaller FOV -> smaller footprint -> smaller spacing -> more stations.
         assert_eq!((allegro.len(), leap.len(), pneu.len()), (12, 8, 10));
         assert_ne!(allegro.len(), 9); // differs from the raster count

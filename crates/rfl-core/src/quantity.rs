@@ -55,7 +55,10 @@ mod tests {
         assert_eq!(Quantity::from_si(7.5, "N").0, "7.5 N");
         assert_eq!(Quantity::from_si(2.9, "N").0, "2.9 N");
         // 9.80665 / 29 ≈ 0.33816034 -> round6 -> 0.33816.
-        assert_eq!(Quantity::from_si(9.80665 / 29.0, "m/s^2").0, "0.33816 m/s^2");
+        assert_eq!(
+            Quantity::from_si(9.80665 / 29.0, "m/s^2").0,
+            "0.33816 m/s^2"
+        );
     }
 
     #[test]

@@ -8,8 +8,8 @@
 //! `limits` retargeting clamps envelope bounds to, and the frame model (for the
 //! per-embodiment control/grasp/sensor frame resolution).
 
-use std::collections::BTreeMap;
 use crate::quantity::Quantity;
+use std::collections::BTreeMap;
 
 /// A descriptor file: everything is wrapped under `embodiment:`.
 #[derive(Debug, Clone, serde::Deserialize)]
@@ -198,20 +198,32 @@ impl Embodiment {
     /// descriptor changes between hands.
     #[must_use]
     pub fn grasp_frame(&self) -> &str {
-        self.frames.role_defaults.grasp.as_deref().unwrap_or("grasp")
+        self.frames
+            .role_defaults
+            .grasp
+            .as_deref()
+            .unwrap_or("grasp")
     }
 
     /// The default sensor frame (`frames.role_defaults.sensor`).
     #[must_use]
     pub fn sensor_frame(&self) -> &str {
-        self.frames.role_defaults.sensor.as_deref().unwrap_or("sensor")
+        self.frames
+            .role_defaults
+            .sensor
+            .as_deref()
+            .unwrap_or("sensor")
     }
 
     /// The default control frame. v0 uses the first declared control frame;
     /// `spec/03`'s exact `default_control_frame` rule is transcribed when refined.
     #[must_use]
     pub fn control_frame(&self) -> &str {
-        self.frames.control_frames.first().map(String::as_str).unwrap_or("control")
+        self.frames
+            .control_frames
+            .first()
+            .map(String::as_str)
+            .unwrap_or("control")
     }
 
     /// The FOV of a named sensor frame, if declared.
@@ -227,8 +239,9 @@ mod tests {
     use std::path::Path;
 
     fn descriptor(stem: &str) -> Embodiment {
-        let p = Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join(format!("../../examples/01-cable-insertion/embodiments/{stem}.yaml"));
+        let p = Path::new(env!("CARGO_MANIFEST_DIR")).join(format!(
+            "../../examples/01-cable-insertion/embodiments/{stem}.yaml"
+        ));
         let text = std::fs::read_to_string(p).expect("read descriptor");
         Embodiment::parse_yaml(&text).expect("parse descriptor")
     }

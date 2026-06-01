@@ -29,7 +29,9 @@ fn verify_accepts_sealed_and_rejects_tampered() {
         std::env::temp_dir().join(format!("rfl-verify-report-{}.jsonl", std::process::id()));
     std::fs::write(&report_path, rfl_conformance::reports_to_jsonl(&reports)).unwrap();
 
-    let cert = rfl_conformance::certify::run(&skill, &emb, &report_path).unwrap().certificate;
+    let cert = rfl_conformance::certify::run(&skill, &emb, &report_path)
+        .unwrap()
+        .certificate;
     let json = rfl_conformance::certificate::to_json(&cert);
     let cert_path =
         std::env::temp_dir().join(format!("rfl-verify-cert-{}.json", std::process::id()));
@@ -38,13 +40,21 @@ fn verify_accepts_sealed_and_rejects_tampered() {
     // sealed -> exit 0 + VERIFIED.
     let ok = run_verify(&cert_path);
     let ok_out = String::from_utf8_lossy(&ok.stdout);
-    assert!(ok.status.success(), "exit {:?}, stdout: {ok_out}", ok.status.code());
+    assert!(
+        ok.status.success(),
+        "exit {:?}, stdout: {ok_out}",
+        ok.status.code()
+    );
     assert!(ok_out.contains("VERIFIED"), "stdout: {ok_out}");
 
     // tampered -> exit 1 + TAMPERED.
     let tampered_path =
         std::env::temp_dir().join(format!("rfl-verify-tampered-{}.json", std::process::id()));
-    std::fs::write(&tampered_path, json.replace("cable-insertion", "evil-skill")).unwrap();
+    std::fs::write(
+        &tampered_path,
+        json.replace("cable-insertion", "evil-skill"),
+    )
+    .unwrap();
     let bad = run_verify(&tampered_path);
     let bad_out = String::from_utf8_lossy(&bad.stdout);
     assert_eq!(bad.status.code(), Some(1), "stdout: {bad_out}");

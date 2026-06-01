@@ -6,7 +6,7 @@
 //! `content_hash` covers the compact serialization of every field except itself; signing is
 //! out-of-band (detached-sign the canonical bytes).
 
-use anyhow::{anyhow, Context, Result};
+use anyhow::{Context, Result, anyhow};
 use ed25519_dalek::{Signature, Signer, SigningKey, VerifyingKey};
 use rand::rngs::OsRng;
 use serde::Serialize;
@@ -187,28 +187,42 @@ fn recompute_content_hash(cert: &serde_json::Value) -> String {
 #[must_use]
 pub fn generate_keypair() -> (String, String) {
     let sk = SigningKey::generate(&mut OsRng);
-    (hex::encode(sk.to_bytes()), hex::encode(sk.verifying_key().to_bytes()))
+    (
+        hex::encode(sk.to_bytes()),
+        hex::encode(sk.verifying_key().to_bytes()),
+    )
 }
 
 /// Sign `message` with the hex secret key; returns `(sig_hex, public_hex)`.
 fn sign_message(secret_hex: &str, message: &[u8]) -> Result<(String, String)> {
     let secret = hex::decode(secret_hex.trim()).context("secret key is not hex")?;
-    let secret: [u8; 32] =
-        secret.as_slice().try_into().map_err(|_| anyhow!("secret key must be 32 bytes"))?;
+    let secret: [u8; 32] = secret
+        .as_slice()
+        .try_into()
+        .map_err(|_| anyhow!("secret key must be 32 bytes"))?;
     let sk = SigningKey::from_bytes(&secret);
     let sig = sk.sign(message);
-    Ok((hex::encode(sig.to_bytes()), hex::encode(sk.verifying_key().to_bytes())))
+    Ok((
+        hex::encode(sig.to_bytes()),
+        hex::encode(sk.verifying_key().to_bytes()),
+    ))
 }
 
 /// Verify a hex ed25519 signature over `message` with a hex public key. Any malformed input is a
 /// failed verification, never an error.
 fn verify_signature(public_hex: &str, message: &[u8], sig_hex: &str) -> bool {
-    let Ok(pk_bytes) = hex::decode(public_hex) else { return false };
+    let Ok(pk_bytes) = hex::decode(public_hex) else {
+        return false;
+    };
     let Ok(pk_arr): std::result::Result<[u8; 32], _> = pk_bytes.as_slice().try_into() else {
         return false;
     };
-    let Ok(vk) = VerifyingKey::from_bytes(&pk_arr) else { return false };
-    let Ok(sig_bytes) = hex::decode(sig_hex) else { return false };
+    let Ok(vk) = VerifyingKey::from_bytes(&pk_arr) else {
+        return false;
+    };
+    let Ok(sig_bytes) = hex::decode(sig_hex) else {
+        return false;
+    };
     let Ok(sig_arr): std::result::Result<[u8; 64], _> = sig_bytes.as_slice().try_into() else {
         return false;
     };
@@ -231,7 +245,9 @@ pub fn sign_certificate(cert_json: &str, secret_hex: &str) -> Result<String> {
         .ok_or_else(|| anyhow!("certificate has no content_hash"))?
         .to_string();
     let (sig_hex, public_hex) = sign_message(secret_hex, content_hash.as_bytes())?;
-    let obj = value.as_object_mut().ok_or_else(|| anyhow!("certificate is not a JSON object"))?;
+    let obj = value
+        .as_object_mut()
+        .ok_or_else(|| anyhow!("certificate is not a JSON object"))?;
     obj.insert(
         "signature".to_string(),
         serde_json::json!({ "alg": "ed25519", "public_key": public_hex, "sig": sig_hex }),
@@ -258,13 +274,24 @@ pub fn verify_certificate(cert_json: &str) -> Result<VerifyReport> {
     let recomputed = recompute_content_hash(&value);
     let matches = declared == recomputed;
     let signature = value.get("signature").map(|s| {
-        let public_key =
-            s.get("public_key").and_then(serde_json::Value::as_str).unwrap_or_default().to_string();
-        let sig = s.get("sig").and_then(serde_json::Value::as_str).unwrap_or_default();
+        let public_key = s
+            .get("public_key")
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or_default()
+            .to_string();
+        let sig = s
+            .get("sig")
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or_default();
         let valid = verify_signature(&public_key, declared.as_bytes(), sig);
         SignatureVerdict { public_key, valid }
     });
-    Ok(VerifyReport { declared, recomputed, matches, signature })
+    Ok(VerifyReport {
+        declared,
+        recomputed,
+        matches,
+        signature,
+    })
 }
 
 #[cfg(test)]
@@ -276,18 +303,32 @@ mod tests {
             certificate_schema_version: "0.1",
             spec_version: "v0.1-draft",
             tool_version: "0.0.1",
-            skill: FileRef { id: "cable-insertion".into(), sha256: "a".repeat(64) },
-            embodiment: FileRef { id: "allegro".into(), sha256: "b".repeat(64) },
+            skill: FileRef {
+                id: "cable-insertion".into(),
+                sha256: "a".repeat(64),
+            },
+            embodiment: FileRef {
+                id: "allegro".into(),
+                sha256: "b".repeat(64),
+            },
             report_sha256: "c".repeat(64),
             result,
             covered: vec!["class3_driver_protocol"],
-            excluded: vec!["class4_physical", "class2_loose_epsilon", "env3_disturbance"],
+            excluded: vec![
+                "class4_physical",
+                "class2_loose_epsilon",
+                "env3_disturbance",
+            ],
             actions: vec![ActionEntry {
                 action_id: "cable-insertion/allegro/0002-pinch".into(),
                 suffix: "pinch".into(),
                 envelope_class: Some("grasp_continuity"),
                 fidelity_tier: Some("manifold".to_string()),
-                checks: vec![CheckEntry { name: "envelope", result: "pass", reason: None }],
+                checks: vec![CheckEntry {
+                    name: "envelope",
+                    result: "pass",
+                    reason: None,
+                }],
                 passed: true,
             }],
             sequence_checks: vec![CheckEntry {
@@ -307,7 +348,10 @@ mod tests {
         // recompute the hash over the sorted-key canonical body and confirm it matches.
         let cert = seal(sample_body("pass"));
         let canonical = serde_json::to_vec(&serde_json::to_value(&cert.body).unwrap()).unwrap();
-        assert_eq!(cert.content_hash, format!("sha256:{}", sha256_hex(&canonical)));
+        assert_eq!(
+            cert.content_hash,
+            format!("sha256:{}", sha256_hex(&canonical))
+        );
         assert!(cert.content_hash.starts_with("sha256:"));
     }
 
@@ -322,7 +366,11 @@ mod tests {
     fn verify_round_trips_a_sealed_certificate() {
         let json = to_json(&seal(sample_body("pass")));
         let report = verify_certificate(&json).expect("schema-valid certificate");
-        assert!(report.matches, "declared {} != recomputed {}", report.declared, report.recomputed);
+        assert!(
+            report.matches,
+            "declared {} != recomputed {}",
+            report.declared, report.recomputed
+        );
         assert!(report.declared.starts_with("sha256:"));
     }
 
@@ -354,7 +402,10 @@ mod tests {
         assert!(report.matches, "integrity must hold after signing");
         let sig = report.signature.expect("signature present");
         assert!(sig.valid, "signature must verify");
-        assert_eq!(sig.public_key, public, "embedded public key matches the keypair");
+        assert_eq!(
+            sig.public_key, public,
+            "embedded public key matches the keypair"
+        );
     }
 
     #[test]
@@ -370,7 +421,10 @@ mod tests {
         let tampered = String::from_utf8(bytes).unwrap();
         let report = verify_certificate(&tampered).expect("still schema-valid");
         assert!(report.matches, "body integrity is unaffected by a sig edit");
-        assert!(!report.signature.expect("signature present").valid, "tampered sig must fail");
+        assert!(
+            !report.signature.expect("signature present").valid,
+            "tampered sig must fail"
+        );
     }
 
     #[test]

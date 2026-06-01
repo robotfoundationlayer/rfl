@@ -15,13 +15,14 @@ use crate::canonical::{
     TactileTargetOut, TimingHints, TimingMode,
 };
 use crate::embodiment::Embodiment;
+use crate::grasp_force::{self, GraspMode};
 use crate::quantity::Quantity;
 use crate::skill_isa::{
-    Axes, Axis, Compliance, DisturbanceArg, ForceCut, ForceInsertFit, ForcePressButton, ForceScrew, ForceSnapEngage, ForceUnscrew, ForceWipe, GraspPinch, GraspRelease, InHandFlip,
-    Primitive, ReachAlign, ReachHover, ReachRetract, ReachScan, ScanPattern, SenseInspect, Skill, StabilityMarginArg,
-    Statement, TactileTargetArg, TransportCarry, TransportMoveToPose,
+    Axes, Axis, Compliance, DisturbanceArg, ForceCut, ForceInsertFit, ForcePressButton, ForceScrew,
+    ForceSnapEngage, ForceUnscrew, ForceWipe, GraspPinch, GraspRelease, InHandFlip, Primitive,
+    ReachAlign, ReachHover, ReachRetract, ReachScan, ScanPattern, SenseInspect, Skill,
+    StabilityMarginArg, Statement, TactileTargetArg, TransportCarry, TransportMoveToPose,
 };
-use crate::grasp_force::{self, GraspMode};
 use std::collections::BTreeMap;
 
 /// The retargeting result: the canonical action stream plus the per-action
@@ -108,14 +109,17 @@ fn check_capability(prim: &Primitive, e: &Embodiment) -> crate::Result<()> {
         Primitive::ReachAlign(_)
         | Primitive::ReachRetract(_)
         | Primitive::ReachScan(_)
-        | Primitive::ReachHover(_) => {
-            return Ok(())
-        }
+        | Primitive::ReachHover(_) => return Ok(()),
         // grasp.release is presupposed by any declared grasp capability (spec/03
         // § Grasp-mode capabilities lists only the eight modes; the descriptors do
         // not declare grasp.release). Require at least one grasp.* mode.
         Primitive::GraspRelease(_) => {
-            return if e.capabilities.skills.iter().any(|s| s.starts_with("grasp.")) {
+            return if e
+                .capabilities
+                .skills
+                .iter()
+                .any(|s| s.starts_with("grasp."))
+            {
                 Ok(())
             } else {
                 Err(crate::Error::Translation("capability_absent: grasp".into()))
@@ -138,9 +142,13 @@ fn check_capability(prim: &Primitive, e: &Embodiment) -> crate::Result<()> {
         // tool_safety capability (spec/01 § 6.7 precondition). A conjunctive gate.
         Primitive::ForceCut(_) => {
             return if !e.has_skill("force.cut") {
-                Err(crate::Error::Translation("capability_absent: force.cut".to_string()))
+                Err(crate::Error::Translation(
+                    "capability_absent: force.cut".to_string(),
+                ))
             } else if !e.has_tool_safety() {
-                Err(crate::Error::Translation("capability_absent: tool_safety".to_string()))
+                Err(crate::Error::Translation(
+                    "capability_absent: tool_safety".to_string(),
+                ))
             } else {
                 Ok(())
             };
@@ -151,7 +159,9 @@ fn check_capability(prim: &Primitive, e: &Embodiment) -> crate::Result<()> {
     if e.has_skill(key) {
         Ok(())
     } else {
-        Err(crate::Error::Translation(format!("capability_absent: {key}")))
+        Err(crate::Error::Translation(format!(
+            "capability_absent: {key}"
+        )))
     }
 }
 
@@ -192,7 +202,9 @@ fn lower(
 fn lower_sense_locate(p: &crate::skill_isa::SenseLocate, e: &Embodiment) -> CanonicalAction {
     CanonicalAction {
         target_frame: e.sensor_frame().to_string(),
-        target_pose: PoseExpr::Ref { r#ref: p.target_ref.clone() },
+        target_pose: PoseExpr::Ref {
+            r#ref: p.target_ref.clone(),
+        },
         force_budget: None,
         timing: TimingHints {
             nominal_duration: None,
@@ -260,7 +272,10 @@ fn lower_grasp_pinch(
     let tactile_target = Some(match (&p.tactile_target, e.tactile_sensing()) {
         (TactileTargetArg::Auto(_), true) => TactileTargetOut::Auto,
         (TactileTargetArg::Auto(_), false) => TactileTargetOut::Proxy {
-            proxy: ProxySpec { tier: "proxy", criterion: "position_convergence_and_force_hold" },
+            proxy: ProxySpec {
+                tier: "proxy",
+                criterion: "position_convergence_and_force_hold",
+            },
         },
         (TactileTargetArg::Other(v), _) => {
             TactileTargetOut::Explicit(serde_json::to_value(v).unwrap_or(serde_json::Value::Null))
@@ -277,11 +292,16 @@ fn lower_grasp_pinch(
                 force_budget = Quantity::from_si(mhf, &unit);
             }
         }
-        ctx.held = Some(HeldObject { weight_n, mode: GraspMode::Pinch });
+        ctx.held = Some(HeldObject {
+            weight_n,
+            mode: GraspMode::Pinch,
+        });
     }
     CanonicalAction {
         target_frame: e.grasp_frame().to_string(),
-        target_pose: PoseExpr::Ref { r#ref: p.target.clone() },
+        target_pose: PoseExpr::Ref {
+            r#ref: p.target.clone(),
+        },
         force_budget: Some(force_budget),
         timing: TimingHints {
             nominal_duration: None,
@@ -310,10 +330,16 @@ fn lower_transport_move_to_pose(
                 .and_then(serde_json::Value::as_str)
                 .unwrap_or("task")
                 .to_string();
-            let offset = map.get("offset").cloned().unwrap_or(serde_json::Value::Null);
+            let offset = map
+                .get("offset")
+                .cloned()
+                .unwrap_or(serde_json::Value::Null);
             PoseExpr::FrameRelative { frame, offset }
         }
-        other => PoseExpr::FrameRelative { frame: "task".into(), offset: other },
+        other => PoseExpr::FrameRelative {
+            frame: "task".into(),
+            offset: other,
+        },
     };
     let mut env = base_envelope(e);
     if let Some(held) = &ctx.held {
@@ -323,7 +349,9 @@ fn lower_transport_move_to_pose(
         let mhf = grasp_force::min_holding_force(held.weight_n, held.mode);
         env.force_profile =
             Some(serde_json::json!({ "min_holding_force": Quantity::from_si(mhf, "N").0 }));
-        let payload = e.scalar_limit(held.mode.payload_key()).and_then(|q| q.parse());
+        let payload = e
+            .scalar_limit(held.mode.payload_key())
+            .and_then(|q| q.parse());
         let ceiling = e.scalar_limit("a_cartesian_max").and_then(|q| q.parse());
         if let (Some((payload_n, _)), Some((ceiling_v, unit))) = (payload, ceiling) {
             let unit = unit.to_string();
@@ -355,7 +383,11 @@ fn lower_transport_move_to_pose(
 /// `disturbance_budget` (`spec/02`:137). `disturbance_budget` + `stability_margin` are emitted
 /// for the ENV3 bench (a later increment). v0 lowers the `{to_pose: P}` MoveSpec; `{trajectory}`
 /// is deferred. `stability_margin: auto` reads the descriptor default.
-fn lower_transport_carry(p: &TransportCarry, e: &Embodiment, ctx: &GraspContext) -> CanonicalAction {
+fn lower_transport_carry(
+    p: &TransportCarry,
+    e: &Embodiment,
+    ctx: &GraspContext,
+) -> CanonicalAction {
     let target_pose = match p.motion.get("to_pose").map(yaml_to_json) {
         Some(serde_json::Value::Object(map)) => {
             let frame = map
@@ -363,11 +395,17 @@ fn lower_transport_carry(p: &TransportCarry, e: &Embodiment, ctx: &GraspContext)
                 .and_then(serde_json::Value::as_str)
                 .unwrap_or("task")
                 .to_string();
-            let offset = map.get("offset").cloned().unwrap_or(serde_json::Value::Null);
+            let offset = map
+                .get("offset")
+                .cloned()
+                .unwrap_or(serde_json::Value::Null);
             PoseExpr::FrameRelative { frame, offset }
         }
         // {trajectory: ...} or any other MoveSpec form is carried opaquely in v0.
-        _ => PoseExpr::FrameRelative { frame: "task".into(), offset: yaml_to_json(&p.motion) },
+        _ => PoseExpr::FrameRelative {
+            frame: "task".into(),
+            offset: yaml_to_json(&p.motion),
+        },
     };
     let mut env = base_envelope(e);
     if let Some(held) = &ctx.held {
@@ -385,7 +423,9 @@ fn lower_transport_carry(p: &TransportCarry, e: &Embodiment, ctx: &GraspContext)
             "disturbance_budget": Quantity::from_si(disturbance_n, "N").0,
             "stability_margin": margin,
         }));
-        let payload = e.scalar_limit(held.mode.payload_key()).and_then(|q| q.parse());
+        let payload = e
+            .scalar_limit(held.mode.payload_key())
+            .and_then(|q| q.parse());
         let ceiling = e.scalar_limit("a_cartesian_max").and_then(|q| q.parse());
         if let (Some((payload_n, _)), Some((ceiling_v, unit))) = (payload, ceiling) {
             let unit = unit.to_string();
@@ -499,7 +539,9 @@ fn lower_reach_hover(p: &ReachHover, e: &Embodiment) -> CanonicalAction {
 /// unmarked (deferred). The over-travel / `max_travel` guard needs a displacement signal
 /// (deferred).
 fn lower_force_press_button(p: &ForcePressButton, e: &Embodiment) -> CanonicalAction {
-    let monitors = vec![Monitor { stop_condition: yaml_to_json(&p.actuation) }];
+    let monitors = vec![Monitor {
+        stop_condition: yaml_to_json(&p.actuation),
+    }];
     let mut env = base_envelope(e);
     env.compliance = p.compliance.map(|c| {
         match c {
@@ -514,7 +556,9 @@ fn lower_force_press_button(p: &ForcePressButton, e: &Embodiment) -> CanonicalAc
     }
     CanonicalAction {
         target_frame: e.control_frame().to_string(),
-        target_pose: PoseExpr::Ref { r#ref: p.target.clone() },
+        target_pose: PoseExpr::Ref {
+            r#ref: p.target.clone(),
+        },
         force_budget: Some(p.force_budget.clone()),
         timing: TimingHints {
             nominal_duration: None,
@@ -556,7 +600,9 @@ fn lower_force_wipe(p: &ForceWipe, e: &Embodiment) -> CanonicalAction {
     }
     CanonicalAction {
         target_frame: e.control_frame().to_string(),
-        target_pose: PoseExpr::Ref { r#ref: p.surface.clone() },
+        target_pose: PoseExpr::Ref {
+            r#ref: p.surface.clone(),
+        },
         force_budget: None,
         timing: TimingHints {
             nominal_duration: None,
@@ -602,7 +648,9 @@ fn lower_force_snap_engage(p: &ForceSnapEngage, e: &Embodiment) -> CanonicalActi
         .snap_signature
         .clone()
         .unwrap_or_else(|| serde_yaml::Value::String("detent".to_string()));
-    let monitors = vec![Monitor { stop_condition: yaml_to_json(&sig) }];
+    let monitors = vec![Monitor {
+        stop_condition: yaml_to_json(&sig),
+    }];
     CanonicalAction {
         target_frame: e.grasp_frame().to_string(),
         target_pose: PoseExpr::AxisRelative {
@@ -628,7 +676,9 @@ fn lower_force_snap_engage(p: &ForceSnapEngage, e: &Embodiment) -> CanonicalActi
 /// Tool-mediated, so the held cutting tool's grasp frame is the controlled frame (like screw).
 /// The tool_safety regime, path-bounding, and on_separation are deferred.
 fn lower_force_cut(p: &ForceCut, e: &Embodiment) -> CanonicalAction {
-    let monitors = vec![Monitor { stop_condition: yaml_to_json(&p.completion) }];
+    let monitors = vec![Monitor {
+        stop_condition: yaml_to_json(&p.completion),
+    }];
     let mut env = base_envelope(e);
     env.compliance = p.compliance.map(|c| {
         match c {
@@ -699,18 +749,25 @@ fn yaml_to_json(v: &serde_yaml::Value) -> serde_json::Value {
 /// held grasp's reaction capacity — grip_force_max / k_reaction — so the part does
 /// not slip in-grasp before seating), lower the SeatingSpec stop_condition into a
 /// monitor, set compliance and the axial force_profile.
-fn lower_force_insert_fit(p: &ForceInsertFit, e: &Embodiment, ctx: &GraspContext) -> CanonicalAction {
+fn lower_force_insert_fit(
+    p: &ForceInsertFit,
+    e: &Embodiment,
+    ctx: &GraspContext,
+) -> CanonicalAction {
     let mut force_budget = p.force_budget.clone();
     if let Some(held) = &ctx.held {
         if let Some((budget_n, unit)) = force_budget.parse() {
             let unit = unit.to_string();
-            if let Some((grip_max_n, _)) = e.scalar_limit("grip_force_max").and_then(|q| q.parse()) {
+            if let Some((grip_max_n, _)) = e.scalar_limit("grip_force_max").and_then(|q| q.parse())
+            {
                 let limit = grasp_force::reaction_limit(budget_n, grip_max_n, held.mode);
                 force_budget = Quantity::from_si(limit, &unit);
             }
         }
     }
-    let monitors = vec![Monitor { stop_condition: yaml_to_json(&p.stop_condition) }];
+    let monitors = vec![Monitor {
+        stop_condition: yaml_to_json(&p.stop_condition),
+    }];
     let mut env = base_envelope(e);
     env.compliance = p.compliance.map(|c| {
         match c {
@@ -723,7 +780,9 @@ fn lower_force_insert_fit(p: &ForceInsertFit, e: &Embodiment, ctx: &GraspContext
     env.force_profile = Some(serde_json::json!({ "axial": force_budget.0.clone() }));
     CanonicalAction {
         target_frame: e.grasp_frame().to_string(),
-        target_pose: PoseExpr::Ref { r#ref: p.target_fit.clone() },
+        target_pose: PoseExpr::Ref {
+            r#ref: p.target_fit.clone(),
+        },
         force_budget: Some(force_budget),
         timing: TimingHints {
             nominal_duration: None,
@@ -743,7 +802,9 @@ fn lower_force_insert_fit(p: &ForceInsertFit, e: &Embodiment, ctx: &GraspContext
 /// expanded into a structured `force_profile.coupling` (the linked DOF). The runtime
 /// decoupling-as-failure detection is a driver concern (deferred).
 fn lower_force_screw(p: &ForceScrew, e: &Embodiment, ctx: &GraspContext) -> CanonicalAction {
-    let monitors = vec![Monitor { stop_condition: yaml_to_json(&p.completion) }];
+    let monitors = vec![Monitor {
+        stop_condition: yaml_to_json(&p.completion),
+    }];
     let mut env = base_envelope(e);
     env.compliance = p.compliance.map(|c| {
         match c {
@@ -756,7 +817,11 @@ fn lower_force_screw(p: &ForceScrew, e: &Embodiment, ctx: &GraspContext) -> Cano
     // GF4c reaction-torque clamp: tool-mediated + a tool held -> bound the torque to the
     // tool grasp's rotational capacity (or the driver spins in-grasp).
     let tool_mediated = matches!(&p.tool_mediated, Some(v) if v.as_bool() != Some(false));
-    let held = if tool_mediated { ctx.held.as_ref() } else { None };
+    let held = if tool_mediated {
+        ctx.held.as_ref()
+    } else {
+        None
+    };
     let torque = match (
         held,
         p.torque_budget.parse(),
@@ -814,7 +879,11 @@ fn lower_force_unscrew(p: &ForceUnscrew, e: &Embodiment, ctx: &GraspContext) -> 
     });
     // GF4c reuse: a tool-mediated loosening torque loads the held tool's grasp.
     let tool_mediated = matches!(&p.tool_mediated, Some(v) if v.as_bool() != Some(false));
-    let held = if tool_mediated { ctx.held.as_ref() } else { None };
+    let held = if tool_mediated {
+        ctx.held.as_ref()
+    } else {
+        None
+    };
     let torque = match (
         held,
         p.torque_budget.parse(),
@@ -858,7 +927,11 @@ fn lower_force_unscrew(p: &ForceUnscrew, e: &Embodiment, ctx: &GraspContext) -> 
 /// Lower `grasp.release`: clears the active grasp from the context and emits a
 /// zero-distance withdraw along the default retract direction. The break-contact
 /// postcondition (`spec/01`) is symbolic in v0.
-fn lower_grasp_release(_p: &GraspRelease, e: &Embodiment, ctx: &mut GraspContext) -> CanonicalAction {
+fn lower_grasp_release(
+    _p: &GraspRelease,
+    e: &Embodiment,
+    ctx: &mut GraspContext,
+) -> CanonicalAction {
     ctx.held = None;
     CanonicalAction {
         target_frame: e.grasp_frame().to_string(),
@@ -962,7 +1035,10 @@ fn lower_reach_scan(p: &ReachScan, e: &Embodiment) -> CanonicalAction {
     let sweep_poses: Vec<SweepPose> = poses.iter().map(SweepPose::from_pose).collect();
     CanonicalAction {
         target_frame: sensor_frame,
-        target_pose: PoseExpr::SweepPath { pattern: pattern_name.to_string(), poses: sweep_poses },
+        target_pose: PoseExpr::SweepPath {
+            pattern: pattern_name.to_string(),
+            poses: sweep_poses,
+        },
         force_budget: None,
         timing: TimingHints {
             nominal_duration: None,
@@ -979,7 +1055,9 @@ fn lower_reach_scan(p: &ReachScan, e: &Embodiment) -> CanonicalAction {
 fn lower_sense_inspect(p: &SenseInspect, e: &Embodiment) -> CanonicalAction {
     CanonicalAction {
         target_frame: e.sensor_frame().to_string(),
-        target_pose: PoseExpr::Ref { r#ref: p.target.clone() },
+        target_pose: PoseExpr::Ref {
+            r#ref: p.target.clone(),
+        },
         force_budget: None,
         timing: TimingHints {
             nominal_duration: None,
@@ -1018,7 +1096,13 @@ mod tests {
         assert_eq!(
             out.suffixes,
             vec![
-                "locate", "pinch", "transport", "locate", "align", "insert_fit", "release",
+                "locate",
+                "pinch",
+                "transport",
+                "locate",
+                "align",
+                "insert_fit",
+                "release",
                 "retract"
             ]
         );
@@ -1036,7 +1120,10 @@ mod tests {
             .as_ref()
             .expect("held transport carries force_profile");
         // connector estimated_mass 1.45 N, pinch -> min_holding_force = 1.45 * 2.0 = 2.9 N
-        assert_eq!(fp.get("min_holding_force").and_then(|v| v.as_str()), Some("2.9 N"));
+        assert_eq!(
+            fp.get("min_holding_force").and_then(|v| v.as_str()),
+            Some("2.9 N")
+        );
     }
 
     #[test]
@@ -1071,13 +1158,17 @@ mod tests {
         let (skill, emb) = load("pneumatic-6f");
         let out = retarget_pinch_only(&skill, &emb);
         assert_eq!(out.force_budget.as_ref().unwrap().0, "8 N"); // 8 <= grip_force_max 12
-        assert!(matches!(out.tactile_target, Some(TactileTargetOut::Proxy { .. })));
+        assert!(matches!(
+            out.tactile_target,
+            Some(TactileTargetOut::Proxy { .. })
+        ));
     }
 
     #[test]
     fn transport_carries_frame_relative_pose() {
         let (skill, emb) = load("allegro");
-        let Statement::Primitive(Primitive::TransportMoveToPose(p)) = &skill.body.sequence[2] else {
+        let Statement::Primitive(Primitive::TransportMoveToPose(p)) = &skill.body.sequence[2]
+        else {
             panic!("expected transport.move_to_pose at index 2");
         };
         let ctx = super::GraspContext::default();
@@ -1085,7 +1176,10 @@ mod tests {
         let json = serde_json::to_string(&a.target_pose).unwrap();
         assert!(json.contains("\"frame\":\"receptacle\""));
         // no held object in this isolated call -> kinematic ceiling kept.
-        assert_eq!(a.safety_envelope.motion_bounds.a_max.as_ref().unwrap().0, "1.5 m/s^2");
+        assert_eq!(
+            a.safety_envelope.motion_bounds.a_max.as_ref().unwrap().0,
+            "1.5 m/s^2"
+        );
     }
 
     #[test]
@@ -1133,12 +1227,19 @@ mod tests {
     fn scan_lowers_to_sweep_path_per_fov() {
         let yaml = "skill: surface-scan\nbody:\n  sequence:\n    - reach.scan:\n        region: { kind: surface, frame: panel, size_u: 200 mm, size_v: 150 mm }\n        standoff: 100 mm\n        pattern: raster\n        coverage_overlap: 0.2\n    - sense.inspect: { target: panel, observe: [defect] }\n";
         let skill = Skill::parse_yaml(yaml).unwrap();
-        let mut allegro = Embodiment::parse_yaml(&std::fs::read_to_string(
-            Path::new(env!("CARGO_MANIFEST_DIR"))
-                .join("../../examples/01-cable-insertion/embodiments/allegro.yaml"),
-        ).unwrap()).unwrap();
+        let mut allegro = Embodiment::parse_yaml(
+            &std::fs::read_to_string(
+                Path::new(env!("CARGO_MANIFEST_DIR"))
+                    .join("../../examples/01-cable-insertion/embodiments/allegro.yaml"),
+            )
+            .unwrap(),
+        )
+        .unwrap();
         // The 02 surface-scan descriptors declare sense.inspect; the 01 allegro does not.
-        allegro.capabilities.skills.push("sense.inspect".to_string());
+        allegro
+            .capabilities
+            .skills
+            .push("sense.inspect".to_string());
         let out = retarget(&skill, &allegro).expect("retarget");
         assert_eq!(out.actions.len(), 2);
         let crate::canonical::PoseExpr::SweepPath { poses, pattern } = &out.actions[0].target_pose
@@ -1154,12 +1255,19 @@ mod tests {
     fn scan_pattern_spiral_lowers_to_spiral_sweep() {
         let yaml = "skill: surface-scan\nbody:\n  sequence:\n    - reach.scan:\n        region: { kind: surface, frame: panel, size_u: 200 mm, size_v: 150 mm }\n        standoff: 100 mm\n        pattern: spiral\n        coverage_overlap: 0.2\n    - sense.inspect: { target: panel, observe: [defect] }\n";
         let skill = Skill::parse_yaml(yaml).unwrap();
-        let mut allegro = Embodiment::parse_yaml(&std::fs::read_to_string(
-            Path::new(env!("CARGO_MANIFEST_DIR"))
-                .join("../../examples/01-cable-insertion/embodiments/allegro.yaml"),
-        ).unwrap()).unwrap();
+        let mut allegro = Embodiment::parse_yaml(
+            &std::fs::read_to_string(
+                Path::new(env!("CARGO_MANIFEST_DIR"))
+                    .join("../../examples/01-cable-insertion/embodiments/allegro.yaml"),
+            )
+            .unwrap(),
+        )
+        .unwrap();
         // The surface-scan skill declares sense.inspect; the 01 allegro does not.
-        allegro.capabilities.skills.push("sense.inspect".to_string());
+        allegro
+            .capabilities
+            .skills
+            .push("sense.inspect".to_string());
         let out = retarget(&skill, &allegro).expect("retarget");
         let crate::canonical::PoseExpr::SweepPath { poses, pattern } = &out.actions[0].target_pose
         else {
@@ -1205,7 +1313,13 @@ mod tests {
         let out = retarget(&skill, &emb).expect("retarget");
         // transport is action index 2 (locate, pinch, transport).
         assert_eq!(
-            out.actions[2].safety_envelope.motion_bounds.a_max.as_ref().unwrap().0,
+            out.actions[2]
+                .safety_envelope
+                .motion_bounds
+                .a_max
+                .as_ref()
+                .unwrap()
+                .0,
             "0.33816 m/s^2"
         );
     }
@@ -1216,7 +1330,13 @@ mod tests {
         let (skill, emb) = load("allegro");
         let out = retarget(&skill, &emb).expect("retarget");
         assert_eq!(
-            out.actions[2].safety_envelope.motion_bounds.a_max.as_ref().unwrap().0,
+            out.actions[2]
+                .safety_envelope
+                .motion_bounds
+                .a_max
+                .as_ref()
+                .unwrap()
+                .0,
             "1.5 m/s^2"
         );
     }
@@ -1224,11 +1344,19 @@ mod tests {
     #[test]
     fn insert_fit_reaction_clamps_budget_per_hand() {
         // 15 N budget clamped to grip_force_max / 2: allegro 10, leap 7.5, pneumatic 6.
-        for (stem, expected) in [("allegro", "10 N"), ("leap", "7.5 N"), ("pneumatic-6f", "6 N")] {
+        for (stem, expected) in [
+            ("allegro", "10 N"),
+            ("leap", "7.5 N"),
+            ("pneumatic-6f", "6 N"),
+        ] {
             let (skill, emb) = load(stem);
             let out = retarget(&skill, &emb).expect("retarget");
             // insert_fit is action index 5.
-            assert_eq!(out.actions[5].force_budget.as_ref().unwrap().0, expected, "stem {stem}");
+            assert_eq!(
+                out.actions[5].force_budget.as_ref().unwrap().0,
+                expected,
+                "stem {stem}"
+            );
         }
     }
 
@@ -1257,7 +1385,10 @@ mod tests {
         let skill = Skill::parse_yaml(SCREW_SKILL).unwrap();
         let emb = load("allegro").1; // cable allegro lacks force.screw
         let err = retarget(&skill, &emb).unwrap_err();
-        assert!(err.to_string().contains("capability_absent: force.screw"), "got {err}");
+        assert!(
+            err.to_string().contains("capability_absent: force.screw"),
+            "got {err}"
+        );
     }
 
     const PRESS_SKILL: &str = "skill: t\nbody:\n  sequence:\n    - force.press_button: { target: button, actuation: detent, force_budget: 5 N }\n";
@@ -1267,7 +1398,11 @@ mod tests {
         let skill = Skill::parse_yaml(PRESS_SKILL).unwrap();
         let emb = load("allegro").1; // cable allegro lacks force.press_button
         let err = retarget(&skill, &emb).unwrap_err();
-        assert!(err.to_string().contains("capability_absent: force.press_button"), "got {err}");
+        assert!(
+            err.to_string()
+                .contains("capability_absent: force.press_button"),
+            "got {err}"
+        );
     }
 
     const WIPE_SKILL: &str = "skill: t\nbody:\n  sequence:\n    - force.wipe: { surface: panel, wipe_path: stroke_path, normal_force: 5 N, normal_force_tolerance: 1 N }\n";
@@ -1277,7 +1412,10 @@ mod tests {
         let skill = Skill::parse_yaml(WIPE_SKILL).unwrap();
         let emb = load("allegro").1; // cable allegro lacks force.wipe
         let err = retarget(&skill, &emb).unwrap_err();
-        assert!(err.to_string().contains("capability_absent: force.wipe"), "got {err}");
+        assert!(
+            err.to_string().contains("capability_absent: force.wipe"),
+            "got {err}"
+        );
     }
 
     const SNAP_SKILL: &str = "skill: t\nbody:\n  sequence:\n    - force.snap_engage: { mate_feature: clip, engage_direction: +z, force_budget: 25 N, confirm_held: true }\n";
@@ -1287,7 +1425,11 @@ mod tests {
         let skill = Skill::parse_yaml(SNAP_SKILL).unwrap();
         let emb = load("allegro").1; // cable allegro lacks force.snap_engage
         let err = retarget(&skill, &emb).unwrap_err();
-        assert!(err.to_string().contains("capability_absent: force.snap_engage"), "got {err}");
+        assert!(
+            err.to_string()
+                .contains("capability_absent: force.snap_engage"),
+            "got {err}"
+        );
     }
 
     const CUT_SKILL: &str = "skill: t\nbody:\n  sequence:\n    - force.cut: { cut_path: seam_path, shear_force_budget: 30 N, completion: separation }\n";
@@ -1297,7 +1439,10 @@ mod tests {
         let skill = Skill::parse_yaml(CUT_SKILL).unwrap();
         let emb = load("allegro").1; // cable allegro lacks force.cut
         let err = retarget(&skill, &emb).unwrap_err();
-        assert!(err.to_string().contains("capability_absent: force.cut"), "got {err}");
+        assert!(
+            err.to_string().contains("capability_absent: force.cut"),
+            "got {err}"
+        );
     }
 
     const EMB_CUT_NO_TOOL_SAFETY: &str =
@@ -1308,7 +1453,10 @@ mod tests {
         let skill = Skill::parse_yaml(CUT_SKILL).unwrap();
         let emb = crate::embodiment::Embodiment::parse_yaml(EMB_CUT_NO_TOOL_SAFETY).unwrap();
         let err = retarget(&skill, &emb).unwrap_err();
-        assert!(err.to_string().contains("capability_absent: tool_safety"), "got {err}");
+        assert!(
+            err.to_string().contains("capability_absent: tool_safety"),
+            "got {err}"
+        );
     }
 
     const FLIP_SKILL: &str = "skill: t\nbody:\n  sequence:\n    - in_hand.flip: { flip_axis: +x, angle: 180 deg, max_release_time: 0.3 s, safe_drop_zone: tray }\n";
@@ -1318,7 +1466,10 @@ mod tests {
         let skill = Skill::parse_yaml(FLIP_SKILL).unwrap();
         let emb = load("allegro").1; // cable-01 allegro lacks in_hand.flip
         let err = retarget(&skill, &emb).unwrap_err();
-        assert!(err.to_string().contains("capability_absent: in_hand.flip"), "got {err}");
+        assert!(
+            err.to_string().contains("capability_absent: in_hand.flip"),
+            "got {err}"
+        );
     }
 
     #[test]
@@ -1326,7 +1477,8 @@ mod tests {
         let dir =
             std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples/03-screw-fasten");
         let skill =
-            Skill::parse_yaml(&std::fs::read_to_string(dir.join("skill-flip.yaml")).unwrap()).unwrap();
+            Skill::parse_yaml(&std::fs::read_to_string(dir.join("skill-flip.yaml")).unwrap())
+                .unwrap();
         let emb = crate::embodiment::Embodiment::parse_yaml(
             &std::fs::read_to_string(dir.join("embodiments/allegro.yaml")).unwrap(),
         )
@@ -1343,7 +1495,8 @@ mod tests {
         let dir =
             std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples/03-screw-fasten");
         let skill =
-            Skill::parse_yaml(&std::fs::read_to_string(dir.join("skill-cut.yaml")).unwrap()).unwrap();
+            Skill::parse_yaml(&std::fs::read_to_string(dir.join("skill-cut.yaml")).unwrap())
+                .unwrap();
         let emb = crate::embodiment::Embodiment::parse_yaml(
             &std::fs::read_to_string(dir.join("embodiments/allegro.yaml")).unwrap(),
         )
@@ -1361,7 +1514,8 @@ mod tests {
         let dir =
             std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples/03-screw-fasten");
         let skill =
-            Skill::parse_yaml(&std::fs::read_to_string(dir.join("skill-snap.yaml")).unwrap()).unwrap();
+            Skill::parse_yaml(&std::fs::read_to_string(dir.join("skill-snap.yaml")).unwrap())
+                .unwrap();
         let emb = crate::embodiment::Embodiment::parse_yaml(
             &std::fs::read_to_string(dir.join("embodiments/allegro.yaml")).unwrap(),
         )
@@ -1380,7 +1534,8 @@ mod tests {
         let dir =
             std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples/03-screw-fasten");
         let skill =
-            Skill::parse_yaml(&std::fs::read_to_string(dir.join("skill-wipe.yaml")).unwrap()).unwrap();
+            Skill::parse_yaml(&std::fs::read_to_string(dir.join("skill-wipe.yaml")).unwrap())
+                .unwrap();
         let emb = crate::embodiment::Embodiment::parse_yaml(
             &std::fs::read_to_string(dir.join("embodiments/allegro.yaml")).unwrap(),
         )
@@ -1391,7 +1546,10 @@ mod tests {
         assert!(a.force_budget.is_none()); // the band owns both bounds
         let fp = serde_json::to_string(&a.safety_envelope.force_profile).unwrap();
         assert!(fp.contains("\"normal_force\":\"5 N\""), "got {fp}");
-        assert!(fp.contains("\"normal_force_tolerance\":\"1 N\""), "got {fp}");
+        assert!(
+            fp.contains("\"normal_force_tolerance\":\"1 N\""),
+            "got {fp}"
+        );
     }
 
     #[test]
@@ -1399,7 +1557,8 @@ mod tests {
         let dir =
             std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples/03-screw-fasten");
         let skill =
-            Skill::parse_yaml(&std::fs::read_to_string(dir.join("skill-press.yaml")).unwrap()).unwrap();
+            Skill::parse_yaml(&std::fs::read_to_string(dir.join("skill-press.yaml")).unwrap())
+                .unwrap();
         let emb = crate::embodiment::Embodiment::parse_yaml(
             &std::fs::read_to_string(dir.join("embodiments/allegro.yaml")).unwrap(),
         )
@@ -1443,12 +1602,30 @@ mod tests {
         emb.capabilities.skills.push("force.unscrew".to_string());
         let out = retarget(&skill, &emb).expect("retarget");
         assert_eq!(out.suffixes, vec!["unscrew"]);
-        let fp = out.actions[0].safety_envelope.force_profile.as_ref().expect("force_profile");
-        assert_eq!(fp.get("torque").and_then(|v| v.as_str()), Some("2 N\u{b7}m")); // unclamped (no tool held)
-        assert_eq!(fp.get("rotation_sense").and_then(|v| v.as_str()), Some("loosen"));
-        assert_eq!(fp.get("on_disengagement").and_then(|v| v.as_str()), Some("retain"));
+        let fp = out.actions[0]
+            .safety_envelope
+            .force_profile
+            .as_ref()
+            .expect("force_profile");
+        assert_eq!(
+            fp.get("torque").and_then(|v| v.as_str()),
+            Some("2 N\u{b7}m")
+        ); // unclamped (no tool held)
+        assert_eq!(
+            fp.get("rotation_sense").and_then(|v| v.as_str()),
+            Some("loosen")
+        );
+        assert_eq!(
+            fp.get("on_disengagement").and_then(|v| v.as_str()),
+            Some("retain")
+        );
         let m = &out.actions[0].monitors[0];
-        assert_eq!(m.stop_condition.get("disengagement").and_then(|v| v.as_bool()), Some(true));
+        assert_eq!(
+            m.stop_condition
+                .get("disengagement")
+                .and_then(|v| v.as_bool()),
+            Some(true)
+        );
     }
 
     #[test]
@@ -1457,7 +1634,10 @@ mod tests {
         let skill = Skill::parse_yaml(yaml).expect("parse");
         let emb = load("allegro").1; // cable allegro lacks force.unscrew
         let err = retarget(&skill, &emb).unwrap_err();
-        assert!(err.to_string().contains("capability_absent: force.unscrew"), "got {err}");
+        assert!(
+            err.to_string().contains("capability_absent: force.unscrew"),
+            "got {err}"
+        );
     }
 
     const CARRY_SKILL: &str = "skill: cable-carry\nobjects:\n  connector: { ref: connector, estimated_mass: 1.45 N }\nbody:\n  sequence:\n    - let: connector_t\n      from:\n        sense.locate: { target_ref: connector, modality: auto }\n    - grasp.pinch: { target: connector_t, force_budget: 8 N, tactile_target: auto }\n    - transport.carry:\n        motion: { to_pose: { frame: staging, offset: { along: +z, distance: 100 mm } } }\n        disturbance_budget: 0.4 N\n        stability_margin: auto\n";
@@ -1465,8 +1645,10 @@ mod tests {
     fn carry_emb(stem: &str) -> Embodiment {
         let (_, mut emb) = load(stem);
         emb.capabilities.skills.push("transport.carry".to_string());
-        emb.limits
-            .insert("stability_margin".to_string(), serde_yaml::from_str("0.5").unwrap());
+        emb.limits.insert(
+            "stability_margin".to_string(),
+            serde_yaml::from_str("0.5").unwrap(),
+        );
         emb
     }
 
@@ -1476,13 +1658,33 @@ mod tests {
         let emb = carry_emb("allegro");
         let out = retarget(&skill, &emb).expect("retarget");
         assert_eq!(out.suffixes, vec!["locate", "pinch", "carry"]);
-        let fp = out.actions[2].safety_envelope.force_profile.as_ref().expect("force_profile");
-        assert_eq!(fp.get("min_holding_force").and_then(|v| v.as_str()), Some("2.9 N"));
-        assert_eq!(fp.get("disturbance_budget").and_then(|v| v.as_str()), Some("0.4 N"));
-        assert_eq!(fp.get("stability_margin").and_then(serde_json::Value::as_f64), Some(0.5));
+        let fp = out.actions[2]
+            .safety_envelope
+            .force_profile
+            .as_ref()
+            .expect("force_profile");
+        assert_eq!(
+            fp.get("min_holding_force").and_then(|v| v.as_str()),
+            Some("2.9 N")
+        );
+        assert_eq!(
+            fp.get("disturbance_budget").and_then(|v| v.as_str()),
+            Some("0.4 N")
+        );
+        assert_eq!(
+            fp.get("stability_margin")
+                .and_then(serde_json::Value::as_f64),
+            Some(0.5)
+        );
         // allegro carry a_max clamps from the 1.5 kinematic ceiling to 1.014481.
         assert_eq!(
-            out.actions[2].safety_envelope.motion_bounds.a_max.as_ref().unwrap().0,
+            out.actions[2]
+                .safety_envelope
+                .motion_bounds
+                .a_max
+                .as_ref()
+                .unwrap()
+                .0,
             "1.014481 m/s^2"
         );
     }
@@ -1493,7 +1695,13 @@ mod tests {
         for stem in ["leap", "pneumatic-6f"] {
             let out = retarget(&skill, &carry_emb(stem)).expect("retarget");
             assert_eq!(
-                out.actions[2].safety_envelope.motion_bounds.a_max.as_ref().unwrap().0,
+                out.actions[2]
+                    .safety_envelope
+                    .motion_bounds
+                    .a_max
+                    .as_ref()
+                    .unwrap()
+                    .0,
                 "0 m/s^2",
                 "stem {stem}"
             );
@@ -1508,7 +1716,11 @@ mod tests {
         // to exercise the gate. transport.carry is a distinct capability from base transport.
         emb.capabilities.skills.retain(|s| s != "transport.carry");
         let err = retarget(&skill, &emb).unwrap_err();
-        assert!(err.to_string().contains("capability_absent: transport.carry"), "got {err}");
+        assert!(
+            err.to_string()
+                .contains("capability_absent: transport.carry"),
+            "got {err}"
+        );
     }
 
     #[test]
@@ -1520,12 +1732,16 @@ mod tests {
         let emb = load("allegro").1;
         let out = retarget(&skill, &emb).expect("retarget");
         assert_eq!(out.suffixes, vec!["hover"]);
-        let crate::canonical::PoseExpr::FrameRelative { frame, offset } = &out.actions[0].target_pose
+        let crate::canonical::PoseExpr::FrameRelative { frame, offset } =
+            &out.actions[0].target_pose
         else {
             panic!("expected FrameRelative");
         };
         assert_eq!(frame, "panel");
-        assert_eq!(offset.get("distance").and_then(|v| v.as_str()), Some("50 mm"));
+        assert_eq!(
+            offset.get("distance").and_then(|v| v.as_str()),
+            Some("50 mm")
+        );
     }
 
     #[test]
@@ -1540,14 +1756,21 @@ mod tests {
             .station_keeping
             .as_ref()
             .expect("station_keeping emitted");
-        assert_eq!(sk.get("station_tolerance").and_then(|v| v.as_str()), Some("2 mm"));
-        assert_eq!(sk.get("settling_time").and_then(|v| v.as_str()), Some("1 s"));
+        assert_eq!(
+            sk.get("station_tolerance").and_then(|v| v.as_str()),
+            Some("2 mm")
+        );
+        assert_eq!(
+            sk.get("settling_time").and_then(|v| v.as_str()),
+            Some("1 s")
+        );
     }
 
     #[test]
     fn bare_hover_emits_no_station_keeping() {
         // No settling_time -> ENV2-only, unchanged (no station_keeping).
-        let yaml = "skill: t\nbody:\n  sequence:\n    - reach.hover: { target: panel, standoff: 50 mm }\n";
+        let yaml =
+            "skill: t\nbody:\n  sequence:\n    - reach.hover: { target: panel, standoff: 50 mm }\n";
         let skill = Skill::parse_yaml(yaml).expect("parse");
         let out = retarget(&skill, &load("allegro").1).expect("retarget");
         assert!(out.actions[0].safety_envelope.station_keeping.is_none());

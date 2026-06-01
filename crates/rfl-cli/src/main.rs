@@ -98,12 +98,23 @@ fn main() -> Result<()> {
             let parsed_skill = rfl_core::skill_isa::Skill::parse_yaml(&skill_text)?;
             let emb = rfl_core::embodiment::Embodiment::parse_yaml(&emb_text)?;
             let out = rfl_core::translation::retarget(&parsed_skill, &emb)?;
-            let jsonl =
-                rfl_core::canonical::to_jsonl(&parsed_skill.skill, &emb.id, &out.actions, &out.suffixes);
+            let jsonl = rfl_core::canonical::to_jsonl(
+                &parsed_skill.skill,
+                &emb.id,
+                &out.actions,
+                &out.suffixes,
+            );
             print!("{jsonl}");
             Ok(())
         }
-        Command::Certify { skill, embodiment, report, driver, timeout, out } => {
+        Command::Certify {
+            skill,
+            embodiment,
+            report,
+            driver,
+            timeout,
+            out,
+        } => {
             let result = match (report, driver) {
                 (Some(r), None) => rfl_conformance::certify::run(&skill, &embodiment, &r),
                 (None, Some(d)) => rfl_conformance::certify::run_live(

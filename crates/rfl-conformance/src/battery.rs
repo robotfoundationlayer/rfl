@@ -11,9 +11,9 @@ use rfl_core::canonical::ExecuteGoal;
 use rfl_core::driver::DriverReport;
 
 use crate::{
-    check_actuation, check_audit_honesty, check_engagement, check_envelope,
-    check_freed_part_disposition, check_irreversible, check_momentary_release, envelope_class_for,
-    suffix_of, CheckOutcome, EnvelopeClass,
+    CheckOutcome, EnvelopeClass, check_actuation, check_audit_honesty, check_engagement,
+    check_envelope, check_freed_part_disposition, check_irreversible, check_momentary_release,
+    envelope_class_for, suffix_of,
 };
 
 /// A named check outcome.
@@ -48,17 +48,34 @@ pub fn verify_action(goal: &ExecuteGoal, report: &DriverReport) -> ActionVerdict
     let envelope_class = envelope_class_for(&suffix);
     let mut checks = Vec::new();
     if let Some(class) = envelope_class {
-        checks.push(NamedCheck { name: "envelope", outcome: check_envelope(class, goal, report) });
+        checks.push(NamedCheck {
+            name: "envelope",
+            outcome: check_envelope(class, goal, report),
+        });
     }
-    checks.push(NamedCheck { name: "actuation", outcome: check_actuation(goal, report) });
-    checks.push(NamedCheck { name: "engagement", outcome: check_engagement(goal, report) });
-    checks.push(NamedCheck { name: "irreversible", outcome: check_irreversible(goal, report) });
+    checks.push(NamedCheck {
+        name: "actuation",
+        outcome: check_actuation(goal, report),
+    });
+    checks.push(NamedCheck {
+        name: "engagement",
+        outcome: check_engagement(goal, report),
+    });
+    checks.push(NamedCheck {
+        name: "irreversible",
+        outcome: check_irreversible(goal, report),
+    });
     checks.push(NamedCheck {
         name: "freed_part_disposition",
         outcome: check_freed_part_disposition(goal, report),
     });
-    checks.push(NamedCheck { name: "audit_honesty", outcome: check_audit_honesty(goal, report) });
-    let passed = checks.iter().all(|c| matches!(c.outcome, CheckOutcome::Pass));
+    checks.push(NamedCheck {
+        name: "audit_honesty",
+        outcome: check_audit_honesty(goal, report),
+    });
+    let passed = checks
+        .iter()
+        .all(|c| matches!(c.outcome, CheckOutcome::Pass));
     let fidelity_tier = report.status.fidelity_tier.clone();
     ActionVerdict {
         action_id: goal.action_id.clone(),
@@ -73,13 +90,16 @@ pub fn verify_action(goal: &ExecuteGoal, report: &DriverReport) -> ActionVerdict
 /// Run the sequence-level obligation (`momentary_release` propagation, AUD2).
 #[must_use]
 pub fn verify_sequence(pairs: &[(ExecuteGoal, DriverReport)]) -> NamedCheck {
-    NamedCheck { name: "momentary_release", outcome: check_momentary_release(pairs) }
+    NamedCheck {
+        name: "momentary_release",
+        outcome: check_momentary_release(pairs),
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{drive, Fault, FaultyDriver, ReferenceDriver};
+    use crate::{Fault, FaultyDriver, ReferenceDriver, drive};
     use std::path::Path;
 
     fn example_dir() -> std::path::PathBuf {
@@ -103,7 +123,10 @@ mod tests {
         assert!(
             v.passed,
             "checks: {:?}",
-            v.checks.iter().map(|c| (c.name, &c.outcome)).collect::<Vec<_>>()
+            v.checks
+                .iter()
+                .map(|c| (c.name, &c.outcome))
+                .collect::<Vec<_>>()
         );
     }
 

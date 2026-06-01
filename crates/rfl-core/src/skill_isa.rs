@@ -35,8 +35,8 @@ pub enum Category {
 #[derive(Debug, Clone, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 pub struct PrimitiveId(pub String);
 
-use std::collections::BTreeMap;
 use crate::quantity::Quantity;
+use std::collections::BTreeMap;
 
 /// A reference to a let-bound value (`$defs/Ref`): a bare identifier naming a value
 /// bound earlier by a let-bind.
@@ -651,7 +651,10 @@ mod parse_tests {
     #[test]
     fn connector_declares_estimated_mass() {
         let s = cable_skill();
-        assert_eq!(s.objects["connector"].estimated_mass.as_ref().unwrap().0, "1.45 N");
+        assert_eq!(
+            s.objects["connector"].estimated_mass.as_ref().unwrap().0,
+            "1.45 N"
+        );
         assert!(s.objects["receptacle"].estimated_mass.is_none());
     }
 
@@ -661,13 +664,31 @@ mod parse_tests {
         let stmts = &s.body.sequence;
         assert_eq!(stmts.len(), 8);
         assert!(matches!(&stmts[0], Statement::LetBind(_))); // let connector_t
-        assert!(matches!(&stmts[1], Statement::Primitive(Primitive::GraspPinch(_))));
-        assert!(matches!(&stmts[2], Statement::Primitive(Primitive::TransportMoveToPose(_))));
+        assert!(matches!(
+            &stmts[1],
+            Statement::Primitive(Primitive::GraspPinch(_))
+        ));
+        assert!(matches!(
+            &stmts[2],
+            Statement::Primitive(Primitive::TransportMoveToPose(_))
+        ));
         assert!(matches!(&stmts[3], Statement::LetBind(_))); // let receptacle_t
-        assert!(matches!(&stmts[4], Statement::Primitive(Primitive::ReachAlign(_))));
-        assert!(matches!(&stmts[5], Statement::Primitive(Primitive::ForceInsertFit(_))));
-        assert!(matches!(&stmts[6], Statement::Primitive(Primitive::GraspRelease(_))));
-        assert!(matches!(&stmts[7], Statement::Primitive(Primitive::ReachRetract(_))));
+        assert!(matches!(
+            &stmts[4],
+            Statement::Primitive(Primitive::ReachAlign(_))
+        ));
+        assert!(matches!(
+            &stmts[5],
+            Statement::Primitive(Primitive::ForceInsertFit(_))
+        ));
+        assert!(matches!(
+            &stmts[6],
+            Statement::Primitive(Primitive::GraspRelease(_))
+        ));
+        assert!(matches!(
+            &stmts[7],
+            Statement::Primitive(Primitive::ReachRetract(_))
+        ));
     }
 
     #[test]
@@ -685,10 +706,15 @@ mod parse_tests {
     fn parses_scan_primitives() {
         let yaml = "skill: t\nbody:\n  sequence:\n    - reach.scan:\n        region: { kind: surface, frame: panel, size_u: 200 mm, size_v: 150 mm }\n        standoff: 100 mm\n        pattern: raster\n        coverage_overlap: 0.2\n    - sense.inspect:\n        target: panel\n        observe: [defect]\n";
         let s = Skill::parse_yaml(yaml).expect("parse");
-        let Statement::Primitive(Primitive::ReachScan(p)) = &s.body.sequence[0] else { panic!() };
+        let Statement::Primitive(Primitive::ReachScan(p)) = &s.body.sequence[0] else {
+            panic!()
+        };
         assert_eq!(p.standoff.0, "100 mm");
         assert!(matches!(p.pattern, Some(ScanPattern::Raster)));
-        assert!(matches!(&s.body.sequence[1], Statement::Primitive(Primitive::SenseInspect(_))));
+        assert!(matches!(
+            &s.body.sequence[1],
+            Statement::Primitive(Primitive::SenseInspect(_))
+        ));
     }
 
     #[test]
@@ -721,8 +747,13 @@ mod parse_tests {
             panic!("expected transport.carry");
         };
         assert!(p.motion.get("to_pose").is_some());
-        assert!(matches!(p.stability_margin, Some(StabilityMarginArg::Auto(_))));
-        let Some(DisturbanceArg::Force(q)) = &p.disturbance_budget else { panic!("explicit force") };
+        assert!(matches!(
+            p.stability_margin,
+            Some(StabilityMarginArg::Auto(_))
+        ));
+        let Some(DisturbanceArg::Force(q)) = &p.disturbance_budget else {
+            panic!("explicit force")
+        };
         assert_eq!(q.0, "0.4 N");
     }
 }

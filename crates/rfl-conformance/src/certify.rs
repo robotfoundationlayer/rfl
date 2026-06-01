@@ -12,12 +12,12 @@ use std::path::Path;
 use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};
 
-use anyhow::{anyhow, bail, Context, Result};
+use anyhow::{Context, Result, anyhow, bail};
 use rfl_core::canonical::ExecuteGoal;
 
 use crate::battery::{self, ActionVerdict, NamedCheck};
 use crate::certificate::{self, ActionEntry, Certificate, CertificateBody, CheckEntry, FileRef};
-use crate::{replay, CheckOutcome};
+use crate::{CheckOutcome, replay};
 
 /// The overall certified result.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -38,10 +38,16 @@ pub struct CertifyOutcome {
 
 fn check_entry(c: &NamedCheck) -> CheckEntry {
     match &c.outcome {
-        CheckOutcome::Pass => CheckEntry { name: c.name, result: "pass", reason: None },
-        CheckOutcome::Fail(r) => {
-            CheckEntry { name: c.name, result: "fail", reason: Some(r.clone()) }
-        }
+        CheckOutcome::Pass => CheckEntry {
+            name: c.name,
+            result: "pass",
+            reason: None,
+        },
+        CheckOutcome::Fail(r) => CheckEntry {
+            name: c.name,
+            result: "fail",
+            reason: Some(r.clone()),
+        },
     }
 }
 
@@ -61,7 +67,11 @@ fn action_entry(v: &ActionVerdict) -> ActionEntry {
 /// # Errors
 /// An unparseable skill / embodiment, an invalid report stream, or a correlation mismatch
 /// (a missing or orphan action) — each makes the run invalid.
-pub fn run(skill_path: &Path, embodiment_path: &Path, report_path: &Path) -> Result<CertifyOutcome> {
+pub fn run(
+    skill_path: &Path,
+    embodiment_path: &Path,
+    report_path: &Path,
+) -> Result<CertifyOutcome> {
     let skill_bytes = std::fs::read(skill_path).with_context(|| format!("read {skill_path:?}"))?;
     let emb_bytes =
         std::fs::read(embodiment_path).with_context(|| format!("read {embodiment_path:?}"))?;
@@ -123,8 +133,14 @@ fn certify_core(skill_bytes: &[u8], emb_bytes: &[u8], report_text: &str) -> Resu
         certificate_schema_version: "0.1",
         spec_version: rfl_core::SPEC_VERSION,
         tool_version: env!("CARGO_PKG_VERSION"),
-        skill: FileRef { id: skill.skill.clone(), sha256: certificate::sha256_hex(skill_bytes) },
-        embodiment: FileRef { id: emb.id.clone(), sha256: certificate::sha256_hex(emb_bytes) },
+        skill: FileRef {
+            id: skill.skill.clone(),
+            sha256: certificate::sha256_hex(skill_bytes),
+        },
+        embodiment: FileRef {
+            id: emb.id.clone(),
+            sha256: certificate::sha256_hex(emb_bytes),
+        },
         report_sha256: certificate::sha256_hex(report_text.as_bytes()),
         result: if all_passed { "pass" } else { "fail" },
         covered: vec!["class3_driver_protocol"],
@@ -137,8 +153,15 @@ fn certify_core(skill_bytes: &[u8], emb_bytes: &[u8], report_text: &str) -> Resu
         actions: action_entries,
         sequence_checks: vec![seq_entry],
     };
-    let result = if all_passed { CertResult::Pass } else { CertResult::Fail };
-    Ok(CertifyOutcome { certificate: certificate::seal(body), result })
+    let result = if all_passed {
+        CertResult::Pass
+    } else {
+        CertResult::Fail
+    };
+    Ok(CertifyOutcome {
+        certificate: certificate::seal(body),
+        result,
+    })
 }
 
 /// Spawn `driver`, write the execute goals to its stdin (EOF on completion), and return its
@@ -191,7 +214,9 @@ fn drive_subprocess(driver: &Path, goals: &str, timeout: Duration) -> Result<Str
     };
 
     let _ = writer.join();
-    let out = reader.join().map_err(|_| anyhow!("driver stdout reader panicked"))?;
+    let out = reader
+        .join()
+        .map_err(|_| anyhow!("driver stdout reader panicked"))?;
     let err = ereader.join().unwrap_or_default();
     if !status.success() {
         let tail = if err.trim().is_empty() {
