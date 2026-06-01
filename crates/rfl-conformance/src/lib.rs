@@ -45,6 +45,9 @@ use rfl_core::driver::{Driver, DriverReport, Outcome, RealizedPose, Status, Tele
 #[derive(Debug, Default)]
 pub struct ReferenceDriver {
     step: u32,
+    /// AUD2 cross-action state: set once an `in_hand.flip` is seen, so `momentary_release`
+    /// propagates into every downstream action's audit record.
+    momentary_release_seen: bool,
 }
 
 impl Driver for ReferenceDriver {
@@ -156,6 +159,15 @@ impl Driver for ReferenceDriver {
             == Some(true)
         {
             evidence.push("held_confirmed".to_string());
+        }
+        // AUD2 (in_hand.flip, spec/05): the flip declares momentary_release and the flag
+        // propagates into every downstream action's audit record (the first cross-action state).
+        let is_flip = suffix_of(&goal.action_id) == "flip";
+        if is_flip || self.momentary_release_seen {
+            evidence.push("momentary_release".to_string());
+        }
+        if is_flip {
+            self.momentary_release_seen = true;
         }
         let status = Status {
             message: "status",
@@ -587,6 +599,61 @@ impl Driver for CutDriver {
     }
 }
 
+/// How a driver reports an `in_hand.flip` sequence (`spec/05` AUD2). `Propagates` is conformant
+/// (the flip declares momentary_release and it propagates downstream); `SuppressesFlip` omits the
+/// flag on the flip; `DropsDownstream` keeps it on the flip but strips it from later actions.
+#[derive(Debug, Clone, Copy)]
+pub enum FlipResponse {
+    /// Conformant: declared on the flip and propagated downstream.
+    Propagates,
+    /// Adversarial: the flip omits momentary_release (claims continuity preserved).
+    SuppressesFlip,
+    /// Adversarial: declared on the flip but dropped from every downstream action.
+    DropsDownstream,
+}
+
+/// The `in_hand.flip` AUD2 bench: reuses the nominal `ReferenceDriver` (which declares +
+/// propagates momentary_release) and mutates the audit trail per `response`.
+#[derive(Debug)]
+pub struct FlipDriver {
+    inner: ReferenceDriver,
+    response: FlipResponse,
+}
+
+impl FlipDriver {
+    /// A flip driver with the given audit-trail response.
+    #[must_use]
+    pub fn new(response: FlipResponse) -> Self {
+        FlipDriver { inner: ReferenceDriver::default(), response }
+    }
+}
+
+impl Driver for FlipDriver {
+    fn execute(&mut self, goal: &ExecuteGoal) -> DriverReport {
+        let mut report = self.inner.execute(goal);
+        let is_flip = suffix_of(&goal.action_id) == "flip";
+        let strip = |report: &mut DriverReport| {
+            if let Some(v) = report.status.verdict.as_mut() {
+                v.evidence.retain(|e| e != "momentary_release");
+            }
+        };
+        match self.response {
+            FlipResponse::Propagates => {} // passthrough — ReferenceDriver declares + propagates
+            FlipResponse::SuppressesFlip => {
+                if is_flip {
+                    strip(&mut report); // the flip omits the flag
+                }
+            }
+            FlipResponse::DropsDownstream => {
+                if !is_flip {
+                    strip(&mut report); // pre-flip have nothing; post-flip lose the propagated flag
+                }
+            }
+        }
+        report
+    }
+}
+
 /// Retarget the skill onto the embodiment and drive every `execute` message through
 /// `driver`, returning the `(goal, report)` pair per action. Generic over any
 /// `Driver` (the nominal `ReferenceDriver` or a `FaultyDriver`). Action ids match the
@@ -666,7 +733,7 @@ pub enum EnvelopeClass {
 pub fn envelope_class_for(suffix: &str) -> Option<EnvelopeClass> {
     match suffix {
         "align" | "retract" | "scan" => Some(EnvelopeClass::TerminalPostcondition),
-        "pinch" | "release" | "transport" => Some(EnvelopeClass::GraspContinuity),
+        "pinch" | "release" | "transport" | "flip" => Some(EnvelopeClass::GraspContinuity),
         "insert_fit" | "screw" | "unscrew" | "press_button" | "wipe" | "snap_engage" | "cut" => {
             Some(EnvelopeClass::ForceTrajectory)
         }
@@ -1042,6 +1109,35 @@ pub fn check_audit_honesty(goal: &ExecuteGoal, report: &DriverReport) -> CheckOu
             "degraded (proxy) execution claimed manifold tier — undisclosed degradation (AUD3)"
                 .to_string(),
         );
+    }
+    CheckOutcome::Pass
+}
+
+/// Verify the AUD2 obligation (`spec/05`): the continuity-suspending `in_hand.flip` declares
+/// `momentary_release`, and the flag is **propagated** to every downstream action's audit record
+/// (so the L4 / L8 loops trace the continuity break several primitives later). The FIRST
+/// sequence-level check — a pure function of the whole `drive()` sequence, not a single pair.
+/// Vacuous when the sequence contains no flip.
+#[must_use]
+pub fn check_momentary_release(pairs: &[(ExecuteGoal, DriverReport)]) -> CheckOutcome {
+    let declares = |r: &DriverReport| {
+        r.status.verdict.as_ref().is_some_and(|v| v.evidence.iter().any(|e| e == "momentary_release"))
+    };
+    let Some(flip_idx) = pairs.iter().position(|(g, _)| suffix_of(&g.action_id) == "flip") else {
+        return CheckOutcome::Pass; // no continuity break -> nothing to trace
+    };
+    if !declares(&pairs[flip_idx].1) {
+        return CheckOutcome::Fail(
+            "in_hand.flip did not declare momentary_release (transparency violation)".to_string(),
+        );
+    }
+    for (g, r) in &pairs[flip_idx + 1..] {
+        if !declares(r) {
+            return CheckOutcome::Fail(format!(
+                "momentary_release not propagated to downstream action {}",
+                g.action_id
+            ));
+        }
     }
     CheckOutcome::Pass
 }
@@ -1624,5 +1720,44 @@ mod tests {
         assert_eq!(check_audit_honesty(&proxy_goal, &report("proxy")), CheckOutcome::Pass);
         // manifold action + manifold claim -> Pass.
         assert_eq!(check_audit_honesty(&manifold_goal, &report("manifold")), CheckOutcome::Pass);
+    }
+
+    #[test]
+    fn check_momentary_release_requires_declaration_and_propagation() {
+        use rfl_core::driver::{Outcome, RealizedPose, Status, Verdict};
+        let pair = |suffix: &str, momentary: bool| {
+            let mut evidence = vec!["nominal".to_string()];
+            if momentary {
+                evidence.push("momentary_release".to_string());
+            }
+            let id = format!("s/e/0001-{suffix}");
+            let goal = ExecuteGoal::wrap(id.clone(), sample_action());
+            let report = DriverReport {
+                telemetry: vec![],
+                status: Status {
+                    message: "status",
+                    action_id: id,
+                    outcome: Outcome::Succeeded,
+                    verdict: Some(Verdict { value: true, confidence: 1.0, evidence }),
+                    fidelity_tier: None,
+                    final_pose: Some(RealizedPose::placeholder()),
+                    failure_class: None,
+                    failure_detail: None,
+                },
+            };
+            (goal, report)
+        };
+        // flip declares + downstream release carries -> Pass.
+        let ok = vec![pair("pinch", false), pair("flip", true), pair("release", true)];
+        assert_eq!(check_momentary_release(&ok), CheckOutcome::Pass);
+        // flip omits the flag -> Fail.
+        let suppressed = vec![pair("flip", false), pair("release", false)];
+        assert!(matches!(check_momentary_release(&suppressed), CheckOutcome::Fail(_)));
+        // flip declares but downstream dropped -> Fail (the sequence-level bite).
+        let dropped = vec![pair("flip", true), pair("release", false)];
+        assert!(matches!(check_momentary_release(&dropped), CheckOutcome::Fail(_)));
+        // no flip -> vacuous Pass.
+        let no_flip = vec![pair("pinch", false), pair("release", false)];
+        assert_eq!(check_momentary_release(&no_flip), CheckOutcome::Pass);
     }
 }

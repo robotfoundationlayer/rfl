@@ -8,10 +8,10 @@
 
 use rfl_conformance::{
     check_actuation, check_audit_honesty, check_engagement, check_envelope,
-    check_graceful_degradation, check_irreversible, check_settling, drive, envelope_class_for,
-    CheckOutcome, CutDriver, CutResponse, DisturbanceDriver, DisturbanceResponse, EnvelopeClass,
-    Fault, FaultyDriver, HoverResponse, HoverSettlingDriver, PressButtonDriver, PressButtonResponse,
-    ReferenceDriver, SnapEngageDriver, SnapEngageResponse,
+    check_graceful_degradation, check_irreversible, check_momentary_release, check_settling, drive,
+    envelope_class_for, CheckOutcome, CutDriver, CutResponse, DisturbanceDriver, DisturbanceResponse,
+    EnvelopeClass, Fault, FaultyDriver, FlipDriver, FlipResponse, HoverResponse, HoverSettlingDriver,
+    PressButtonDriver, PressButtonResponse, ReferenceDriver, SnapEngageDriver, SnapEngageResponse,
 };
 use std::path::{Path, PathBuf};
 
@@ -734,4 +734,48 @@ fn manifold_tier_passes() {
     // allegro declares tactile -> manifold; honest.
     assert_eq!(report.status.fidelity_tier.as_deref(), Some("manifold"));
     assert_eq!(check_audit_honesty(goal, report), CheckOutcome::Pass);
+}
+
+// --- AUD2 momentary_release propagation (in_hand.flip, spec/05) ------------------------------
+
+#[test]
+fn nominal_flip_declares_and_propagates() {
+    let dir = screw_dir();
+    let pairs = drive(
+        ReferenceDriver::default(),
+        &dir.join("skill-flip.yaml"),
+        &dir.join("embodiments/allegro.yaml"),
+    )
+    .expect("drive");
+    // locate(0), pinch(1), flip(2), release(3).
+    assert_eq!(suffix_of(&pairs[2].0.action_id), "flip");
+    assert_eq!(suffix_of(&pairs[3].0.action_id), "release");
+    assert_eq!(check_momentary_release(&pairs), CheckOutcome::Pass);
+}
+
+#[test]
+fn flip_suppressed_fails() {
+    let dir = screw_dir();
+    let pairs = drive(
+        FlipDriver::new(FlipResponse::SuppressesFlip),
+        &dir.join("skill-flip.yaml"),
+        &dir.join("embodiments/allegro.yaml"),
+    )
+    .expect("drive");
+    // the flip omits momentary_release -> transparency violation.
+    assert!(matches!(check_momentary_release(&pairs), CheckOutcome::Fail(_)));
+}
+
+#[test]
+fn flip_propagation_dropped_fails() {
+    let dir = screw_dir();
+    let pairs = drive(
+        FlipDriver::new(FlipResponse::DropsDownstream),
+        &dir.join("skill-flip.yaml"),
+        &dir.join("embodiments/allegro.yaml"),
+    )
+    .expect("drive");
+    // the flip declares it but the downstream release drops the propagated flag -> the
+    // sequence-level bite (each report looks fine in isolation).
+    assert!(matches!(check_momentary_release(&pairs), CheckOutcome::Fail(_)));
 }
