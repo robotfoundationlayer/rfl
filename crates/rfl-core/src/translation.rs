@@ -132,6 +132,7 @@ fn check_capability(prim: &Primitive, e: &Embodiment) -> crate::Result<()> {
         Primitive::GraspPower(_) => "grasp.power",
         Primitive::GraspLateral(_) => "grasp.lateral",
         Primitive::GraspHook(_) => "grasp.hook",
+        Primitive::GraspEnvelope(_) => "grasp.envelope",
         Primitive::GraspPin(_) => "grasp.pin",
         Primitive::GraspPlatform(_) => "grasp.platform",
         Primitive::InHandRegrasp(_) => "in_hand.regrasp",
@@ -190,6 +191,10 @@ fn lower(
         Primitive::GraspPower(p) => (lower_grasp_power(p, e, ctx, weights), "power"),
         Primitive::GraspLateral(p) => (lower_grasp_lateral(p, e, ctx, weights), "lateral"),
         Primitive::GraspHook(p) => (lower_grasp_hook(p, e), "hook"),
+        Primitive::GraspEnvelope(p) => {
+            let suffix = if p.is_cage() { "cage" } else { "conform" };
+            (lower_grasp_envelope(p, e, ctx, weights), suffix)
+        }
         Primitive::GraspPin(p) => (lower_grasp_pin(p, e), "pin"),
         Primitive::GraspPlatform(p) => (lower_grasp_platform(p, e), "platform"),
         Primitive::InHandRegrasp(p) => (lower_in_hand_regrasp(p, e, ctx), "regrasp"),
@@ -498,6 +503,92 @@ fn lower_grasp_hook(p: &crate::skill_isa::GraspHook, e: &Embodiment) -> Canonica
         monitors: vec![],
         safety_envelope: env,
         grasp_stability: Some(StabilityMetadata::for_mode(GraspMode::Hook)),
+    }
+}
+
+/// Lower `grasp.envelope` (`spec/01` § 2.8): a compliant or caging form-closure enclosure for
+/// fragile / imprecisely-localized objects. The `mode` selects the stability class:
+/// `conform` is a gentle distributed friction grip (compliant flag) that maintains a
+/// `min_holding_force` and records the held object like the force-closure grasps; `cage` traps the
+/// object (no grip floor, no held grip load) and records its in-enclosure `residual_mobility` from
+/// `cage_clearance`. Crush protection is the primary safety note (the envelope targets fragile
+/// objects), carried on `force_profile`.
+fn lower_grasp_envelope(
+    p: &crate::skill_isa::GraspEnvelope,
+    e: &Embodiment,
+    ctx: &mut GraspContext,
+    weights: &BTreeMap<String, Quantity>,
+) -> CanonicalAction {
+    let mode = p.grasp_mode();
+    let cage = p.is_cage();
+    let mut force_budget = clamp_force(&p.force_budget, "grip_force_max", e);
+    let criterion = if cage {
+        "enclosure_closed_around_object"
+    } else {
+        "distributed_gentle_contact"
+    };
+    let tactile_target = Some(match (&p.tactile_target, e.tactile_sensing()) {
+        (TactileTargetArg::Auto(_), true) => TactileTargetOut::Auto,
+        (TactileTargetArg::Auto(_), false) => TactileTargetOut::Proxy {
+            proxy: ProxySpec {
+                tier: "proxy",
+                criterion,
+            },
+        },
+        (TactileTargetArg::Other(v), _) => {
+            TactileTargetOut::Explicit(serde_json::to_value(v).unwrap_or(serde_json::Value::Null))
+        }
+    });
+    let mut env = base_envelope(e);
+    let mut stability = StabilityMetadata::for_mode(mode);
+    let mut fp = serde_json::Map::new();
+    fp.insert(
+        "crush_protection".to_string(),
+        serde_json::Value::Bool(true),
+    );
+    if cage {
+        // A caged object is trapped, not gripped: no holding floor; record its in-enclosure
+        // freedom (residual_mobility) from cage_clearance (carried symbolic in v0).
+        if let Some(cc) = &p.cage_clearance {
+            stability.residual_mobility = Some(cc.clone());
+            fp.insert(
+                "cage_clearance".to_string(),
+                serde_json::Value::String(cc.0.clone()),
+            );
+        }
+    } else if let Some((weight_n, _)) = weights.get(&p.target).and_then(|q| q.parse()) {
+        // conform is a friction grip: maintain the min_holding_force floor and record the held
+        // object so a downstream transport derives its mass-dependent bounds (like pinch).
+        let mhf = grasp_force::min_holding_force(weight_n, mode);
+        stability.min_holding_force = Some(Quantity::from_si(mhf, "N"));
+        fp.insert(
+            "min_holding_force".to_string(),
+            serde_json::Value::String(Quantity::from_si(mhf, "N").0),
+        );
+        if let Some((fb, unit)) = force_budget.parse() {
+            if mhf > fb {
+                let unit = unit.to_string();
+                force_budget = Quantity::from_si(mhf, &unit);
+            }
+        }
+        ctx.held = Some(HeldObject { weight_n, mode });
+    }
+    env.force_profile = Some(serde_json::Value::Object(fp));
+    CanonicalAction {
+        target_frame: e.grasp_frame().to_string(),
+        target_pose: PoseExpr::Ref {
+            r#ref: p.target.clone(),
+        },
+        force_budget: Some(force_budget),
+        timing: TimingHints {
+            nominal_duration: None,
+            timing_mode: TimingMode::Strict,
+            stop_at_goal: true,
+        },
+        tactile_target,
+        monitors: vec![],
+        safety_envelope: env,
+        grasp_stability: Some(stability),
     }
 }
 
@@ -2391,5 +2482,37 @@ mod tests {
         let skill = Skill::parse_yaml(yaml).expect("parse");
         let out = retarget(&skill, &load("allegro").1).expect("retarget");
         assert!(out.actions[0].safety_envelope.station_keeping.is_none());
+    }
+
+    #[test]
+    fn envelope_conform_is_compliant_friction_grip_with_holding_floor() {
+        // conform: form closure + compliant flag + min_holding_force (a friction grip).
+        let yaml = "skill: t\nobjects:\n  o: { ref: o, estimated_mass: 1.0 N }\nbody:\n  sequence:\n    - let: ot\n      from: { sense.locate: { target_ref: o } }\n    - grasp.envelope: { target: ot, force_budget: 3 N, mode: conform }\n";
+        let skill = Skill::parse_yaml(yaml).expect("parse");
+        let out = retarget(&skill, &load("allegro").1).expect("retarget");
+        assert_eq!(out.suffixes, vec!["locate", "conform"]);
+        let st = out.actions[1].grasp_stability.as_ref().expect("stability");
+        assert_eq!(st.closure, crate::stability::Closure::Form);
+        assert!(st.flags.compliant, "conform sets the compliant flag");
+        assert!(st.residual_mobility.is_none());
+        // 1.0 N * k_holding(2.0) = 2 N holding floor.
+        assert_eq!(st.min_holding_force.as_ref().unwrap().0, "2 N");
+    }
+
+    #[test]
+    fn envelope_cage_traps_with_residual_mobility_and_no_floor() {
+        // cage: form closure, residual_mobility from cage_clearance, no holding floor.
+        let yaml = "skill: t\nobjects:\n  o: { ref: o, estimated_mass: 1.0 N }\nbody:\n  sequence:\n    - let: ot\n      from: { sense.locate: { target_ref: o } }\n    - grasp.envelope: { target: ot, force_budget: 3 N, mode: cage, cage_clearance: 4 mm }\n";
+        let skill = Skill::parse_yaml(yaml).expect("parse");
+        let out = retarget(&skill, &load("allegro").1).expect("retarget");
+        assert_eq!(out.suffixes, vec!["locate", "cage"]);
+        let st = out.actions[1].grasp_stability.as_ref().expect("stability");
+        assert_eq!(st.closure, crate::stability::Closure::Form);
+        assert!(!st.flags.compliant);
+        assert_eq!(st.residual_mobility.as_ref().unwrap().0, "4 mm");
+        assert!(
+            st.min_holding_force.is_none(),
+            "a caged object has no grip floor"
+        );
     }
 }

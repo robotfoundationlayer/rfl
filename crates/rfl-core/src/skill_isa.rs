@@ -124,6 +124,9 @@ pub enum Primitive {
     /// `grasp.hook`.
     #[serde(rename = "grasp.hook")]
     GraspHook(GraspHook),
+    /// `grasp.envelope`.
+    #[serde(rename = "grasp.envelope")]
+    GraspEnvelope(GraspEnvelope),
     /// `transport.move_to_pose`.
     #[serde(rename = "transport.move_to_pose")]
     TransportMoveToPose(TransportMoveToPose),
@@ -200,6 +203,7 @@ impl Primitive {
             Primitive::GraspPower(_) => Some(GraspMode::Power),
             Primitive::GraspLateral(_) => Some(GraspMode::Lateral),
             Primitive::GraspHook(_) => Some(GraspMode::Hook),
+            Primitive::GraspEnvelope(p) => Some(p.grasp_mode()),
             Primitive::GraspPin(_) => Some(GraspMode::Pin),
             Primitive::GraspPlatform(_) => Some(GraspMode::Platform),
             // a regrasp supersedes the active grasp with its target mode (spec/01 § 3.3).
@@ -361,6 +365,59 @@ pub struct GraspHook {
     /// Contact-confirmation criterion (default auto = hook inner-curve seating).
     #[serde(default = "tactile_auto")]
     pub tactile_target: TactileTargetArg,
+}
+
+/// `grasp.envelope` sub-mode (`$defs/GraspEnvelopeParams.mode`, § 2.8).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum EnvelopeMode {
+    /// Compliant contact following the object shape.
+    Conform,
+    /// A geometric trap with clearance (residual mobility).
+    Cage,
+}
+
+fn envelope_mode_conform() -> EnvelopeMode {
+    EnvelopeMode::Conform
+}
+
+/// `grasp.envelope` parameters (v0 subset of `$defs/GraspEnvelopeParams`, § 2.8). `target` +
+/// `force_budget` required. Compliant / caging form-closure enclosure for fragile or imprecisely
+/// localized objects on compliant / underactuated hands. The `mode` discriminates the two stability
+/// classes (`conform` -> compliant friction_held, `cage` -> trapped with `residual_mobility`).
+#[derive(Debug, Clone, serde::Deserialize)]
+pub struct GraspEnvelope {
+    /// The object target to enclose (a let-reference in the reference skill).
+    pub target: Ref,
+    /// Gentle distributed enclosure force (clamped to grip_force_max).
+    pub force_budget: Quantity,
+    /// Enclosure sub-mode (default conform).
+    #[serde(default = "envelope_mode_conform")]
+    pub mode: EnvelopeMode,
+    /// (`cage` mode) allowed residual object mobility inside the enclosure (carried symbolic).
+    #[serde(default)]
+    pub cage_clearance: Option<Quantity>,
+    /// Contact-confirmation criterion (default auto).
+    #[serde(default = "tactile_auto")]
+    pub tactile_target: TactileTargetArg,
+}
+
+impl GraspEnvelope {
+    /// The grasp mode this envelope establishes (`conform` -> `EnvelopeConform`, `cage` ->
+    /// `EnvelopeCage`).
+    #[must_use]
+    pub fn grasp_mode(&self) -> GraspMode {
+        match self.mode {
+            EnvelopeMode::Conform => GraspMode::EnvelopeConform,
+            EnvelopeMode::Cage => GraspMode::EnvelopeCage,
+        }
+    }
+
+    /// True for the `cage` sub-mode.
+    #[must_use]
+    pub fn is_cage(&self) -> bool {
+        matches!(self.mode, EnvelopeMode::Cage)
+    }
 }
 
 /// `grasp.pin` parameters (v0 subset of `$defs/GraspPinParams`, § 2.7). `target` +
