@@ -8,6 +8,8 @@
 //! - `rfl retarget <skill.yaml> --embodiment <descriptor.yaml>` — print the
 //!   resolved canonical actions for the target embodiment
 //! - `rfl conformance --driver <binary>` — run the conformance test suite
+//! - `rfl certify --skill <s> --embodiment <e> --report <j>` — certify a vendor
+//!   driver report (JSONL replay) against the Class 3 driver-protocol obligations
 
 use anyhow::Result;
 use clap::{Parser, Subcommand};
@@ -40,6 +42,22 @@ enum Command {
         #[arg(long)]
         driver: std::path::PathBuf,
     },
+    /// Certify a vendor driver report (JSONL replay) against the Class 3 driver-protocol
+    /// obligations and emit a deterministic certificate.
+    Certify {
+        /// Path to the skill YAML file.
+        #[arg(long)]
+        skill: std::path::PathBuf,
+        /// Path to the embodiment descriptor YAML file.
+        #[arg(long)]
+        embodiment: std::path::PathBuf,
+        /// Path to the captured driver-report JSONL (telemetry + status lines).
+        #[arg(long)]
+        report: std::path::PathBuf,
+        /// Optional path to write the canonical certificate JSON.
+        #[arg(long)]
+        out: Option<std::path::PathBuf>,
+    },
     /// Print the specification version this CLI implements.
     SpecVersion,
 }
@@ -67,6 +85,55 @@ fn main() -> Result<()> {
             anyhow::bail!(
                 "conformance not yet implemented (target: spec v0.1, 2027 Q1) — driver {driver:?}"
             );
+        }
+        Command::Certify { skill, embodiment, report, out } => {
+            let outcome = match rfl_conformance::certify::run(&skill, &embodiment, &report) {
+                Ok(o) => o,
+                Err(e) => {
+                    eprintln!("certify: invalid run: {e:#}");
+                    std::process::exit(2);
+                }
+            };
+            let cert = &outcome.certificate;
+            let body = &cert.body;
+            println!(
+                "RFL conformance certificate — {} on {} (spec {})",
+                body.skill.id, body.embodiment.id, body.spec_version
+            );
+            for a in &body.actions {
+                let mark = if a.passed { "PASS" } else { "FAIL" };
+                let class = a.envelope_class.unwrap_or("perception");
+                println!("  [{mark}] {} ({class})", a.action_id);
+                for c in &a.checks {
+                    if let Some(reason) = &c.reason {
+                        println!("        - {} FAIL: {reason}", c.name);
+                    }
+                }
+            }
+            for c in &body.sequence_checks {
+                let mark = if c.result == "pass" { "PASS" } else { "FAIL" };
+                println!("  [{mark}] sequence:{}", c.name);
+                if let Some(reason) = &c.reason {
+                    println!("        - {reason}");
+                }
+            }
+            println!(
+                "RESULT: {} ({} covered, env3/class4 excluded) — {}",
+                body.result.to_uppercase(),
+                body.covered.join("+"),
+                cert.content_hash
+            );
+            if let Some(path) = out {
+                if let Err(e) = std::fs::write(&path, rfl_conformance::certificate::to_json(cert)) {
+                    eprintln!("certify: write {path:?}: {e}");
+                    std::process::exit(2);
+                }
+                println!("certificate -> {}", path.display());
+            }
+            match outcome.result {
+                rfl_conformance::certify::CertResult::Pass => std::process::exit(0),
+                rfl_conformance::certify::CertResult::Fail => std::process::exit(1),
+            }
         }
         Command::SpecVersion => {
             println!("{}", rfl_core::SPEC_VERSION);
