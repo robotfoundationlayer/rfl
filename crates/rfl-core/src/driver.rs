@@ -136,6 +136,11 @@ pub struct Status {
     /// The primitive-specific failure detail token.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub failure_detail: Option<String>,
+    /// The externally measured time from envelope breach to the at-rest safe state, bounded by
+    /// `embodiment.limits.stop_time` (`spec/01` § 1.5 C2 abort timing). Present only on an
+    /// aborted action (the bench measures it); a nominal success omits it.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub stop_latency: Option<Quantity>,
 }
 
 /// One action's driver report: the telemetry samples plus the terminal status.
@@ -193,6 +198,7 @@ mod tests {
             final_pose: None,
             failure_class: None,
             failure_detail: None,
+            stop_latency: None,
         };
         let j = serde_json::to_string(&s).unwrap();
         assert!(j.contains("\"outcome\":\"succeeded\""));

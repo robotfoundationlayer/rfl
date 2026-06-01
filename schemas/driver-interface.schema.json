@@ -25,6 +25,11 @@
       "type": "string",
       "pattern": "^-?[0-9]+(\\.[0-9]+)?\\s+(m|mm|cm)$"
     },
+    "Duration": {
+      "description": "A duration value (canonical wire unit s): a unit-suffixed quantity string (s / ms). A realized wire value carries no let-reference (post-execution measurement).",
+      "type": "string",
+      "pattern": "^-?[0-9]+(\\.[0-9]+)?\\s+(s|ms)$"
+    },
     "FidelityTier": {
       "description": "The confirmation fidelity tier (04 § Fidelity tier and audit honesty): manifold > proxy > proxy_reactive.",
       "enum": ["manifold", "proxy", "proxy_reactive"]
@@ -171,7 +176,8 @@
           },
           "additionalProperties": false
         },
-        "final_pose": { "$ref": "#/$defs/Pose6DFloor" }
+        "final_pose": { "$ref": "#/$defs/Pose6DFloor" },
+        "stop_latency": { "$ref": "#/$defs/Duration", "description": "Externally measured time from envelope breach to the at-rest safe state, bounded by embodiment.limits.stop_time (01 § 1.5 C2); present only on an aborted action. Read by check_settling." }
       },
       "additionalProperties": false
     },

@@ -182,6 +182,7 @@ impl Driver for ReferenceDriver {
             final_pose: Some(RealizedPose::placeholder()),
             failure_class: None,
             failure_detail: None,
+            stop_latency: None,
         };
         DriverReport { telemetry, status }
     }
@@ -1334,6 +1335,7 @@ mod tests {
             final_pose: Some(RealizedPose::placeholder()),
             failure_class: None,
             failure_detail: None,
+            stop_latency: None,
         };
         let ok = DriverReport {
             telemetry: vec![sample(Some(RealizedPose::placeholder())); 3],
@@ -1366,6 +1368,7 @@ mod tests {
                 final_pose: Some(RealizedPose::placeholder()),
                 failure_class: detail.map(|_| "blocked".to_string()),
                 failure_detail: detail.map(str::to_string),
+                stop_latency: None,
             };
             DriverReport {
                 telemetry: vec![Telemetry {
@@ -1412,6 +1415,7 @@ mod tests {
             final_pose: Some(RealizedPose::placeholder()),
             failure_class: detail.map(|_| "blocked".to_string()),
             failure_detail: detail.map(str::to_string),
+            stop_latency: None,
         };
         let report = |o, d| DriverReport { telemetry: vec![], status: status(o, d) };
         // abort to safe state: Failed + station_exceeded -> Pass.
@@ -1470,6 +1474,7 @@ mod tests {
             final_pose: Some(RealizedPose::placeholder()),
             failure_class: None,
             failure_detail: None,
+            stop_latency: None,
         };
         // Succeeded + detent -> Pass.
         let ok = DriverReport {
@@ -1538,6 +1543,7 @@ mod tests {
                     final_pose: Some(RealizedPose::placeholder()),
                     failure_class: None,
                     failure_detail: None,
+                    stop_latency: None,
                 },
             }
         };
@@ -1593,6 +1599,7 @@ mod tests {
                 final_pose: Some(RealizedPose::placeholder()),
                 failure_class: None,
                 failure_detail: None,
+                stop_latency: None,
             },
         };
         // Succeeded + held_confirmed -> Pass.
@@ -1650,6 +1657,7 @@ mod tests {
                 final_pose: Some(RealizedPose::placeholder()),
                 failure_class: None,
                 failure_detail: None,
+                stop_latency: None,
             },
         };
         // Succeeded -> vacuously Pass (completed; nothing partial).
@@ -1704,6 +1712,7 @@ mod tests {
                 final_pose: Some(RealizedPose::placeholder()),
                 failure_class: None,
                 failure_detail: None,
+                stop_latency: None,
             },
         };
         let proxy_goal = ExecuteGoal::wrap(
@@ -1743,6 +1752,7 @@ mod tests {
                     final_pose: Some(RealizedPose::placeholder()),
                     failure_class: None,
                     failure_detail: None,
+                    stop_latency: None,
                 },
             };
             (goal, report)
