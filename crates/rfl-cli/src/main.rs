@@ -12,6 +12,8 @@
 //!   spawn the driver live)
 //! - `rfl verify <certificate.json>` — schema-validate a certificate and re-verify its
 //!   content hash (tamper detection)
+//! - `rfl keygen <out>` — generate an ed25519 keypair (secret to <out>, public to stdout)
+//! - `rfl sign --key <secret> <certificate.json>` — attach an ed25519 signature to a certificate
 
 use anyhow::Result;
 use clap::{Parser, Subcommand};
@@ -62,6 +64,19 @@ enum Command {
     },
     /// Schema-validate a certificate and re-verify its content hash (tamper detection).
     Verify {
+        /// Path to the certificate JSON file.
+        certificate: std::path::PathBuf,
+    },
+    /// Generate an ed25519 keypair: write the secret key (hex) to <out>, print the public key.
+    Keygen {
+        /// Path to write the secret key (hex) to.
+        out: std::path::PathBuf,
+    },
+    /// Sign a certificate (ed25519 over its content_hash); print the signed certificate to stdout.
+    Sign {
+        /// Path to the secret-key hex file.
+        #[arg(long)]
+        key: std::path::PathBuf,
         /// Path to the certificate JSON file.
         certificate: std::path::PathBuf,
     },
@@ -164,15 +179,77 @@ fn main() -> Result<()> {
                     std::process::exit(2);
                 }
                 Ok(report) => {
-                    if report.matches {
-                        println!("VERIFIED: content_hash {} matches", report.declared);
-                        std::process::exit(0);
+                    if !report.matches {
+                        println!(
+                            "TAMPERED: declared {} != recomputed {}",
+                            report.declared, report.recomputed
+                        );
+                        std::process::exit(1);
                     }
-                    println!(
-                        "TAMPERED: declared {} != recomputed {}",
-                        report.declared, report.recomputed
-                    );
-                    std::process::exit(1);
+                    match &report.signature {
+                        None => {
+                            println!(
+                                "VERIFIED: content_hash {} matches (unsigned)",
+                                report.declared
+                            );
+                            std::process::exit(0);
+                        }
+                        Some(s) if s.valid => {
+                            println!(
+                                "VERIFIED: content_hash {} matches; signed by {} (ed25519)",
+                                report.declared, s.public_key
+                            );
+                            std::process::exit(0);
+                        }
+                        Some(s) => {
+                            println!(
+                                "SIGNATURE INVALID: content_hash matches but the signature for {} does not verify",
+                                s.public_key
+                            );
+                            std::process::exit(1);
+                        }
+                    }
+                }
+            }
+        }
+        Command::Keygen { out } => {
+            let (secret, public) = rfl_conformance::certificate::generate_keypair();
+            if let Err(e) = std::fs::write(&out, &secret) {
+                eprintln!("keygen: write {out:?}: {e}");
+                std::process::exit(2);
+            }
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::PermissionsExt;
+                let _ = std::fs::set_permissions(&out, std::fs::Permissions::from_mode(0o600));
+            }
+            println!("public_key {public}");
+            eprintln!("secret key written to {}", out.display());
+            Ok(())
+        }
+        Command::Sign { key, certificate } => {
+            let cert_text = match std::fs::read_to_string(&certificate) {
+                Ok(t) => t,
+                Err(e) => {
+                    eprintln!("sign: read {certificate:?}: {e}");
+                    std::process::exit(2);
+                }
+            };
+            let secret = match std::fs::read_to_string(&key) {
+                Ok(t) => t,
+                Err(e) => {
+                    eprintln!("sign: read key {key:?}: {e}");
+                    std::process::exit(2);
+                }
+            };
+            match rfl_conformance::certificate::sign_certificate(&cert_text, secret.trim()) {
+                Ok(signed) => {
+                    println!("{signed}");
+                    Ok(())
+                }
+                Err(e) => {
+                    eprintln!("sign: {e:#}");
+                    std::process::exit(2);
                 }
             }
         }
