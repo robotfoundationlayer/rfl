@@ -24,6 +24,7 @@ embodiment:
     aux:
       tactile_sensing: true        # distributed fingertip tactile → manifold-tier confirmation
       compliance: active
+      tool_safety: { hazard_class: cut }   # hazardous-tool capability required by force.cut
 
   # Limits — flat embodiment.limits.* (03 § Limits). M2 limit-completeness: every limit an
   # asserted capability references is declared (03 § Capability manifest, M2).

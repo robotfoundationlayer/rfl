@@ -61,6 +61,20 @@ pub struct Aux {
     /// Declared compliance capability (domain carried opaquely in v0).
     #[serde(default)]
     pub compliance: Option<serde_yaml::Value>,
+    /// Hazardous-tool safety capability (`spec/03` § Tool-safety capability), required by
+    /// `force.cut`. Presence is the gate; the hazard-class validation bench is a later increment.
+    #[serde(default)]
+    pub tool_safety: Option<ToolSafety>,
+}
+
+/// The hazardous-tool safety capability (`spec/03` § Tool-safety capability; `aux.tool_safety`).
+#[derive(Debug, Clone, serde::Deserialize)]
+pub struct ToolSafety {
+    /// The hazard managed (e.g. `cut` / `shear`).
+    pub hazard_class: String,
+    /// Reference to the deployment safety standard the capability claims to satisfy.
+    #[serde(default)]
+    pub standard: Option<String>,
 }
 
 /// The embodiment frame model (`spec/03` § Embodiment frame model). Roles, never
@@ -149,6 +163,13 @@ impl Embodiment {
     #[must_use]
     pub fn tactile_sensing(&self) -> bool {
         self.capabilities.aux.tactile_sensing.unwrap_or(false)
+    }
+
+    /// Whether the embodiment declares `aux.tool_safety` (the hazardous-tool capability,
+    /// required by `force.cut`, `spec/01` § 6.7).
+    #[must_use]
+    pub fn has_tool_safety(&self) -> bool {
+        self.capabilities.aux.tool_safety.is_some()
     }
 
     /// The scalar quantity at a limit key, if that limit is a scalar (not a range

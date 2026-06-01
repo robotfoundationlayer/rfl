@@ -22,6 +22,7 @@ embodiment:
     aux:
       tactile_sensing: true        # fingertip force sensing → manifold-tier (coarser than Allegro)
       compliance: active
+      tool_safety: { hazard_class: cut }   # hazardous-tool capability required by force.cut
 
   limits:
     # reach baseline — mandatory for every embodiment (03 § Reach baseline limits)

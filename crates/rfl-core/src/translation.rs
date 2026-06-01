@@ -134,7 +134,17 @@ fn check_capability(prim: &Primitive, e: &Embodiment) -> crate::Result<()> {
         Primitive::ForcePressButton(_) => "force.press_button",
         Primitive::ForceWipe(_) => "force.wipe",
         Primitive::ForceSnapEngage(_) => "force.snap_engage",
-        Primitive::ForceCut(_) => "force.cut",
+        // force.cut is hazardous: it requires BOTH the force.cut skill AND a declared
+        // tool_safety capability (spec/01 § 6.7 precondition). A conjunctive gate.
+        Primitive::ForceCut(_) => {
+            return if !e.has_skill("force.cut") {
+                Err(crate::Error::Translation("capability_absent: force.cut".to_string()))
+            } else if !e.has_tool_safety() {
+                Err(crate::Error::Translation("capability_absent: tool_safety".to_string()))
+            } else {
+                Ok(())
+            };
+        }
         Primitive::InHandFlip(_) => "in_hand.flip",
         Primitive::SenseInspect(_) => "sense.inspect",
     };
@@ -1288,6 +1298,17 @@ mod tests {
         let emb = load("allegro").1; // cable allegro lacks force.cut
         let err = retarget(&skill, &emb).unwrap_err();
         assert!(err.to_string().contains("capability_absent: force.cut"), "got {err}");
+    }
+
+    const EMB_CUT_NO_TOOL_SAFETY: &str =
+        "embodiment:\n  id: test-hand\n  capabilities:\n    skills: [force.cut]\n";
+
+    #[test]
+    fn cut_requires_tool_safety_capability() {
+        let skill = Skill::parse_yaml(CUT_SKILL).unwrap();
+        let emb = crate::embodiment::Embodiment::parse_yaml(EMB_CUT_NO_TOOL_SAFETY).unwrap();
+        let err = retarget(&skill, &emb).unwrap_err();
+        assert!(err.to_string().contains("capability_absent: tool_safety"), "got {err}");
     }
 
     const FLIP_SKILL: &str = "skill: t\nbody:\n  sequence:\n    - in_hand.flip: { flip_axis: +x, angle: 180 deg, max_release_time: 0.3 s, safe_drop_zone: tray }\n";
