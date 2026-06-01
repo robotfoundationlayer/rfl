@@ -1,0 +1,36 @@
+# rfl_msgs/action/Execute — the RFL execute action (spec/03 § Canonical driver
+# messages). The execute goal commands one canonical action; feedback streams the
+# telemetry samples; the result is the terminal status. A long-running,
+# cancellable, feedback-bearing command, per the design-doc mapping table.
+#
+# Representation-owned sub-payloads (CanonicalAction by spec/02; Pose6D / Wrench /
+# tactile / ForceEvent / safety_flags by spec/02 / spec/04) are deliberately
+# floored by schemas/driver-interface.schema.json, so they ride here as canonical
+# JSON strings rather than being re-encoded into ROS IDL. Protocol-level fields
+# (the spec/03-owned routing + classification) are typed.
+
+# ---- Goal: one canonical execute goal (spec/03 ExecuteGoal) ----
+string action_id                 # opaque correlation id, unique within a session
+string canonical_action_json     # spec/02 CanonicalActionFloor, as canonical JSON
+---
+# ---- Result: the terminal action outcome (spec/03 StatusResult) ----
+string outcome                   # "succeeded" | "failed" | "indeterminate"
+string failure_class             # spec/03 protocol failure mode ("" if none)
+string failure_detail            # optional spec/01 detail token ("" if none)
+string verdict_json              # spec/01 VerdictFloor ("" if none)
+string fidelity_tier             # "manifold" | "proxy" | "proxy_reactive" | ""
+string safety_flags_json         # spec/04 safety_flags ("" if none)
+string final_pose_json           # spec/02 Pose6DFloor ("" if none)
+string stop_latency              # Duration quantity, e.g. "0.1 s" ("" if none)
+---
+# ---- Feedback: a telemetry sample (spec/03 TelemetryFeedback) ----
+string action_id                 # echoes the goal's action_id
+float64 t                        # timestamp on the spec/04 manifold timebase (s)
+string realized_pose_json        # spec/02 Pose6DFloor ("" if none)
+string wrench_json               # spec/04 WrenchFloor ("" if none)
+string securing_force            # Force quantity ("" if none)
+string station_error             # Length quantity ("" if none)
+string tactile_json              # array of spec/04 readings ("[]" if none)
+string events_json               # array of spec/04 ForceEvents ("[]" if none)
+string fidelity_tier             # in effect this sample ("" if none)
+string contact_geometry_json     # spec/05 contact_geometry ("" if none)

@@ -1,0 +1,28 @@
+<?xml version="1.0"?>
+<?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
+<package format="3">
+  <name>rfl_msgs</name>
+  <version>0.0.1</version>
+  <description>
+    ROS 2 interface definitions for the Robot Foundation Layer Driver Interface
+    (spec/03 § Canonical driver messages). The four canonical payloads — execute
+    / telemetry / status / clearance — mapped to a ROS 2 action, topic, and
+    service (see the design at docs/design/2026-06-01-ros2-transport-binding-design.md
+    and the classification in rfl-conformance::ros2). Protocol-level fields are
+    typed per the spec/03 tables; representation-owned sub-payloads (owned by
+    spec/02 and spec/04 and deliberately floored by the driver-interface schema)
+    ride as canonical JSON strings rather than being re-encoded here.
+  </description>
+  <maintainer email="yo@vox.delivery">Yoichiro Hara</maintainer>
+  <license>Apache-2.0</license>
+  <url type="repository">https://github.com/robotfoundationlayer/rfl</url>
+
+  <buildtool_depend>ament_cmake</buildtool_depend>
+  <buildtool_depend>rosidl_default_generators</buildtool_depend>
+  <exec_depend>rosidl_default_runtime</exec_depend>
+  <member_of_group>rosidl_interface_packages</member_of_group>
+
+  <export>
+    <build_type>ament_cmake</build_type>
+  </export>
+</package>

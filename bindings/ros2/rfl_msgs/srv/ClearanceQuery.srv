@@ -1,0 +1,12 @@
+# rfl_msgs/srv/ClearanceQuery — the collision-clearance query (spec/03 § Collision
+# model). A synchronous request/response, per the design-doc mapping table.
+#
+# ---- Request (spec/03 ClearanceRequest) ----
+string moving_json               # spec/03 MovingSet — the moving bodies
+string motion_json               # spec/03 MotionQuery — the queried motion
+string exempt_json               # array of exempt body ids ("[]" if none)
+string augment_json              # array of collision-augment bodies ("[]" if none)
+---
+# ---- Response (spec/03 ClearanceResponse) ----
+string clearance                 # Length quantity — the available clearance
+string result                    # enum: "ok" | "no_collision_free_path"

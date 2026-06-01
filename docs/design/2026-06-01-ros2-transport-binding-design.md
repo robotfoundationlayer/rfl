@@ -1,6 +1,17 @@
 # ROS 2 transport binding — message-mapping design + pure-Rust shim
 
-Status: **INTERFACE-MAPPING CORE IMPLEMENTED 2026-06-02** — `rfl-conformance::ros2`
+Status: **INTERFACE-MAPPING CORE + IDL PACKAGE IMPLEMENTED 2026-06-02.** The
+`rfl_msgs` ROS 2 interface package now exists (`bindings/ros2/rfl_msgs/`:
+`action/Execute.action` + `msg/Telemetry.msg` + `srv/ClearanceQuery.srv` +
+`package.xml` + `CMakeLists.txt`) — the concrete IDL a ROS 2 driver implements,
+with spec/03 protocol fields typed and representation-owned floored payloads
+carried as canonical JSON. **Still ROS-env-gated:** the live `rclrs` node that
+publishes/subscribes/serves these over DDS (needs a ROS 2 toolchain to build +
+run). Below: the original design + the classification core.
+
+----
+
+`rfl-conformance::ros2`
 classifies each canonical message (`execute` / `telemetry` / `status` /
 `clearance` request+response) to its ROS 2 surface(s) per the mapping table
 below (`ros2_surfaces_for` / `ros2_surfaces_of`), fail-closed on an unknown
