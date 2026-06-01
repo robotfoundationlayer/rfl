@@ -152,6 +152,9 @@ pub enum Primitive {
     /// `force.snap_engage`.
     #[serde(rename = "force.snap_engage")]
     ForceSnapEngage(ForceSnapEngage),
+    /// `force.cut`.
+    #[serde(rename = "force.cut")]
+    ForceCut(ForceCut),
 }
 
 /// `sense.locate` modality (`$defs/SenseLocateParams.modality`).
@@ -542,6 +545,23 @@ pub struct ForceSnapEngage {
     /// Verify the bistable connection holds after engagement (release-test; default true).
     #[serde(default)]
     pub confirm_held: Option<bool>,
+    /// Required compliance mode.
+    #[serde(default)]
+    pub compliance: Option<Compliance>,
+}
+
+/// `force.cut` parameters (v0 subset of `$defs/ForceCutParams`, § 6.7). `cut_path` +
+/// `shear_force_budget` + `completion` are required. v0 lowers the shear budget (the
+/// force-trajectory leg) + an irreversible marker; `cut_path` is carried opaque (the
+/// path-bounding leg is deferred); on_separation / tool_safety are deferred.
+#[derive(Debug, Clone, serde::Deserialize)]
+pub struct ForceCut {
+    /// `Trajectory` — the path along which to cut (carried opaque in v0; path-bounding deferred).
+    pub cut_path: serde_yaml::Value,
+    /// Max shear force (tool-damage / over-cut / kickback limit) — the force-trajectory bound.
+    pub shear_force_budget: Quantity,
+    /// `CutStop` completion (path_complete / separation / depth), lowered into a Monitor.
+    pub completion: serde_yaml::Value,
     /// Required compliance mode.
     #[serde(default)]
     pub compliance: Option<Compliance>,

@@ -1,0 +1,18 @@
+# Example 03 — Cut (force.cut variant)
+# Separate material along a bounded cut path with a held cutting tool, within a shear-force
+# budget, until separation is detected. Exercises the irreversible-operation safety class
+# (spec/05 REV3): a cut cannot be undone, so an interrupted cut must report the precise
+# partial state (how far it progressed), never a binary success / failure.
+skill: surface-cut
+description: >
+  Cut along a seam with a held tool within a shear-force budget until separation; an
+  interrupted cut reports how far it progressed.
+
+body:
+  sequence:
+
+    - force.cut:
+        cut_path: seam_path
+        shear_force_budget: 30 N
+        completion: separation
+        compliance: active

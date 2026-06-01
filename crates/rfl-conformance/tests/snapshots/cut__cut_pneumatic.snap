@@ -1,0 +1,5 @@
+---
+source: crates/rfl-conformance/tests/cut.rs
+expression: "jsonl_for(\"pneumatic-6f\")"
+---
+{"message":"execute","action_id":"surface-cut/generic-pneumatic-6f/0001-cut","canonical_action":{"target_frame":"palm","target_pose":{"frame":"task","offset":"seam_path"},"force_budget":"30 N","timing":{"timing_mode":"time_scalable","stop_at_goal":true},"monitors":[{"stop_condition":"separation"}],"safety_envelope":{"motion_bounds":{"v_max":"0.3 m/s","a_max":"0.8 m/s^2","w_max":"1.2 rad/s"},"force_profile":{"irreversible":true},"compliance":"active","stop_time":"0.15 s"}}}
