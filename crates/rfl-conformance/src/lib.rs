@@ -1071,7 +1071,8 @@ pub fn envelope_class_for(suffix: &str) -> Option<EnvelopeClass> {
         "align" | "retract" | "scan" => Some(EnvelopeClass::TerminalPostcondition),
         "pinch" | "power" | "lateral" | "tripod" | "hook" | "conform" | "cage" | "release"
         | "transport" | "flip" | "regrasp" | "pivot" | "rotate" | "translate" | "roll"
-        | "slide" | "handoff" => Some(EnvelopeClass::GraspContinuity),
+        | "slide" | "handoff" | "put_down" | "stack" | "insert_loose" | "orient" | "hand_to"
+        | "discard" => Some(EnvelopeClass::GraspContinuity),
         "insert_fit" | "screw" | "unscrew" | "press_button" | "wipe" | "snap_engage" | "cut" => {
             Some(EnvelopeClass::ForceTrajectory)
         }

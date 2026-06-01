@@ -143,6 +143,27 @@ fn check_capability(prim: &Primitive, e: &Embodiment) -> crate::Result<()> {
         Primitive::InHandRoll(_) => "in_hand.roll",
         Primitive::InHandSlide(_) => "in_hand.slide",
         Primitive::TransportHandoff(_) => "transport.handoff",
+        Primitive::PlacePutDown(_) => "place.put_down",
+        Primitive::PlaceStack(_) => "place.stack",
+        Primitive::PlaceInsertLoose(_) => "place.insert_loose",
+        Primitive::PlaceOrient(_) => "place.orient",
+        Primitive::PlaceDiscard(_) => "place.discard",
+        // place.hand_to is human-safety-critical: it requires BOTH the place.hand_to skill AND a
+        // declared human_collaboration_safety capability (spec/03 SAF2c). A conjunctive gate,
+        // mirroring force.cut + tool_safety.
+        Primitive::PlaceHandTo(_) => {
+            return if !e.has_skill("place.hand_to") {
+                Err(crate::Error::Translation(
+                    "capability_absent: place.hand_to".to_string(),
+                ))
+            } else if !e.has_human_collaboration_safety() {
+                Err(crate::Error::Translation(
+                    "capability_absent: human_collaboration_safety".to_string(),
+                ))
+            } else {
+                Ok(())
+            };
+        }
         // A category key implies the base primitive: `transport` = transport.move_to_pose.
         Primitive::TransportMoveToPose(_) => "transport",
         // transport.carry is a DISTINCT capability beyond the base transport gate
@@ -248,6 +269,18 @@ fn lower(
         ),
         Primitive::TransportHandoff(p) => (lower_transport_handoff(p, e, ctx), "handoff"),
         Primitive::TransportMoveToPose(p) => (lower_transport_move_to_pose(p, e, ctx), "transport"),
+        Primitive::PlacePutDown(_) => (
+            lower_place_action("target_surface", "put_down", vec![], e, ctx),
+            "put_down",
+        ),
+        Primitive::PlaceStack(p) => (lower_place_stack(p, e, ctx), "stack"),
+        Primitive::PlaceInsertLoose(p) => (
+            lower_place_action(&p.container, "insert_loose", vec![], e, ctx),
+            "insert_loose",
+        ),
+        Primitive::PlaceOrient(p) => (lower_place_orient(p, e, ctx), "orient"),
+        Primitive::PlaceHandTo(p) => (lower_place_hand_to(p, e, ctx), "hand_to"),
+        Primitive::PlaceDiscard(p) => (lower_place_discard(p, e, ctx), "discard"),
         Primitive::TransportCarry(p) => (lower_transport_carry(p, e, ctx), "carry"),
         Primitive::ReachAlign(p) => (lower_reach_align(p, e), "align"),
         Primitive::ForceInsertFit(p) => (lower_force_insert_fit(p, e, ctx), "insert_fit"),
@@ -1271,6 +1304,121 @@ fn lower_in_hand_manip(
         safety_envelope: env,
         grasp_stability: None,
     }
+}
+
+/// Lower any `place.*` primitive (`spec/01` § 5): an object is held through a placement motion,
+/// then released under a controlled, verified condition. ENV1 grasp-continuity — emits the GC1
+/// held-leg floor (`min_holding_force` from `ctx.held`), a `placement: <kind>` marker, and
+/// `break_contact: true` (the controlled-release safety clause), plus any per-primitive markers.
+/// `target_pose` is a symbolic `Ref` to the placement target. No `grasp_stability` (no new grasp).
+/// **Clears `ctx.held`** — the controlled release completes the placement.
+fn lower_place_action(
+    where_ref: &str,
+    kind: &'static str,
+    extra: Vec<(&'static str, serde_json::Value)>,
+    e: &Embodiment,
+    ctx: &mut GraspContext,
+) -> CanonicalAction {
+    let mut profile = serde_json::Map::new();
+    if let Some(held) = &ctx.held {
+        let mhf = grasp_force::min_holding_force(held.weight_n, held.mode);
+        profile.insert(
+            "min_holding_force".to_string(),
+            serde_json::Value::String(Quantity::from_si(mhf, "N").0),
+        );
+    }
+    profile.insert(
+        "placement".to_string(),
+        serde_json::Value::String(kind.to_string()),
+    );
+    profile.insert("break_contact".to_string(), serde_json::Value::Bool(true));
+    for (k, v) in extra {
+        profile.insert(k.to_string(), v);
+    }
+    let mut env = base_envelope(e);
+    env.force_profile = Some(serde_json::Value::Object(profile));
+    let action = CanonicalAction {
+        target_frame: e.grasp_frame().to_string(),
+        target_pose: PoseExpr::Ref {
+            r#ref: where_ref.to_string(),
+        },
+        force_budget: None,
+        timing: TimingHints {
+            nominal_duration: None,
+            timing_mode: TimingMode::Strict,
+            stop_at_goal: true,
+        },
+        tactile_target: None,
+        monitors: vec![],
+        safety_envelope: env,
+        grasp_stability: None,
+    };
+    // The controlled release ends the held state.
+    ctx.held = None;
+    action
+}
+
+/// Lower `place.stack` (§ 5.2): place on top of `support_object`, carrying the alignment marker.
+fn lower_place_stack(
+    p: &crate::skill_isa::PlaceStack,
+    e: &Embodiment,
+    ctx: &mut GraspContext,
+) -> CanonicalAction {
+    let extra = p.alignment.as_ref().map_or_else(Vec::new, |a| {
+        vec![("alignment", serde_json::Value::String(a.clone()))]
+    });
+    lower_place_action(&p.support_object, "stack", extra, e, ctx)
+}
+
+/// Lower `place.orient` (§ 5.4): place in a required orientation (carried as a marker).
+fn lower_place_orient(
+    p: &crate::skill_isa::PlaceOrient,
+    e: &Embodiment,
+    ctx: &mut GraspContext,
+) -> CanonicalAction {
+    lower_place_action(
+        "target_surface",
+        "orient",
+        vec![(
+            "required_orientation",
+            yaml_to_json(&p.required_orientation),
+        )],
+        e,
+        ctx,
+    )
+}
+
+/// Lower `place.hand_to` (§ 5.5): hand to a human, carrying the weight-transfer + interaction-force
+/// markers. The `human_collaboration_safety` gate is enforced in `check_capability`.
+fn lower_place_hand_to(
+    p: &crate::skill_isa::PlaceHandTo,
+    e: &Embodiment,
+    ctx: &mut GraspContext,
+) -> CanonicalAction {
+    let mut extra = Vec::new();
+    if let Some(w) = &p.weight_transfer_threshold {
+        extra.push(("weight_transfer_threshold", yaml_to_json(w)));
+    }
+    if let Some(f) = &p.max_interaction_force {
+        extra.push((
+            "max_interaction_force",
+            serde_json::Value::String(f.0.clone()),
+        ));
+    }
+    lower_place_action("handover", "hand_to", extra, e, ctx)
+}
+
+/// Lower `place.discard` (§ 5.6): release into a coarse zone, carrying the zone + drop-height cap.
+fn lower_place_discard(
+    p: &crate::skill_isa::PlaceDiscard,
+    e: &Embodiment,
+    ctx: &mut GraspContext,
+) -> CanonicalAction {
+    let mut extra = vec![("discard_zone", yaml_to_json(&p.discard_zone))];
+    if let Some(h) = &p.max_drop_height {
+        extra.push(("max_drop_height", serde_json::Value::String(h.0.clone())));
+    }
+    lower_place_action("discard_zone", "discard", extra, e, ctx)
 }
 
 /// Lower `transport.handoff` (`spec/01` § 4.3): transfer a held object from the giver's grasp to
@@ -2612,6 +2760,83 @@ mod tests {
         assert!(st.residual_mobility.is_none());
         // 1.0 N * k_holding(2.0) = 2 N holding floor.
         assert_eq!(st.min_holding_force.as_ref().unwrap().0, "2 N");
+    }
+
+    /// A 03-screw-fasten embodiment (which declares the place.* + in_hand breadth capabilities).
+    fn emb_03(stem: &str) -> Embodiment {
+        let p = Path::new(env!("CARGO_MANIFEST_DIR")).join(format!(
+            "../../examples/03-screw-fasten/embodiments/{stem}.yaml"
+        ));
+        Embodiment::parse_yaml(&std::fs::read_to_string(p).unwrap()).unwrap()
+    }
+
+    /// A held-object skill ending in a given place primitive YAML fragment, retargeted on allegro.
+    fn place_out(place_yaml: &str) -> RetargetOutput {
+        let yaml = format!(
+            "skill: t\nobjects:\n  o: {{ ref: o, estimated_mass: 1.0 N }}\nbody:\n  sequence:\n    - let: ot\n      from: {{ sense.locate: {{ target_ref: o }} }}\n    - grasp.pinch: {{ target: ot, force_budget: 8 N }}\n    - {place_yaml}\n"
+        );
+        let skill = Skill::parse_yaml(&yaml).expect("parse");
+        retarget(&skill, &emb_03("allegro")).expect("retarget")
+    }
+
+    #[test]
+    fn place_family_emits_continuity_floor_and_clears_held() {
+        // every place.* is grasp-continuity: held floor (GC1) + break_contact, then ctx.held
+        // cleared (the controlled release). Verify the marker + floor per primitive.
+        let cases = [
+            ("place.put_down: { target_surface: bench }", "put_down"),
+            ("place.stack: { support_object: base }", "stack"),
+            ("place.insert_loose: { container: bin }", "insert_loose"),
+            (
+                "place.orient: { required_orientation: { label_normal: up } }",
+                "orient",
+            ),
+            (
+                "place.discard: { discard_zone: { kind: surface, frame: bin } }",
+                "discard",
+            ),
+        ];
+        for (frag, kind) in cases {
+            let out = place_out(frag);
+            assert_eq!(out.suffixes, vec!["locate", "pinch", kind], "kind {kind}");
+            let fp = out.actions[2]
+                .safety_envelope
+                .force_profile
+                .as_ref()
+                .unwrap_or_else(|| panic!("force_profile for {kind}"));
+            assert_eq!(
+                fp.get("placement").and_then(|v| v.as_str()),
+                Some(kind),
+                "placement marker for {kind}"
+            );
+            assert_eq!(
+                fp.get("break_contact").and_then(serde_json::Value::as_bool),
+                Some(true)
+            );
+            // 1.0 N pinch -> 2 N held floor maintained until release.
+            assert_eq!(
+                fp.get("min_holding_force").and_then(|v| v.as_str()),
+                Some("2 N"),
+                "GC1 floor for {kind}"
+            );
+            // no grasp_stability (no new grasp).
+            assert!(out.actions[2].grasp_stability.is_none(), "kind {kind}");
+        }
+    }
+
+    #[test]
+    fn place_hand_to_requires_human_collaboration_safety() {
+        // allegro declares human_collaboration_safety -> the conjunctive gate passes.
+        let out = place_out("place.hand_to: { max_interaction_force: 20 N }");
+        assert_eq!(out.suffixes[2], "hand_to");
+        // leap declares place.hand_to but NOT human_collaboration_safety -> SAF2c rejects.
+        let yaml = "skill: t\nbody:\n  sequence:\n    - grasp.pinch: { target: o, force_budget: 8 N }\n    - place.hand_to: { max_interaction_force: 20 N }\n";
+        let skill = Skill::parse_yaml(yaml).expect("parse");
+        let err = retarget(&skill, &emb_03("leap")).unwrap_err().to_string();
+        assert!(
+            err.contains("capability_absent: human_collaboration_safety"),
+            "expected SAF2c human gate, got: {err}"
+        );
     }
 
     #[test]

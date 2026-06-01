@@ -65,6 +65,11 @@ pub struct Aux {
     /// `force.cut`. Presence is the gate; the hazard-class validation bench is a later increment.
     #[serde(default)]
     pub tool_safety: Option<ToolSafety>,
+    /// Human-collaboration safety capability (`spec/03` § Safety capabilities), required by
+    /// `place.hand_to`. Presence is the gate (SAF2c); the HAZ3 dummy-hand bench is class 4
+    /// (deferred). Carried opaquely in v0.
+    #[serde(default)]
+    pub human_collaboration_safety: Option<serde_yaml::Value>,
 }
 
 /// The hazardous-tool safety capability (`spec/03` § Tool-safety capability; `aux.tool_safety`).
@@ -170,6 +175,13 @@ impl Embodiment {
     #[must_use]
     pub fn has_tool_safety(&self) -> bool {
         self.capabilities.aux.tool_safety.is_some()
+    }
+
+    /// Whether the embodiment declares `aux.human_collaboration_safety` (the human-collaboration
+    /// capability, required by `place.hand_to`, `spec/03` SAF2c).
+    #[must_use]
+    pub fn has_human_collaboration_safety(&self) -> bool {
+        self.capabilities.aux.human_collaboration_safety.is_some()
     }
 
     /// The scalar quantity at a limit key, if that limit is a scalar (not a range

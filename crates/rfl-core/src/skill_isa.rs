@@ -133,6 +133,24 @@ pub enum Primitive {
     /// `transport.move_to_pose`.
     #[serde(rename = "transport.move_to_pose")]
     TransportMoveToPose(TransportMoveToPose),
+    /// `place.put_down`.
+    #[serde(rename = "place.put_down")]
+    PlacePutDown(PlacePutDown),
+    /// `place.stack`.
+    #[serde(rename = "place.stack")]
+    PlaceStack(PlaceStack),
+    /// `place.insert_loose`.
+    #[serde(rename = "place.insert_loose")]
+    PlaceInsertLoose(PlaceInsertLoose),
+    /// `place.orient`.
+    #[serde(rename = "place.orient")]
+    PlaceOrient(PlaceOrient),
+    /// `place.hand_to`.
+    #[serde(rename = "place.hand_to")]
+    PlaceHandTo(PlaceHandTo),
+    /// `place.discard`.
+    #[serde(rename = "place.discard")]
+    PlaceDiscard(PlaceDiscard),
     /// `reach.align`.
     #[serde(rename = "reach.align")]
     ReachAlign(ReachAlign),
@@ -230,10 +248,20 @@ impl Primitive {
         }
     }
 
-    /// True if this primitive releases the active grasp (clears the active-grasp state).
+    /// True if this primitive releases the active grasp (clears the active-grasp state). The
+    /// `place.*` family all end with a controlled release, so they clear the held state too.
     #[must_use]
     pub fn releases_grasp(&self) -> bool {
-        matches!(self, Primitive::GraspRelease(_))
+        matches!(
+            self,
+            Primitive::GraspRelease(_)
+                | Primitive::PlacePutDown(_)
+                | Primitive::PlaceStack(_)
+                | Primitive::PlaceInsertLoose(_)
+                | Primitive::PlaceOrient(_)
+                | Primitive::PlaceHandTo(_)
+                | Primitive::PlaceDiscard(_)
+        )
     }
 
     /// True if this primitive freely transports a held object through space — the
@@ -622,6 +650,73 @@ impl TransportHandoff {
 pub struct TransportMoveToPose {
     /// `Pose6D` floored as an inline object (a frame-relative offset) or a ref.
     pub target_pose: serde_yaml::Value,
+}
+
+/// `place.put_down` parameters (v0 subset of `$defs/PlacePutDownParams`, § 5.1). Place a held
+/// object on a surface and release it. All fields default; v0 carries the placement target
+/// symbolic and emits the GC1 held-leg floor + a controlled-release marker.
+#[derive(Debug, Clone, Default, serde::Deserialize)]
+pub struct PlacePutDown {
+    /// Where to place (default auto = the surface below); carried symbolic in v0.
+    #[serde(default)]
+    pub target_surface: Option<serde_yaml::Value>,
+}
+
+/// `place.stack` parameters (v0 subset of `$defs/PlaceStackParams`, § 5.2). Place a held object on
+/// top of `support_object`, releasing after stack-stability confirmation (the recursive predicate
+/// is deferred world-state geometry).
+#[derive(Debug, Clone, serde::Deserialize)]
+pub struct PlaceStack {
+    /// The object / stack to place on top of.
+    pub support_object: Ref,
+    /// How to align over the support's top face (default centered; carried symbolic in v0).
+    #[serde(default)]
+    pub alignment: Option<String>,
+}
+
+/// `place.insert_loose` parameters (v0 subset of `$defs/PlaceInsertLooseParams`, § 5.3). Drop a
+/// held object into a container with clearance, releasing after containment confirmation (the
+/// contained predicate is deferred world-state geometry).
+#[derive(Debug, Clone, serde::Deserialize)]
+pub struct PlaceInsertLoose {
+    /// The container / receptacle to insert into.
+    pub container: Ref,
+}
+
+/// `place.orient` parameters (v0 subset of `$defs/PlaceOrientParams`, § 5.4). Place a held object
+/// in a required orientation, verifying it before release.
+#[derive(Debug, Clone, serde::Deserialize)]
+pub struct PlaceOrient {
+    /// The orientation the placed object must have (carried symbolic in v0).
+    pub required_orientation: serde_yaml::Value,
+    /// Where to place (default auto); carried symbolic in v0.
+    #[serde(default)]
+    pub target_surface: Option<serde_yaml::Value>,
+}
+
+/// `place.hand_to` parameters (v0 subset of `$defs/PlaceHandToParams`, § 5.5). Hand a held object
+/// to a human, releasing on weight transfer. The conjunctive `human_collaboration_safety` gate is
+/// enforced at retarget; the HAZ3 weight-transfer bench is class 4 (deferred).
+#[derive(Debug, Clone, Default, serde::Deserialize)]
+pub struct PlaceHandTo {
+    /// Fraction of the object's weight the human must take before release (carried symbolic in v0).
+    #[serde(default)]
+    pub weight_transfer_threshold: Option<serde_yaml::Value>,
+    /// Hard cap on force exchanged with the human (carried symbolic in v0).
+    #[serde(default)]
+    pub max_interaction_force: Option<Quantity>,
+}
+
+/// `place.discard` parameters (v0 subset of `$defs/PlaceDiscardParams`, § 5.6). Release a held
+/// object into a coarse `discard_zone` without a precise final pose, guaranteeing the object lands
+/// within the zone (the zone-containment thought shared with `in_hand.flip`'s safe_drop_zone).
+#[derive(Debug, Clone, serde::Deserialize)]
+pub struct PlaceDiscard {
+    /// The region the object must land within.
+    pub discard_zone: serde_yaml::Value,
+    /// Cap on release height above the landing surface (carried symbolic in v0).
+    #[serde(default)]
+    pub max_drop_height: Option<Quantity>,
 }
 
 /// `disturbance_budget` argument (`$defs`, § 4.4): `Force | auto`. v0 lowers the explicit
