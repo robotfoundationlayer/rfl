@@ -97,10 +97,15 @@ skills schema-validate + retarget. Its canned skills are **novel** (fresh tasks,
 
 **`ClaudePlanner` (the real existence proof).** Calls the Anthropic API.
 
-- **System prompt** = a distilled Skill ISA spec: the 50-primitive catalogue (7 categories),
-  the compositional algebra (`sequence` / `parallel` / `reactive` / `repeat` / `branch` /
-  `let`-bind), the type-system rules (SI canonical units; target types via `let` from
-  `sense.*`), and a strict output contract ("emit ONLY a Skill ISA YAML document, no prose").
+- **System prompt** = a distilled Skill ISA spec (the 50-primitive catalogue across 7
+  categories, the compositional algebra `sequence` / `parallel` / `reactive` / `repeat` /
+  `branch` / `let`-bind, the type-system rules — SI canonical units; target types via `let`
+  from `sense.*`, a strict output contract "emit ONLY a Skill ISA YAML document, no prose")
+  **plus the full `skill-isa.schema.json`** as the exact validity contract. Supplying the
+  schema is the *fair* spec-only input — it is the complete contract, identical for every
+  task, and still blind (no worked example skill). Implementation finding (§ Result): with a
+  prose-only digest and **no** schema, spec-only emission was only ~1/6 tasks valid (the model
+  wrote plausible skills with slightly wrong parameter names/shapes); with the schema, 6/6.
 - **Two modes**, reported separately:
   - *spec-only (blind)* — grammar + primitives + type rules, **no example skills**. The
     strongest claim; this is the headline number.
@@ -318,3 +323,30 @@ contract, but the *input* skill now comes from a real model instead of a fixture
   recorded `rfl` commit hash, written into the vendored files' headers.
 - **The example skills** — `examples/*/skill.yaml` as the few-shot anchors and the "novelty"
   exclusion set for the task suite.
+
+## 14. Result (2026-06-01 — implemented, `masterleopold/cobel`)
+
+Implemented in `cobel` (Private) via TDD; rfl was not edited (the binding + schema are
+consumed). Tasks: a 6-task novel suite (`relocate-part`, `seat-fuse`, `latch-buckle`, `pour`,
+`stack-blocks`, `sort-by-weight`), the planner-adapter contract, a deterministic offline mock,
+the harness (primary schema gate + secondary 4-way retarget gate), and a real `ClaudePlanner`
+(`claude-opus-4-8`, adaptive thinking, cached spec+schema system prompt). 28 pytest green
+offline.
+
+**Headline (the demand-side proof):** `claude-opus-4-8`, samples = 3 per task, **schema_ok
+`pass@k` = 3/3 on all six tasks in both spec-only (blind) and few-shot modes** — a real
+frontier foundation model emits valid full-spec RFL Skill ISA on every novel task, every
+sample. Contract fidelity is the key lever: with a prose-only digest (no schema) spec-only
+fell to ~1/6; with the full `skill-isa.schema.json` supplied as the contract, 6/6.
+
+**Retarget map (secondary, honest engine-coverage):** Claude's emissions are valid full-spec
+Skill ISA that mostly use primitives beyond the reference engine's implemented 18/50, so they
+classify `beyond_engine` (a coverage gap, not a model error). In few-shot mode, `seat-fuse`
+retargets cleanly to canonical actions on all three descriptors — a real-model emission lowered
+end-to-end. The mock baseline separately exhibits `retarget_ok` / `capability_rejected` /
+`beyond_engine` on in-engine skills.
+
+**Honest scope:** Claude is a general frontier model (the planner / VLM archetype), not a
+deployed motor-control VLA; the proven claim is that the planner tier targets the ISA.
+Publish gate (Public + Apache 2.0 + an rfl README "reference planner" link) is a separate,
+deliberate step pending agreement that the proof stands.
