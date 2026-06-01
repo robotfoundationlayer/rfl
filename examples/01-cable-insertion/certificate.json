@@ -1,0 +1,279 @@
+{
+  "certificate_schema_version": "0.1",
+  "spec_version": "v0.1-draft",
+  "tool_version": "0.0.1",
+  "skill": {
+    "id": "cable-insertion",
+    "sha256": "27e609a036ebbdd5033a4053cccfef5b86bf02eeb2c2874f636f4e0e2898b57a"
+  },
+  "embodiment": {
+    "id": "wonik-allegro-v4",
+    "sha256": "c67f1bd1265f62ec69cfda13e6af2cf5904b8ddfa374bda17208f8ee51712c94"
+  },
+  "report_sha256": "fcf9e82e217ac0ee07434f42e289ce821bad752b28d637342dfa238f7ac62df7",
+  "result": "pass",
+  "covered": [
+    "class3_driver_protocol"
+  ],
+  "excluded": [
+    "class4_physical",
+    "class2_loose_epsilon",
+    "env3_disturbance",
+    "fidelity_tier_physical_truth"
+  ],
+  "actions": [
+    {
+      "action_id": "cable-insertion/wonik-allegro-v4/0001-locate",
+      "suffix": "locate",
+      "checks": [
+        {
+          "name": "actuation",
+          "result": "pass"
+        },
+        {
+          "name": "engagement",
+          "result": "pass"
+        },
+        {
+          "name": "irreversible",
+          "result": "pass"
+        },
+        {
+          "name": "freed_part_disposition",
+          "result": "pass"
+        },
+        {
+          "name": "audit_honesty",
+          "result": "pass"
+        }
+      ],
+      "passed": true
+    },
+    {
+      "action_id": "cable-insertion/wonik-allegro-v4/0002-pinch",
+      "suffix": "pinch",
+      "envelope_class": "grasp_continuity",
+      "checks": [
+        {
+          "name": "envelope",
+          "result": "pass"
+        },
+        {
+          "name": "actuation",
+          "result": "pass"
+        },
+        {
+          "name": "engagement",
+          "result": "pass"
+        },
+        {
+          "name": "irreversible",
+          "result": "pass"
+        },
+        {
+          "name": "freed_part_disposition",
+          "result": "pass"
+        },
+        {
+          "name": "audit_honesty",
+          "result": "pass"
+        }
+      ],
+      "passed": true
+    },
+    {
+      "action_id": "cable-insertion/wonik-allegro-v4/0003-transport",
+      "suffix": "transport",
+      "envelope_class": "grasp_continuity",
+      "checks": [
+        {
+          "name": "envelope",
+          "result": "pass"
+        },
+        {
+          "name": "actuation",
+          "result": "pass"
+        },
+        {
+          "name": "engagement",
+          "result": "pass"
+        },
+        {
+          "name": "irreversible",
+          "result": "pass"
+        },
+        {
+          "name": "freed_part_disposition",
+          "result": "pass"
+        },
+        {
+          "name": "audit_honesty",
+          "result": "pass"
+        }
+      ],
+      "passed": true
+    },
+    {
+      "action_id": "cable-insertion/wonik-allegro-v4/0004-locate",
+      "suffix": "locate",
+      "checks": [
+        {
+          "name": "actuation",
+          "result": "pass"
+        },
+        {
+          "name": "engagement",
+          "result": "pass"
+        },
+        {
+          "name": "irreversible",
+          "result": "pass"
+        },
+        {
+          "name": "freed_part_disposition",
+          "result": "pass"
+        },
+        {
+          "name": "audit_honesty",
+          "result": "pass"
+        }
+      ],
+      "passed": true
+    },
+    {
+      "action_id": "cable-insertion/wonik-allegro-v4/0005-align",
+      "suffix": "align",
+      "envelope_class": "terminal_postcondition",
+      "checks": [
+        {
+          "name": "envelope",
+          "result": "pass"
+        },
+        {
+          "name": "actuation",
+          "result": "pass"
+        },
+        {
+          "name": "engagement",
+          "result": "pass"
+        },
+        {
+          "name": "irreversible",
+          "result": "pass"
+        },
+        {
+          "name": "freed_part_disposition",
+          "result": "pass"
+        },
+        {
+          "name": "audit_honesty",
+          "result": "pass"
+        }
+      ],
+      "passed": true
+    },
+    {
+      "action_id": "cable-insertion/wonik-allegro-v4/0006-insert_fit",
+      "suffix": "insert_fit",
+      "envelope_class": "force_trajectory",
+      "checks": [
+        {
+          "name": "envelope",
+          "result": "pass"
+        },
+        {
+          "name": "actuation",
+          "result": "pass"
+        },
+        {
+          "name": "engagement",
+          "result": "pass"
+        },
+        {
+          "name": "irreversible",
+          "result": "pass"
+        },
+        {
+          "name": "freed_part_disposition",
+          "result": "pass"
+        },
+        {
+          "name": "audit_honesty",
+          "result": "pass"
+        }
+      ],
+      "passed": true
+    },
+    {
+      "action_id": "cable-insertion/wonik-allegro-v4/0007-release",
+      "suffix": "release",
+      "envelope_class": "grasp_continuity",
+      "checks": [
+        {
+          "name": "envelope",
+          "result": "pass"
+        },
+        {
+          "name": "actuation",
+          "result": "pass"
+        },
+        {
+          "name": "engagement",
+          "result": "pass"
+        },
+        {
+          "name": "irreversible",
+          "result": "pass"
+        },
+        {
+          "name": "freed_part_disposition",
+          "result": "pass"
+        },
+        {
+          "name": "audit_honesty",
+          "result": "pass"
+        }
+      ],
+      "passed": true
+    },
+    {
+      "action_id": "cable-insertion/wonik-allegro-v4/0008-retract",
+      "suffix": "retract",
+      "envelope_class": "terminal_postcondition",
+      "checks": [
+        {
+          "name": "envelope",
+          "result": "pass"
+        },
+        {
+          "name": "actuation",
+          "result": "pass"
+        },
+        {
+          "name": "engagement",
+          "result": "pass"
+        },
+        {
+          "name": "irreversible",
+          "result": "pass"
+        },
+        {
+          "name": "freed_part_disposition",
+          "result": "pass"
+        },
+        {
+          "name": "audit_honesty",
+          "result": "pass"
+        }
+      ],
+      "passed": true
+    }
+  ],
+  "sequence_checks": [
+    {
+      "name": "momentary_release",
+      "result": "pass"
+    }
+  ],
+  "content_hash": "sha256:06273ba1f87cefc8dadb22264a778e6b10b9de7cd45421b2bba70dd9bdaacdba"
+}

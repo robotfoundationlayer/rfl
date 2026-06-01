@@ -94,6 +94,11 @@ def main() -> int:
         errs = list(adapter_validator.iter_errors(yaml.safe_load(ad.read_text())))
         check(f"{ad.name} vs tactile-manifold adapter", not errs, errs[0].message if errs else "")
 
+    cert_validator = Draft202012Validator(certificate)
+    cert_path = EXAMPLES / "certificate.json"
+    errs = list(cert_validator.iter_errors(json.loads(cert_path.read_text())))
+    check("certificate.json vs certificate-schema", not errs, errs[0].message if errs else "")
+
     print("\nCross-schema consistency (anti-drift)")
 
     # C1 — the descriptor's capability-key enum is exactly the skill-isa primitive
