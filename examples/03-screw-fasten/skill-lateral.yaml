@@ -1,0 +1,30 @@
+# Example 03 — Lateral grasp (grasp.lateral variant)
+# A key-grip force closure across a thin / flat object's thin dimension, with friction-limited
+# in-plane retention. Exercises the grasp-continuity envelope (GC1 floor + GC2 hold test) over the
+# lateral payload (payload_grasp_lateral). Retargets to the hands that declare grasp.lateral
+# (allegro, leap); the pneumatic bellows hand has no lateral key-grip, so it is rejected at the
+# capability gate (capability_absent) — the gate demo.
+skill: object-lateral-grasp
+description: >
+  Locate a thin part, clamp it in a lateral (key-grip) force closure, then release. Demonstrates
+  the lateral mode (clamp-normal + in-plane friction_held) and its min_holding_force floor.
+
+objects:
+  part: { ref: part, estimated_mass: 0.5 N }
+
+body:
+  sequence:
+
+    - let: part_t
+      from:
+        sense.locate:
+          target_ref: part
+          modality: auto
+
+    - grasp.lateral:
+        target: part_t
+        force_budget: 5 N
+        tactile_target: auto
+
+    - grasp.release:
+        grasp_handle: active

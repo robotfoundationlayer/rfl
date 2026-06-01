@@ -1,0 +1,29 @@
+# Example 03 — Power grasp (grasp.power variant)
+# A whole-volume force-closure enclosure: distribute contact across the object to maximize
+# stability and payload. Exercises the same grasp-continuity envelope (GC1 floor + GC2 hold test)
+# as pinch, but over the power mode's payload (payload_grasp_power) and distributed-contact proxy
+# criterion. The same skill retargets across all three reference hands.
+skill: object-power-grasp
+description: >
+  Locate a part, enclose it in a whole-volume power grasp, then release. Demonstrates the
+  force-closure power mode (friction_held, omnidirectional) and its min_holding_force floor.
+
+objects:
+  part: { ref: part, estimated_mass: 1.0 N }
+
+body:
+  sequence:
+
+    - let: part_t
+      from:
+        sense.locate:
+          target_ref: part
+          modality: auto
+
+    - grasp.power:
+        target: part_t
+        force_budget: 25 N
+        tactile_target: auto
+
+    - grasp.release:
+        grasp_handle: active
