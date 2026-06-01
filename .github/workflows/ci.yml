@@ -56,3 +56,12 @@ jobs:
           for f in 00-overview 01-skill-isa 02-translation-layer 03-driver-interface 04-tactile-manifold 05-conformance 06-extension-registry; do
             test -f "spec/${f}.md" || { echo "missing spec/${f}.md"; exit 1; }
           done
+
+  schema-validate:
+    name: schema validate (conformance class 1)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: astral-sh/setup-uv@v8
+      - name: Validate schemas + reference instances + C1-C7 invariants
+        run: uv run --with jsonschema --with pyyaml python schemas/validate.py
