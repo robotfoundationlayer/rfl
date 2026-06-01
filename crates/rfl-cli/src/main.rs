@@ -12,7 +12,7 @@
 //!   spawn the driver live)
 //! - `rfl verify <certificate.json>` — schema-validate a certificate and re-verify its
 //!   content hash (tamper detection)
-//! - `rfl keygen <out>` — generate an ed25519 keypair (secret to <out>, public to stdout)
+//! - `rfl keygen <out>` — generate an ed25519 keypair (secret to `<out>`, public to stdout)
 //! - `rfl sign --key <secret> <certificate.json>` — attach an ed25519 signature to a certificate
 
 use anyhow::Result;
@@ -67,7 +67,7 @@ enum Command {
         /// Path to the certificate JSON file.
         certificate: std::path::PathBuf,
     },
-    /// Generate an ed25519 keypair: write the secret key (hex) to <out>, print the public key.
+    /// Generate an ed25519 keypair: write the secret key (hex) to `<out>`, print the public key.
     Keygen {
         /// Path to write the secret key (hex) to.
         out: std::path::PathBuf,
