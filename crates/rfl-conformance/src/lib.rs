@@ -194,6 +194,8 @@ pub enum Fault {
     /// `wrench.force` driven to zero (loss of contact — violates the force.wipe band's lower
     /// edge; the mirror of `OverForce`).
     LoseContact,
+    /// `status.fidelity_tier` over-claimed as `manifold` (undisclosed degradation, AUD3).
+    FalseTier,
 }
 
 /// Wraps the nominal `ReferenceDriver` and injects one `Fault` into every report it
@@ -255,6 +257,9 @@ impl Driver for FaultyDriver {
                         w.force = [0.0, 0.0, 0.0];
                     }
                 }
+            }
+            Fault::FalseTier => {
+                report.status.fidelity_tier = Some("manifold".to_string());
             }
         }
         report
@@ -1019,6 +1024,28 @@ pub fn check_irreversible(goal: &ExecuteGoal, report: &DriverReport) -> CheckOut
     CheckOutcome::Pass
 }
 
+/// Verify the AUD3 fidelity-tier honesty obligation (`spec/05`): a degraded execution must
+/// disclose it — a result reported at full `manifold` tier when the action lowered to `proxy`
+/// is malformed. The expected tier is the lowering's `tactile_target` degradation decision
+/// (`Auto` => manifold, `Proxy` => proxy); the claimed tier is `status.fidelity_tier`.
+/// Over-claiming (manifold claimed when proxy was the truth) is the violation; under-claiming is
+/// conservative. Vacuous when the action carries no auto-confirmation (`Explicit` / none).
+#[must_use]
+pub fn check_audit_honesty(goal: &ExecuteGoal, report: &DriverReport) -> CheckOutcome {
+    let expected = match &goal.canonical_action.tactile_target {
+        Some(TactileTargetOut::Auto) => "manifold",
+        Some(TactileTargetOut::Proxy { .. }) => "proxy",
+        _ => return CheckOutcome::Pass, // no auto-confirmation -> nothing to disclose
+    };
+    if report.status.fidelity_tier.as_deref() == Some("manifold") && expected == "proxy" {
+        return CheckOutcome::Fail(
+            "degraded (proxy) execution claimed manifold tier — undisclosed degradation (AUD3)"
+                .to_string(),
+        );
+    }
+    CheckOutcome::Pass
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1541,5 +1568,61 @@ mod tests {
             check_irreversible(&goal, &report(Outcome::Failed, vec![])),
             CheckOutcome::Fail(_)
         ));
+    }
+
+    #[test]
+    fn check_audit_honesty_rejects_undisclosed_degradation() {
+        use rfl_core::canonical::{
+            CanonicalAction, Envelope, MotionBounds, PoseExpr, ProxySpec, TactileTargetOut,
+            TimingHints, TimingMode,
+        };
+        use rfl_core::driver::{Outcome, RealizedPose, Status, Verdict};
+        let action = |tt: Option<TactileTargetOut>| CanonicalAction {
+            target_frame: "tcp".into(),
+            target_pose: PoseExpr::Ref { r#ref: "obj".into() },
+            force_budget: None,
+            timing: TimingHints {
+                nominal_duration: None,
+                timing_mode: TimingMode::Strict,
+                stop_at_goal: true,
+            },
+            tactile_target: tt,
+            monitors: vec![],
+            safety_envelope: Envelope {
+                motion_bounds: MotionBounds::default(),
+                force_profile: None,
+                station_keeping: None,
+                clearance: None,
+                compliance: None,
+                stop_time: None,
+            },
+        };
+        let report = |tier: &str| DriverReport {
+            telemetry: vec![],
+            status: Status {
+                message: "status",
+                action_id: "s/e/0001-pinch".to_string(),
+                outcome: Outcome::Succeeded,
+                verdict: Some(Verdict { value: true, confidence: 1.0, evidence: vec![] }),
+                fidelity_tier: Some(tier.to_string()),
+                final_pose: Some(RealizedPose::placeholder()),
+                failure_class: None,
+                failure_detail: None,
+            },
+        };
+        let proxy_goal = ExecuteGoal::wrap(
+            "s/e/0001-pinch".to_string(),
+            action(Some(TactileTargetOut::Proxy {
+                proxy: ProxySpec { tier: "proxy", criterion: "force_position" },
+            })),
+        );
+        let manifold_goal =
+            ExecuteGoal::wrap("s/e/0001-pinch".to_string(), action(Some(TactileTargetOut::Auto)));
+        // proxy action + manifold claim -> Fail (undisclosed degradation).
+        assert!(matches!(check_audit_honesty(&proxy_goal, &report("manifold")), CheckOutcome::Fail(_)));
+        // proxy action + proxy claim -> Pass (honest).
+        assert_eq!(check_audit_honesty(&proxy_goal, &report("proxy")), CheckOutcome::Pass);
+        // manifold action + manifold claim -> Pass.
+        assert_eq!(check_audit_honesty(&manifold_goal, &report("manifold")), CheckOutcome::Pass);
     }
 }

@@ -7,11 +7,11 @@
 //! REJECTED by the matching checker — the non-circular proof that the suite bites.
 
 use rfl_conformance::{
-    check_actuation, check_engagement, check_envelope, check_graceful_degradation,
-    check_irreversible, check_settling, drive, envelope_class_for, CheckOutcome, CutDriver,
-    CutResponse, DisturbanceDriver, DisturbanceResponse, EnvelopeClass, Fault, FaultyDriver,
-    HoverResponse, HoverSettlingDriver, PressButtonDriver, PressButtonResponse, ReferenceDriver,
-    SnapEngageDriver, SnapEngageResponse,
+    check_actuation, check_audit_honesty, check_engagement, check_envelope,
+    check_graceful_degradation, check_irreversible, check_settling, drive, envelope_class_for,
+    CheckOutcome, CutDriver, CutResponse, DisturbanceDriver, DisturbanceResponse, EnvelopeClass,
+    Fault, FaultyDriver, HoverResponse, HoverSettlingDriver, PressButtonDriver, PressButtonResponse,
+    ReferenceDriver, SnapEngageDriver, SnapEngageResponse,
 };
 use std::path::{Path, PathBuf};
 
@@ -687,4 +687,51 @@ fn cut_over_force_fails() {
         check_envelope(EnvelopeClass::ForceTrajectory, goal, report),
         CheckOutcome::Fail(_)
     ));
+}
+
+// --- AUD3 fidelity-tier honesty (degradation disclosure, spec/05 AUD3) ----------------------
+
+#[test]
+fn nominal_proxy_tier_is_disclosed() {
+    let dir = example_dir();
+    let pairs = drive(
+        ReferenceDriver::default(),
+        &dir.join("skill.yaml"),
+        &dir.join("embodiments/pneumatic-6f.yaml"),
+    )
+    .expect("drive");
+    // grasp.pinch (index 1) degrades to proxy on the no-tactile pneumatic hand.
+    let (goal, report) = &pairs[1];
+    assert_eq!(suffix_of(&goal.action_id), "pinch");
+    assert_eq!(report.status.fidelity_tier.as_deref(), Some("proxy"));
+    assert_eq!(check_audit_honesty(goal, report), CheckOutcome::Pass);
+}
+
+#[test]
+fn false_manifold_claim_on_proxy_fails() {
+    let dir = example_dir();
+    let pairs = drive(
+        FaultyDriver::new(Fault::FalseTier),
+        &dir.join("skill.yaml"),
+        &dir.join("embodiments/pneumatic-6f.yaml"),
+    )
+    .expect("drive");
+    let (goal, report) = &pairs[1];
+    // claims manifold on a proxy-degraded action -> undisclosed degradation (the bite).
+    assert!(matches!(check_audit_honesty(goal, report), CheckOutcome::Fail(_)));
+}
+
+#[test]
+fn manifold_tier_passes() {
+    let dir = example_dir();
+    let pairs = drive(
+        ReferenceDriver::default(),
+        &dir.join("skill.yaml"),
+        &dir.join("embodiments/allegro.yaml"),
+    )
+    .expect("drive");
+    let (goal, report) = &pairs[1];
+    // allegro declares tactile -> manifold; honest.
+    assert_eq!(report.status.fidelity_tier.as_deref(), Some("manifold"));
+    assert_eq!(check_audit_honesty(goal, report), CheckOutcome::Pass);
 }
