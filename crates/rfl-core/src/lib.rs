@@ -19,6 +19,18 @@
 #![warn(missing_docs)]
 #![warn(clippy::all)]
 #![warn(clippy::pedantic)]
+// clippy::pedantic curation — these fire as false positives on this codebase's conventions:
+// docs deliberately reference spec sections (spec/02), invariant tags (RD1c / GF1c / TM21c), and
+// primitive names (force.insert_fit) in prose; and the geometry / grasp-force math performs bounded,
+// non-negative f64<->usize conversions (grid counts from validated dimensions) with single-letter
+// math variables.
+#![allow(clippy::doc_markdown)]
+#![allow(
+    clippy::cast_precision_loss,
+    clippy::cast_possible_truncation,
+    clippy::cast_sign_loss
+)]
+#![allow(clippy::many_single_char_names)]
 
 pub mod canonical;
 pub mod driver;

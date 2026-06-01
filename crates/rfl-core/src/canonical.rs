@@ -268,6 +268,9 @@ impl ExecuteGoal {
 
 /// Serialize a retargeted action sequence as JSON Lines. The `action_id` is the
 /// deterministic `{skill}/{embodiment_id}/{NNNN}-{suffix}` (1-based, zero-padded 4).
+///
+/// # Panics
+/// If serializing an `execute` message to JSON fails (does not happen for well-formed actions).
 #[must_use]
 pub fn to_jsonl(
     skill: &str,
@@ -287,6 +290,9 @@ pub fn to_jsonl(
 
 #[cfg(test)]
 mod tests {
+    // Deterministic retarget/serialization output: exact golden-value comparison is intended.
+    #![allow(clippy::float_cmp, clippy::unreadable_literal)]
+
     use super::*;
 
     #[test]

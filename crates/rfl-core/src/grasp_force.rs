@@ -120,6 +120,9 @@ pub fn reaction_torque_limit(torque_budget_nm: f64, grip_force_max_n: f64, mode:
 
 #[cfg(test)]
 mod tests {
+    // Deterministic grasp-force derivations: exact golden-value comparison is intended.
+    #![allow(clippy::float_cmp, clippy::unreadable_literal)]
+
     use super::*;
 
     #[test]

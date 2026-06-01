@@ -222,8 +222,7 @@ impl Embodiment {
         self.frames
             .control_frames
             .first()
-            .map(String::as_str)
-            .unwrap_or("control")
+            .map_or("control", String::as_str)
     }
 
     /// The FOV of a named sensor frame, if declared.

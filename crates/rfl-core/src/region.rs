@@ -43,6 +43,9 @@ pub struct WaypointPose {
 
 #[cfg(test)]
 mod tests {
+    // Deterministic region geometry: exact golden-value comparison is intended.
+    #![allow(clippy::float_cmp, clippy::unreadable_literal)]
+
     use super::*;
 
     #[test]

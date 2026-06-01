@@ -80,6 +80,9 @@ pub struct Sequence {
 /// One statement of a sequence: a primitive call or a let-bind. `serde(untagged)`
 /// discriminates by shape — a `{let, from}` object is a `LetBind`, any other
 /// single-key object is a primitive call.
+// A parse-time AST node (lives in a `Vec<Statement>`, deserialized once); boxing the larger
+// variant would obscure the serde(untagged) shape for a negligible perf gain.
+#[allow(clippy::large_enum_variant)]
 #[derive(Debug, Clone, serde::Deserialize)]
 #[serde(untagged)]
 pub enum Statement {

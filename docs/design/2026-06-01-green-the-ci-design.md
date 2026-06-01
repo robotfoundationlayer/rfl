@@ -20,12 +20,15 @@ Apply the project's own declared format to the whole workspace. This is conforma
 
 ## 2. clippy — to green under `-D warnings`
 
-`cargo clippy --fix --workspace --all-targets --all-features` auto-applies the machine-applicable lints (`map_unwrap_or` → `map_or`, `redundant_closure_for_method_calls` → method reference, and the other style/complexity fixes). Then resolve the remainder by category:
+`cargo clippy --fix --workspace --all-targets --all-features` auto-applies the machine-applicable lints (`redundant_closure_for_method_calls` → method reference, …). **(Reality vs the original assumption: `--fix` resolved the `float_cmp` items the CI log first showed; what remained was dominated by `doc_markdown`.)** The remainder (confirmed via `cargo clippy … -- -D warnings`) is resolved by category:
 
-- **`float_cmp`** — the flagged sites are `assert_eq!` on `f64` arrays against exact literal golden values (e.g. `assert_eq!(poses[0].position, [0.1, 0.075, 0.1])`). The retarget pipeline is byte-deterministic, so exact comparison is *intended* — this is a `float_cmp` false positive in deterministic tests. Fix with a targeted `#[allow(clippy::float_cmp)]` on the affected test module(s), not a blanket crate allow. Any `float_cmp` in *production* code (if present) is reviewed individually — exact comparison kept only where the values are provably exact (e.g. comparing against `0.0` after a normalize), otherwise switched to an epsilon comparison.
-- **Anything `--fix` could not resolve** — fixed by hand following clippy's own suggestion.
+- **Genuinely actionable — fixed by hand:** `map_unwrap_or` → `map_or` (2 sites), `unnecessary_map_or` → `is_none_or` (1), and a missing `# Panics` doc section on `canonical::to_jsonl` (1).
+- **`clippy::pedantic` false positives — curated with targeted `#[allow]` + justification** (the idiomatic use of the pedantic group: these fire on this codebase's deliberate conventions, not real defects, and every *other* pedantic lint stays active):
+  - crate-level in `rfl-core/src/lib.rs`: `doc_markdown` (docs reference spec sections like `spec/02`, invariant tags `RD1c`/`GF1c`/`TM21c`, and primitive names `force.insert_fit` in prose), plus `cast_precision_loss` / `cast_possible_truncation` / `cast_sign_loss` / `many_single_char_names` (bounded non-negative geometry / grasp-force math with single-letter variables);
+  - test-module-scoped in the 5 affected files (`sigma`, `canonical`, `grasp_force`, `translation`, `region`): `float_cmp` + `unreadable_literal` on deterministic golden-value assertions — exact comparison is intended, and production `rfl-core` does no float equality (the lib built clean), so the allow stays confined to tests;
+  - one targeted allow on the `Statement` AST enum: `large_enum_variant` (a parse-once node; boxing would obscure the `serde(untagged)` shape for negligible gain).
 
-Iterate `cargo clippy --workspace --all-targets --all-features -- -D warnings` until it exits clean, then `cargo test --workspace` to confirm the `--fix` edits changed no behavior. One commit: `style(rfl-core): fix clippy pedantic + float_cmp drift` (scope may extend to the other crates if `--fix` touches them).
+Iterate `cargo clippy … -- -D warnings` until clean, then re-run `cargo fmt --all -- --check` (the `--fix` pass can re-drift formatting) and `cargo test --workspace`. One commit.
 
 ## 3. Verify CI actually goes green
 
@@ -33,4 +36,4 @@ Local clean is necessary but not sufficient — the success criterion is the CI 
 
 ## 4. Out of scope (YAGNI)
 
-Modifying the CI config — dropping `-D warnings`, relaxing `#![warn(clippy::pedantic)]`, or loosening `fmt` — would "fix" CI by lowering the bar; the project chose strict lints and we honor them. The `actions/checkout@v4` Node.js 20 deprecation notice (a warning, not a failure). Any non-formatting, non-lint refactor of `rfl-core`.
+Modifying the CI config (dropping `-D warnings`, loosening `fmt`) or *wholesale* disabling `#![warn(clippy::pedantic)]` — that would "fix" CI by lowering the bar. **Per-lint curation** of `clippy::pedantic` with justification (§ 2) is not that: it is the documented, intended use of the pedantic group (clippy itself recommends `#[allow]`-ing the lints a project disagrees with), and every other pedantic lint stays active. The `actions/checkout@v4` Node.js 20 deprecation notice (a warning, not a failure). Any non-formatting, non-lint refactor of `rfl-core`.

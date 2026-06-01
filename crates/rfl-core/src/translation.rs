@@ -623,7 +623,7 @@ fn lower_force_wipe(p: &ForceWipe, e: &Embodiment) -> CanonicalAction {
 /// Monitor. The held part's motion is along `engage_direction` (grasp frame, like force.screw);
 /// `mate_feature` is carried symbolic; the snap_disengage reverse path is deferred.
 fn lower_force_snap_engage(p: &ForceSnapEngage, e: &Embodiment) -> CanonicalAction {
-    let is_detent = p.snap_signature.as_ref().map_or(true, actuation_is_detent);
+    let is_detent = p.snap_signature.as_ref().is_none_or(actuation_is_detent);
     let do_confirm = p.confirm_held != Some(false);
     let mut env = base_envelope(e);
     env.compliance = p.compliance.map(|c| {
@@ -1014,10 +1014,9 @@ fn lower_reach_scan(p: &ReachScan, e: &Embodiment) -> CanonicalAction {
         // surface still fall back to raster in v0 (arc needs a pivot + variable
         // orientation; the waypoints pattern is driven by a Waypoints region).
         crate::region::ScanRegion::Surface { size_u, size_v, .. } => {
-            let (h, v) = e
-                .sensor_fov(&sensor_frame)
-                .map(|f| (angle_rad(&f.h_angle), angle_rad(&f.v_angle)))
-                .unwrap_or((0.0, 0.0));
+            let (h, v) = e.sensor_fov(&sensor_frame).map_or((0.0, 0.0), |f| {
+                (angle_rad(&f.h_angle), angle_rad(&f.v_angle))
+            });
             let (u, vv) = (length_m(size_u), length_m(size_v));
             match pattern {
                 ScanPattern::Spiral => crate::sigma::spiral(u, vv, standoff, overlap, h, v),
@@ -1072,6 +1071,9 @@ fn lower_sense_inspect(p: &SenseInspect, e: &Embodiment) -> CanonicalAction {
 
 #[cfg(test)]
 mod tests {
+    // Deterministic retarget output: exact golden-value comparison is intended.
+    #![allow(clippy::float_cmp, clippy::unreadable_literal)]
+
     use super::*;
     use crate::embodiment::Embodiment;
     use crate::skill_isa::Skill;
@@ -1623,7 +1625,7 @@ mod tests {
         assert_eq!(
             m.stop_condition
                 .get("disengagement")
-                .and_then(|v| v.as_bool()),
+                .and_then(serde_json::Value::as_bool),
             Some(true)
         );
     }

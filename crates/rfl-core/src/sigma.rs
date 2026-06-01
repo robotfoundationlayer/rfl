@@ -156,6 +156,9 @@ pub fn spiral(
 
 #[cfg(test)]
 mod tests {
+    // Deterministic retarget/geometry output: exact golden-value comparison is intended.
+    #![allow(clippy::float_cmp, clippy::unreadable_literal)]
+
     use super::*;
     use crate::canonical::round6;
 
