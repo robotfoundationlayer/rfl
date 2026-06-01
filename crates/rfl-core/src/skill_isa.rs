@@ -262,6 +262,66 @@ pub enum Primitive {
 }
 
 impl Primitive {
+    /// The canonical primitive name (`spec/01` Skill ISA), e.g. `force.insert_fit`.
+    /// The `serde(untagged)` enum drops the variant tag on the wire, so the name is
+    /// not otherwise recoverable; the ε-measurement aggregation keys deviation
+    /// samples by it. Exhaustive — a new variant fails to compile until named.
+    #[must_use]
+    pub fn name(&self) -> &'static str {
+        match self {
+            Primitive::SenseLocate(_) => "sense.locate",
+            Primitive::GraspPinch(_) => "grasp.pinch",
+            Primitive::GraspPower(_) => "grasp.power",
+            Primitive::GraspLateral(_) => "grasp.lateral",
+            Primitive::GraspPrecisionTripod(_) => "grasp.precision_tripod",
+            Primitive::GraspHook(_) => "grasp.hook",
+            Primitive::GraspEnvelope(_) => "grasp.envelope",
+            Primitive::TransportMoveToPose(_) => "transport.move_to_pose",
+            Primitive::TransportLift(_) => "transport.lift",
+            Primitive::TransportLower(_) => "transport.lower",
+            Primitive::TransportFollowTrajectory(_) => "transport.follow_trajectory",
+            Primitive::PlacePutDown(_) => "place.put_down",
+            Primitive::PlaceStack(_) => "place.stack",
+            Primitive::PlaceInsertLoose(_) => "place.insert_loose",
+            Primitive::PlaceOrient(_) => "place.orient",
+            Primitive::PlaceHandTo(_) => "place.hand_to",
+            Primitive::PlaceDiscard(_) => "place.discard",
+            Primitive::ReachAlign(_) => "reach.align",
+            Primitive::ReachToPose(_) => "reach.to_pose",
+            Primitive::ReachApproach(_) => "reach.approach",
+            Primitive::ForceInsertFit(_) => "force.insert_fit",
+            Primitive::ForcePush(_) => "force.push",
+            Primitive::ForcePull(_) => "force.pull",
+            Primitive::ForceScrub(_) => "force.scrub",
+            Primitive::GraspAdjust(_) => "grasp.adjust",
+            Primitive::GraspRelease(_) => "grasp.release",
+            Primitive::ReachRetract(_) => "reach.retract",
+            Primitive::ReachScan(_) => "reach.scan",
+            Primitive::ReachHover(_) => "reach.hover",
+            Primitive::SenseInspect(_) => "sense.inspect",
+            Primitive::SenseProbe(_) => "sense.probe",
+            Primitive::SenseVerify(_) => "sense.verify",
+            Primitive::SenseWeigh(_) => "sense.weigh",
+            Primitive::ForceScrew(_) => "force.screw",
+            Primitive::ForceUnscrew(_) => "force.unscrew",
+            Primitive::TransportCarry(_) => "transport.carry",
+            Primitive::ForcePressButton(_) => "force.press_button",
+            Primitive::ForceWipe(_) => "force.wipe",
+            Primitive::ForceSnapEngage(_) => "force.snap_engage",
+            Primitive::ForceCut(_) => "force.cut",
+            Primitive::InHandFlip(_) => "in_hand.flip",
+            Primitive::GraspPin(_) => "grasp.pin",
+            Primitive::GraspPlatform(_) => "grasp.platform",
+            Primitive::InHandRegrasp(_) => "in_hand.regrasp",
+            Primitive::InHandPivot(_) => "in_hand.pivot",
+            Primitive::InHandRotate(_) => "in_hand.rotate",
+            Primitive::InHandTranslate(_) => "in_hand.translate",
+            Primitive::InHandRoll(_) => "in_hand.roll",
+            Primitive::InHandSlide(_) => "in_hand.slide",
+            Primitive::TransportHandoff(_) => "transport.handoff",
+        }
+    }
+
     /// The grasp mode this primitive establishes, if it forms a grasp. Read by the
     /// STB3 composition check to track the active grasp's stability class across a
     /// sequence. `None` for non-grasp primitives.
@@ -1820,6 +1880,24 @@ body:
             &stmts[7],
             Statement::Primitive(Primitive::ReachRetract(_))
         ));
+    }
+
+    #[test]
+    fn primitive_name_returns_the_canonical_name() {
+        let s = cable_skill();
+        let Statement::Primitive(p) = &s.body.sequence[1] else {
+            panic!("expected a primitive");
+        };
+        assert_eq!(p.name(), "grasp.pinch");
+        let Statement::Primitive(p) = &s.body.sequence[5] else {
+            panic!("expected a primitive");
+        };
+        assert_eq!(p.name(), "force.insert_fit");
+        // A let-bound primitive's name is recoverable too (sense.locate here).
+        let Statement::LetBind(b) = &s.body.sequence[0] else {
+            panic!("expected a let-bind");
+        };
+        assert_eq!(b.from.name(), "sense.locate");
     }
 
     #[test]
