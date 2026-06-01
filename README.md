@@ -10,8 +10,8 @@
 
 Approximately **nine** credible VLA foundation models. Approximately **thirty** robotic embodiments. Every new pair currently requires bespoke integration. RFL is a three-layer specification — Skill ISA + retargeting interface contract + ROS 2-compatible Driver Interface — that collapses the O(N×M) integration burden to additive cost, governed by five constitutional principles and stewarded under Apache 2.0 in perpetuity.
 
-**📄 Read it now**: [`RFL_SPEC_v0.1_en.pdf`](whitepaper/RFL_SPEC_v0.1_en.pdf) (60-page specification extract, publication-candidate state).
-**🧭 Read the broader framing**: [`RFL_v1.0_en.pdf`](whitepaper/RFL_v1.0_en.pdf) (73-page companion position paper).
+**📄 Read it now**: [`RFL_SPEC_v0.1_en.pdf`](whitepaper/RFL_SPEC_v0.1_en.pdf) (62-page specification extract, publication-candidate state).
+**🧭 Read the broader framing**: [`RFL_v1.0_en.pdf`](whitepaper/RFL_v1.0_en.pdf) (80-page companion position paper, G-1 Hybrid stewardship edition).
 
 ## What is RFL?
 
@@ -35,8 +35,8 @@ The project's argument is published as a **companion pair** in [`whitepaper/`](w
 
 | Document | Pages | Audience |
 |---|---|---|
-| [`RFL_SPEC_v0.1_en.pdf`](whitepaper/RFL_SPEC_v0.1_en.pdf) | 60 | Academic peers, implementers, arXiv reviewers — specification extract (academic register) |
-| [`RFL_v1.0_en.pdf`](whitepaper/RFL_v1.0_en.pdf) | 73 | Industry stakeholders, prospective partners — position paper with network-effect, governance, and ecosystem framing |
+| [`RFL_SPEC_v0.1_en.pdf`](whitepaper/RFL_SPEC_v0.1_en.pdf) | 62 | Academic peers, implementers, arXiv reviewers — specification extract (academic register) |
+| [`RFL_v1.0_en.pdf`](whitepaper/RFL_v1.0_en.pdf) | 80 | Industry stakeholders, prospective partners — position paper (G-1 Hybrid stewardship: RFL Inc. + Lead Customer Program) with network-effect, governance, and ecosystem framing |
 
 The two documents share Abstract, Keywords, References, and Appendix A (TactileManifold) by construction; everything else is independently developed. The spec extract carries the testable commitments; the position paper carries the institutional and strategic framing. See [`whitepaper/README.md`](whitepaper/README.md) for the full split.
 
@@ -62,7 +62,7 @@ To self-certify a driver against the Class 3 driver-protocol obligations — cap
 
 ```
 rfl/
-├── whitepaper/           # ✅ Whitepaper PDFs + figures (60 + 73 pages)
+├── whitepaper/           # ✅ Whitepaper PDFs + figures (62 + 80 pages)
 ├── spec/                 # ✅ Specification documents (Markdown, work in progress)
 ├── examples/             # ✅ Worked examples (01-cable-insertion, 02-surface-scan, 03-screw-fasten)
 ├── crates/               # ✅ Rust workspace (rfl-core / rfl-cli / rfl-conformance): rfl-cli retarget engine across the worked examples and their skill variants (structural; generative Σ raster + spiral; station-keeping reach.hover; held-interval transport.carry; mass-dependent grasp-force GF1c–GF4c incl. tool-mediated force.screw / force.unscrew; grasp-stability metadata for force/support closure via grasp.pin / grasp.platform); conformance test classes 1–3 green with all four envelope classes (terminal / grasp-continuity / force-trajectory / interval-invariant), the complete grasp-continuity group GC1–6 (in_hand.regrasp make-before-break, in_hand.pivot under-actuation, in_hand.flip bounded exception, transport.handoff two-party co-grasp), the stability-class composition obligations STB2/STB3, and the reversibility, audit (AUD1–3), force-event, contact-band, capability-gate, abort-timing, and freed-part-disposition checks, each verified against adversarial drivers; **all 50 Skill ISA primitives now lower** across the seven categories; the same suite powers the `rfl validate` / `rfl certify` / `rfl verify` / `rfl sign` CLI (driver report via JSONL replay or a live `--driver`, with signed deterministic certificates), where `rfl validate` enforces the class-1 composition rules (DOF-admissibility, lifecycle `no_active_grasp`, STB3 stability-class successor, and GraspRef-supersession); language bindings → the v1.0 stabilization milestone (2027 Q2–Q3)
