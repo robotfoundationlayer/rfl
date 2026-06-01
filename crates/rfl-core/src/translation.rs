@@ -138,6 +138,10 @@ fn check_capability(prim: &Primitive, e: &Embodiment) -> crate::Result<()> {
         Primitive::GraspPlatform(_) => "grasp.platform",
         Primitive::InHandRegrasp(_) => "in_hand.regrasp",
         Primitive::InHandPivot(_) => "in_hand.pivot",
+        Primitive::InHandRotate(_) => "in_hand.rotate",
+        Primitive::InHandTranslate(_) => "in_hand.translate",
+        Primitive::InHandRoll(_) => "in_hand.roll",
+        Primitive::InHandSlide(_) => "in_hand.slide",
         Primitive::TransportHandoff(_) => "transport.handoff",
         // A category key implies the base primitive: `transport` = transport.move_to_pose.
         Primitive::TransportMoveToPose(_) => "transport",
@@ -203,6 +207,45 @@ fn lower(
         Primitive::GraspPlatform(p) => (lower_grasp_platform(p, e), "platform"),
         Primitive::InHandRegrasp(p) => (lower_in_hand_regrasp(p, e, ctx), "regrasp"),
         Primitive::InHandPivot(p) => (lower_in_hand_pivot(p, e, ctx), "pivot"),
+        Primitive::InHandRotate(p) => (
+            lower_in_hand_manip(&p.axis, Quantity("0 mm".into()), "rotate", vec![], e, ctx),
+            "rotate",
+        ),
+        Primitive::InHandTranslate(p) => (
+            lower_in_hand_manip(
+                &p.direction,
+                p.distance.clone(),
+                "translate",
+                vec![],
+                e,
+                ctx,
+            ),
+            "translate",
+        ),
+        Primitive::InHandRoll(p) => (
+            lower_in_hand_manip(
+                &p.roll_axis,
+                Quantity("0 mm".into()),
+                "roll",
+                vec![],
+                e,
+                ctx,
+            ),
+            "roll",
+        ),
+        Primitive::InHandSlide(p) => (
+            lower_in_hand_manip(
+                &p.slide_direction,
+                Quantity("0 mm".into()),
+                "slide",
+                vec![Monitor {
+                    stop_condition: yaml_to_json(&p.stop_condition),
+                }],
+                e,
+                ctx,
+            ),
+            "slide",
+        ),
         Primitive::TransportHandoff(p) => (lower_transport_handoff(p, e, ctx), "handoff"),
         Primitive::TransportMoveToPose(p) => (lower_transport_move_to_pose(p, e, ctx), "transport"),
         Primitive::TransportCarry(p) => (lower_transport_carry(p, e, ctx), "carry"),
@@ -1178,6 +1221,53 @@ fn lower_in_hand_pivot(p: &InHandPivot, e: &Embodiment, ctx: &GraspContext) -> C
         },
         tactile_target: None,
         monitors: vec![],
+        safety_envelope: env,
+        grasp_stability: None,
+    }
+}
+
+/// Lower a plain continuity-preserving in-hand manipulation (`in_hand.rotate` / `translate` /
+/// `roll` / `slide`, `spec/01` § 3.1 / 3.2 / 3.4 / 3.6): reposition the held object within the
+/// grasp while preserving grasp identity and stability class. Emits only the GC1 continuity floor
+/// (`min_holding_force` from the read-only `ctx.held`) and a `manipulation: <kind>` marker; no
+/// `grasp_stability` (the grasp is unchanged, so GC2's hold test is vacuous). The DOF-admissibility
+/// of `axis` against the active grasp's `secured_dof` is a class-1 validate check (not here).
+fn lower_in_hand_manip(
+    axis: &crate::skill_isa::Direction,
+    distance: Quantity,
+    kind: &'static str,
+    monitors: Vec<Monitor>,
+    e: &Embodiment,
+    ctx: &GraspContext,
+) -> CanonicalAction {
+    let mut profile = serde_json::Map::new();
+    if let Some(held) = &ctx.held {
+        let mhf = grasp_force::min_holding_force(held.weight_n, held.mode);
+        profile.insert(
+            "min_holding_force".to_string(),
+            serde_json::Value::String(Quantity::from_si(mhf, "N").0),
+        );
+    }
+    profile.insert(
+        "manipulation".to_string(),
+        serde_json::Value::String(kind.to_string()),
+    );
+    let mut env = base_envelope(e);
+    env.force_profile = Some(serde_json::Value::Object(profile));
+    CanonicalAction {
+        target_frame: e.grasp_frame().to_string(),
+        target_pose: PoseExpr::AxisRelative {
+            direction: yaml_to_json(axis),
+            distance,
+        },
+        force_budget: None,
+        timing: TimingHints {
+            nominal_duration: None,
+            timing_mode: TimingMode::Strict,
+            stop_at_goal: true,
+        },
+        tactile_target: None,
+        monitors,
         safety_envelope: env,
         grasp_stability: None,
     }

@@ -190,6 +190,18 @@ pub enum Primitive {
     /// `in_hand.pivot`.
     #[serde(rename = "in_hand.pivot")]
     InHandPivot(InHandPivot),
+    /// `in_hand.rotate`.
+    #[serde(rename = "in_hand.rotate")]
+    InHandRotate(InHandRotate),
+    /// `in_hand.translate`.
+    #[serde(rename = "in_hand.translate")]
+    InHandTranslate(InHandTranslate),
+    /// `in_hand.roll`.
+    #[serde(rename = "in_hand.roll")]
+    InHandRoll(InHandRoll),
+    /// `in_hand.slide`.
+    #[serde(rename = "in_hand.slide")]
+    InHandSlide(InHandSlide),
     /// `transport.handoff`.
     #[serde(rename = "transport.handoff")]
     TransportHandoff(TransportHandoff),
@@ -514,6 +526,62 @@ pub struct InHandPivot {
     /// Target swing angle about `pivot_axis` (carried symbolic in v0).
     pub angle: Quantity,
     /// The established grasp providing the pivot contact (default active).
+    #[serde(default)]
+    pub grasp_handle: Option<GraspHandle>,
+}
+
+/// `in_hand.rotate` parameters (v0 subset of `$defs/InHandRotateParams`, § 3.1). Reorient a held
+/// object about `axis` without releasing it, preserving grasp identity. `axis` + `angle` required;
+/// `angle` is carried symbolic in v0. The rotation-admissibility check (reject a `form_held` /
+/// `rotation_constrained` axis) is a class-1 validate check (wave 8), not lowered here.
+#[derive(Debug, Clone, serde::Deserialize)]
+pub struct InHandRotate {
+    /// Rotation axis, in the grasp frame.
+    pub axis: Direction,
+    /// Signed rotation magnitude (carried symbolic in v0).
+    pub angle: Quantity,
+    /// The established grasp to manipulate within (default active).
+    #[serde(default)]
+    pub grasp_handle: Option<GraspHandle>,
+}
+
+/// `in_hand.translate` parameters (v0 subset of `$defs/InHandTranslateParams`, § 3.2). Shift a held
+/// object within the grasp envelope along `direction` by `distance`, preserving grasp identity.
+#[derive(Debug, Clone, serde::Deserialize)]
+pub struct InHandTranslate {
+    /// Translation direction, in the grasp frame.
+    pub direction: Direction,
+    /// Translation magnitude.
+    pub distance: Quantity,
+    /// The established grasp to manipulate within (default active).
+    #[serde(default)]
+    pub grasp_handle: Option<GraspHandle>,
+}
+
+/// `in_hand.roll` parameters (v0 subset of `$defs/InHandRollParams`, § 3.4). Continuously roll a
+/// held object about `roll_axis` through rolling contact, preserving grasp identity. `angle` may
+/// exceed 2π (continuous roll); carried symbolic in v0.
+#[derive(Debug, Clone, serde::Deserialize)]
+pub struct InHandRoll {
+    /// Rolling axis, in the grasp frame (the object's rolling axis).
+    pub roll_axis: Direction,
+    /// Signed roll magnitude (carried symbolic in v0).
+    pub angle: Quantity,
+    /// The established grasp to roll within (default active).
+    #[serde(default)]
+    pub grasp_handle: Option<GraspHandle>,
+}
+
+/// `in_hand.slide` parameters (v0 subset of `$defs/InHandSlideParams`, § 3.6). Slide a held object
+/// along one contact surface (controlled slip along `slide_direction`), then re-secure at
+/// `stop_condition`. The stop condition lowers into a Monitor; grasp identity is preserved.
+#[derive(Debug, Clone, serde::Deserialize)]
+pub struct InHandSlide {
+    /// Direction of slip along the contact surface, in the grasp frame.
+    pub slide_direction: Direction,
+    /// `SlideStop` — what ends the slide; lowered into a Monitor.
+    pub stop_condition: serde_yaml::Value,
+    /// The established grasp to slide within (default active).
     #[serde(default)]
     pub grasp_handle: Option<GraspHandle>,
 }
