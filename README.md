@@ -124,4 +124,4 @@ This entry covers the [specification extract](whitepaper/RFL_SPEC_v0.1_en.pdf). 
 
 ## Contributing
 
-See [CONTRIBUTING.md](CONTRIBUTING.md) for development setup, coding conventions, and PR guidelines. All contributors agree to the [Code of Conduct](CODE_OF_CONDUCT.md).
+See [CONTRIBUTING.md](CONTRIBUTING.md) for development setup, coding conventions, and PR guidelines. All contributors agree to the [Code of Conduct](CODE_OF_CONDUCT.md). The stewardship model (Maintainer / TSC, the C1 rebalancing and C4 transparency mechanics, the trademark gate) is in [GOVERNANCE.md](GOVERNANCE.md); registering an extension is in [docs/registering-an-extension.md](docs/registering-an-extension.md); release history is in [CHANGELOG.md](CHANGELOG.md).
