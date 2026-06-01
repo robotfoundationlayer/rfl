@@ -181,30 +181,36 @@ fn last_scalar(
         .and_then(|q| q.parse().map(|(v, _)| v))
 }
 
-/// The terminal-value extractor for a committed ε-table quantity *name*, or `None`
-/// for a domain quantity that is not a first-class field of the driver-report wire
-/// (`seating_depth`, `completion_torque`, `turns`, …) — those are category C:
-/// not measurable from today's wire, reported `null` + `not_wire_derivable`.
-fn wire_extractor(quantity: &str) -> Option<fn(&DriverReport) -> Option<Repr>> {
+/// The last telemetry value of a `measured_quantities` entry, parsed to its magnitude.
+fn last_measured(r: &DriverReport, name: &str) -> Option<f64> {
+    r.telemetry
+        .iter()
+        .rev()
+        .find_map(|t| t.measured_quantities.get(name))
+        .and_then(|q| q.parse().map(|(v, _)| v))
+}
+
+/// The terminal representative value for a committed ε-table quantity *name*, or
+/// `None` when no sample reports it. The four kinematic / wrench quantities read
+/// their dedicated wire channel; every other (a category-C domain scalar such as
+/// `seating_depth` / `completion_torque` / `turns`) is read from the
+/// `measured_quantities` map the driver opts into reporting. So every committed
+/// quantity is reportable — an absent one is `not_reported`, not underivable.
+fn extract_quantity(quantity: &str, r: &DriverReport) -> Option<Repr> {
     match quantity {
-        "realized_position" => {
-            Some(|r| r.status.final_pose.as_ref().map(|p| Repr::Vec3(p.position)))
-        }
+        "realized_position" => r.status.final_pose.as_ref().map(|p| Repr::Vec3(p.position)),
         // `final_orientation` (in_hand.pivot) and `realized_orientation` (the split
         // force-pose) both read the terminal orientation.
-        "realized_orientation" | "final_orientation" => Some(|r| {
-            r.status
-                .final_pose
-                .as_ref()
-                .map(|p| Repr::Quat(p.orientation))
-        }),
+        "realized_orientation" | "final_orientation" => r
+            .status
+            .final_pose
+            .as_ref()
+            .map(|p| Repr::Quat(p.orientation)),
         // `realized_wrench` is the contact-force magnitude (unit N) — the last
         // telemetry wrench's force vector under the l2_norm metric.
-        "realized_wrench" => Some(|r| last_wrench(r).map(|w| Repr::Vec3(w.force))),
-        "securing_force" => {
-            Some(|r| last_scalar(r, |t| t.securing_force.as_ref()).map(Repr::Scalar))
-        }
-        _ => None,
+        "realized_wrench" => last_wrench(r).map(|w| Repr::Vec3(w.force)),
+        "securing_force" => last_scalar(r, |t| t.securing_force.as_ref()).map(Repr::Scalar),
+        other => last_measured(r, other).map(Repr::Scalar),
     }
 }
 
@@ -248,15 +254,13 @@ fn committed_table() -> CommittedTable {
 pub struct ProvisionalEntry {
     /// The deviation metric (from the committed table).
     pub metric: Metric,
-    /// The candidate ε (percentile × safety); `None` when not gradeable — either
-    /// the quantity is not wire-derivable or no run-to-run sample was observed.
-    /// Never a fabricated 0.
+    /// The candidate ε (percentile × safety); `None` when no run-to-run sample was
+    /// observed (not yet gradeable). Never a fabricated 0.
     pub tolerance: Option<f64>,
     /// The unit (from the committed table), if any.
     pub unit: Option<String>,
-    /// Why `tolerance` is `null`, when it is: `not_wire_derivable` (a category-C
-    /// domain quantity absent from the wire) or `not_reported` (wire-derivable but
-    /// no run reported it). `None` when a candidate was measured.
+    /// Why `tolerance` is `null`, when it is: `not_reported` (no run reported the
+    /// quantity). `None` when a candidate was measured.
     pub reason: Option<&'static str>,
     /// The number of runs supplied.
     pub n_runs: usize,
@@ -283,11 +287,12 @@ pub struct ProvisionalTable {
 /// `action_primitives` maps each `action_id` to its primitive name; `runs` are the
 /// per-run `replay_report` outputs with `runs[0]` the reference. For each action
 /// whose primitive the committed table covers (the contact-dynamics set), every
-/// committed quantity is emitted: a wire-derivable one reported by the reference
-/// yields run-to-run deviation samples (pooled across actions sharing the
-/// primitive) → an `epsilon_candidate`; a wire-derivable one no run reports →
-/// `null` + `not_reported`; a category-C domain quantity → `null` +
-/// `not_wire_derivable`. Primitives outside the committed table get no ε row.
+/// committed quantity is emitted: a quantity the reference reports yields
+/// run-to-run deviation samples (pooled across actions sharing the primitive) →
+/// an `epsilon_candidate`; a quantity no run reports → `null` + `not_reported`.
+/// Every committed quantity is wire-reportable (kinematic / wrench via their
+/// dedicated channels, domain scalars via `measured_quantities`), so there is no
+/// `not_wire_derivable` outcome. Primitives outside the committed table get no ε row.
 #[must_use]
 pub fn aggregate_epsilon(
     action_primitives: &BTreeMap<String, String>,
@@ -298,7 +303,6 @@ pub fn aggregate_epsilon(
     struct Bucket {
         metric: Metric,
         unit: Option<String>,
-        wire_derivable: bool,
         samples: Vec<f64>,
     }
     let committed = committed_table();
@@ -321,23 +325,19 @@ pub fn aggregate_epsilon(
             continue;
         };
         for (quantity, (metric, unit)) in quantities {
-            let extractor = wire_extractor(quantity);
             let bucket = buckets
                 .entry((primitive.clone(), quantity.clone()))
                 .or_insert(Bucket {
                     metric: *metric,
                     unit: unit.clone(),
-                    wire_derivable: extractor.is_some(),
                     samples: Vec::new(),
                 });
-            if let Some(extract) = extractor {
-                if let Some(ref_val) = extract(ref_report) {
-                    for run in &runs[1..] {
-                        if let Some(run_report) = run.get(action_id) {
-                            if let Some(run_val) = extract(run_report) {
-                                if let Some(d) = deviation(*metric, &ref_val, &run_val) {
-                                    bucket.samples.push(d);
-                                }
+            if let Some(ref_val) = extract_quantity(quantity, ref_report) {
+                for run in &runs[1..] {
+                    if let Some(run_report) = run.get(action_id) {
+                        if let Some(run_val) = extract_quantity(quantity, run_report) {
+                            if let Some(d) = deviation(*metric, &ref_val, &run_val) {
+                                bucket.samples.push(d);
                             }
                         }
                     }
@@ -349,9 +349,7 @@ pub fn aggregate_epsilon(
     let mut tolerances: BTreeMap<String, BTreeMap<String, ProvisionalEntry>> = BTreeMap::new();
     for ((primitive, quantity), bucket) in buckets {
         let tolerance = epsilon_candidate(&bucket.samples, percentile, safety);
-        let reason = if !bucket.wire_derivable {
-            Some("not_wire_derivable")
-        } else if bucket.samples.is_empty() {
+        let reason = if bucket.samples.is_empty() {
             Some("not_reported")
         } else {
             None
@@ -587,6 +585,15 @@ mod tests {
         }
     }
 
+    fn telemetry_measured(name: &str, quantity: &str) -> Telemetry {
+        let mut mq = BTreeMap::new();
+        mq.insert(name.to_string(), Quantity(quantity.to_string()));
+        Telemetry {
+            measured_quantities: mq,
+            ..blank_telemetry()
+        }
+    }
+
     fn report(telemetry: Vec<Telemetry>, status: Status) -> DriverReport {
         DriverReport { telemetry, status }
     }
@@ -666,21 +673,46 @@ mod tests {
         assert!((f["realized_position"].tolerance.unwrap() - 0.2).abs() < 1e-12);
         assert_eq!(f["realized_orientation"].tolerance, Some(0.0)); // steady orientation
         assert!((f["realized_wrench"].tolerance.unwrap() - 1.0).abs() < 1e-12);
-        // seating_depth is not a wire field -> null + reason, never a fabricated value.
+        // seating_depth was not reported (no measured_quantities) -> null + not_reported,
+        // never a fabricated value.
         assert_eq!(f["seating_depth"].tolerance, None);
-        assert_eq!(f["seating_depth"].reason, Some("not_wire_derivable"));
+        assert_eq!(f["seating_depth"].reason, Some("not_reported"));
     }
 
     #[test]
-    fn screw_domain_quantities_are_not_wire_derivable() {
+    fn domain_quantities_fill_from_measured_quantities() {
+        // The driver reports seating_depth via measured_quantities in the committed
+        // unit (m); it deviates 0.002 m run to run.
+        let r0 = report(
+            vec![telemetry_measured("seating_depth", "0.010 m")],
+            status_with_pose([0.0; 3], IDENTITY),
+        );
+        let r1 = report(
+            vec![telemetry_measured("seating_depth", "0.012 m")],
+            status_with_pose([0.0; 3], IDENTITY),
+        );
+        let runs = vec![run("c/e/0001-insert", r0), run("c/e/0001-insert", r1)];
+        let table = aggregate_epsilon(
+            &prim_map("c/e/0001-insert", "force.insert_fit"),
+            &runs,
+            0.95,
+            1.0,
+        );
+        let seating = &table.tolerances["force.insert_fit"]["seating_depth"];
+        assert!((seating.tolerance.unwrap() - 0.002).abs() < 1e-9);
+        assert!(seating.reason.is_none());
+    }
+
+    #[test]
+    fn domain_quantities_are_not_reported_when_absent() {
         let r = || report(vec![], status_with_pose([0.0; 3], IDENTITY));
         let runs = vec![run("s/e/0001-screw", r()), run("s/e/0001-screw", r())];
         let table = aggregate_epsilon(&prim_map("s/e/0001-screw", "force.screw"), &runs, 0.95, 1.0);
         let screw = &table.tolerances["force.screw"];
-        // completion_torque and turns are not on the generic wire.
+        // completion_torque / turns are reportable via measured_quantities; absent here.
         for q in ["completion_torque", "turns"] {
             assert_eq!(screw[q].tolerance, None);
-            assert_eq!(screw[q].reason, Some("not_wire_derivable"));
+            assert_eq!(screw[q].reason, Some("not_reported"));
         }
     }
 
@@ -718,9 +750,9 @@ mod tests {
         assert!(yaml.contains("force.insert_fit"));
         assert!(yaml.contains("realized_position"));
         assert!(yaml.contains("tolerance: 0.6")); // 0.5 * 1.2
-        // The category-C quantity renders null with its reason.
+        // seating_depth was not reported -> null with its reason.
         assert!(yaml.contains("tolerance: null"));
-        assert!(yaml.contains("reason: not_wire_derivable"));
+        assert!(yaml.contains("reason: not_reported"));
     }
 
     #[test]

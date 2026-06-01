@@ -239,11 +239,13 @@ of one skill+embodiment. The tool retargets the skill to recover the `action_id
 the result aligns key-for-key with the normative table — fills each contact-dynamics
 primitive's quantities from the run-to-run deviation versus the first (reference)
 run (candidate ε = percentile × safety factor; samples pool across actions sharing
-a primitive). Wire-derivable quantities (`realized_position` / `realized_orientation`
-/ `realized_wrench` / `final_orientation` / `securing_force`) get a measured
-candidate; domain quantities that are not first-class wire fields (`seating_depth`,
-`completion_torque`, `turns`, …) come back `tolerance: null` with
-`reason: not_wire_derivable`.
+a primitive). The kinematic / wrench quantities (`realized_position` /
+`realized_orientation` / `realized_wrench` / `final_orientation` /
+`securing_force`) read their dedicated wire channels; the primitive-specific
+domain scalars (`seating_depth`, `completion_torque`, `turns`, …) read the
+driver's opt-in `measured_quantities` telemetry map, reported in the committed
+unit. Any quantity no run reports comes back `tolerance: null` with
+`reason: not_reported`.
 
 ```bash
 rfl measure --skill examples/01-cable-insertion/skill.yaml \
