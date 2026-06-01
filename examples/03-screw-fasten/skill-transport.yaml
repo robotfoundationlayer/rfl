@@ -1,0 +1,39 @@
+# Example 03 — Transport (lift / follow_trajectory / lower)
+# The three plain held transports beyond move_to_pose: a vertical lift (load-transfer onto the
+# grasp), a caller-owned trajectory track, and a controlled vertical lower onto a surface. Each
+# keeps the object held (grasp-continuity, ENV1) and carries the GC1 securing floor + the GF2c
+# dynamic-stability a_max clamp. The grasp persists across all three (release is a separate step).
+skill: object-transport
+description: >
+  Grasp a part, lift it, carry it along a taught trajectory, lower it onto a surface, then release.
+  Demonstrates the held-transport continuity floor and dynamic-stability clamp across lift / track /
+  lower.
+
+objects:
+  part: { ref: part, estimated_mass: 1.45 N }
+
+body:
+  sequence:
+
+    - let: part_t
+      from:
+        sense.locate:
+          target_ref: part
+          modality: auto
+
+    - grasp.pinch:
+        target: part_t
+        force_budget: 8 N
+        tactile_target: auto
+
+    - transport.lift:
+        height: 120 mm
+
+    - transport.follow_trajectory:
+        trajectory: { waypoints: [{ frame: staging, offset: { along: +x, distance: 200 mm } }] }
+
+    - transport.lower:
+        stop_mode: touchdown
+
+    - grasp.release:
+        grasp_handle: active
