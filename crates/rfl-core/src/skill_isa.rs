@@ -121,6 +121,9 @@ pub enum Primitive {
     /// `grasp.lateral`.
     #[serde(rename = "grasp.lateral")]
     GraspLateral(GraspLateral),
+    /// `grasp.precision_tripod`.
+    #[serde(rename = "grasp.precision_tripod")]
+    GraspPrecisionTripod(GraspPrecisionTripod),
     /// `grasp.hook`.
     #[serde(rename = "grasp.hook")]
     GraspHook(GraspHook),
@@ -202,6 +205,7 @@ impl Primitive {
             Primitive::GraspPinch(_) => Some(GraspMode::Pinch),
             Primitive::GraspPower(_) => Some(GraspMode::Power),
             Primitive::GraspLateral(_) => Some(GraspMode::Lateral),
+            Primitive::GraspPrecisionTripod(_) => Some(GraspMode::PrecisionTripod),
             Primitive::GraspHook(_) => Some(GraspMode::Hook),
             Primitive::GraspEnvelope(p) => Some(p.grasp_mode()),
             Primitive::GraspPin(_) => Some(GraspMode::Pin),
@@ -340,6 +344,24 @@ pub struct GraspLateral {
     /// The object target to clamp (a let-reference in the reference skill).
     pub target: Ref,
     /// Max clamp force.
+    pub force_budget: Quantity,
+    /// Contact-confirmation criterion (default auto).
+    #[serde(default = "tactile_auto")]
+    pub tactile_target: TactileTargetArg,
+    /// Reaction to detected slip.
+    #[serde(default)]
+    pub slip_response: Option<SlipResponse>,
+}
+
+/// `grasp.precision_tripod` parameters (v0 subset of `$defs/GraspPrecisionTripodParams`, § 2.4).
+/// Three-point force closure resisting rotation about the grasp axis (`rotation_constrained`).
+/// Lowers like `grasp.pinch` over `payload_grasp_tripod`. The triangle non-degeneracy (STB1) is
+/// blocked (ε-table + un-reported contact geometry); v0 ships the `rotation_constrained` flag only.
+#[derive(Debug, Clone, serde::Deserialize)]
+pub struct GraspPrecisionTripod {
+    /// The small object target to grasp (a let-reference in the reference skill).
+    pub target: Ref,
+    /// Max grip force.
     pub force_budget: Quantity,
     /// Contact-confirmation criterion (default auto).
     #[serde(default = "tactile_auto")]

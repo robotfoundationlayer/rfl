@@ -131,6 +131,7 @@ fn check_capability(prim: &Primitive, e: &Embodiment) -> crate::Result<()> {
         Primitive::GraspPinch(_) => "grasp.pinch",
         Primitive::GraspPower(_) => "grasp.power",
         Primitive::GraspLateral(_) => "grasp.lateral",
+        Primitive::GraspPrecisionTripod(_) => "grasp.precision_tripod",
         Primitive::GraspHook(_) => "grasp.hook",
         Primitive::GraspEnvelope(_) => "grasp.envelope",
         Primitive::GraspPin(_) => "grasp.pin",
@@ -190,6 +191,9 @@ fn lower(
         Primitive::GraspPinch(p) => (lower_grasp_pinch(p, e, ctx, weights), "pinch"),
         Primitive::GraspPower(p) => (lower_grasp_power(p, e, ctx, weights), "power"),
         Primitive::GraspLateral(p) => (lower_grasp_lateral(p, e, ctx, weights), "lateral"),
+        Primitive::GraspPrecisionTripod(p) => {
+            (lower_grasp_precision_tripod(p, e, ctx, weights), "tripod")
+        }
         Primitive::GraspHook(p) => (lower_grasp_hook(p, e), "hook"),
         Primitive::GraspEnvelope(p) => {
             let suffix = if p.is_cage() { "cage" } else { "conform" };
@@ -404,6 +408,27 @@ fn lower_grasp_lateral(
 ) -> CanonicalAction {
     force_closure_grasp_action(
         GraspMode::Lateral,
+        &p.target,
+        &p.force_budget,
+        &p.tactile_target,
+        e,
+        ctx,
+        weights,
+    )
+}
+
+/// Lower `grasp.precision_tripod` (`spec/01` § 2.4): a three-point force closure resisting axis
+/// rotation. Same force-closure lowering as pinch; the `rotation_constrained` flag rides the
+/// mode's stability class (`StabilityMetadata::for_mode(PrecisionTripod)`). The triangle
+/// non-degeneracy check (STB1) is blocked on the ε-table + un-reported contact geometry.
+fn lower_grasp_precision_tripod(
+    p: &crate::skill_isa::GraspPrecisionTripod,
+    e: &Embodiment,
+    ctx: &mut GraspContext,
+    weights: &BTreeMap<String, Quantity>,
+) -> CanonicalAction {
+    force_closure_grasp_action(
+        GraspMode::PrecisionTripod,
         &p.target,
         &p.force_budget,
         &p.tactile_target,
