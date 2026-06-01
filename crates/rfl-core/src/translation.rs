@@ -176,6 +176,9 @@ fn check_capability(prim: &Primitive, e: &Embodiment) -> crate::Result<()> {
         Primitive::TransportLower(_) => "transport.lower",
         Primitive::TransportFollowTrajectory(_) => "transport.follow_trajectory",
         Primitive::ForceInsertFit(_) => "force.insert_fit",
+        Primitive::ForcePush(_) => "force.push",
+        Primitive::ForcePull(_) => "force.pull",
+        Primitive::ForceScrub(_) => "force.scrub",
         Primitive::ForceScrew(_) => "force.screw",
         Primitive::ForceUnscrew(_) => "force.unscrew",
         Primitive::ForcePressButton(_) => "force.press_button",
@@ -301,6 +304,9 @@ fn lower(
         Primitive::ReachToPose(p) => (lower_reach_to_pose(p, e), "to_pose"),
         Primitive::ReachApproach(p) => (lower_reach_approach(p, e), "approach"),
         Primitive::ForceInsertFit(p) => (lower_force_insert_fit(p, e, ctx), "insert_fit"),
+        Primitive::ForcePush(p) => (lower_force_push(p, e), "push"),
+        Primitive::ForcePull(p) => (lower_force_pull(p, e), "pull"),
+        Primitive::ForceScrub(p) => (lower_force_scrub(p, e), "scrub"),
         Primitive::ForceScrew(p) => (lower_force_screw(p, e, ctx), "screw"),
         Primitive::ForceUnscrew(p) => (lower_force_unscrew(p, e, ctx), "unscrew"),
         Primitive::ForcePressButton(p) => (lower_force_press_button(p, e), "press_button"),
@@ -1149,6 +1155,115 @@ fn lower_reach_approach(p: &crate::skill_isa::ReachApproach, e: &Embodiment) -> 
         tactile_target: None,
         monitors: vec![],
         safety_envelope: base_envelope(e),
+        grasp_stability: None,
+    }
+}
+
+/// Map a parsed `Compliance` to its wire string for `Envelope.compliance`.
+fn compliance_str(c: Option<Compliance>) -> Option<String> {
+    c.map(|c| {
+        match c {
+            Compliance::Passive => "passive",
+            Compliance::Active => "active",
+            Compliance::Auto => "auto",
+        }
+        .to_string()
+    })
+}
+
+/// Lower `force.push` (`spec/01` § 6.2): apply a controlled directional force against a surface to
+/// hold / brace / press without displacing it (the static-force counterpart). ForceTrajectory:
+/// emits `target_force` as the force bound and the push direction; `hold_duration: until` defers to
+/// an enclosing reactive (no monitor in v0).
+fn lower_force_push(p: &crate::skill_isa::ForcePush, e: &Embodiment) -> CanonicalAction {
+    let mut env = base_envelope(e);
+    env.compliance = compliance_str(p.compliance);
+    env.force_profile = Some(serde_json::json!({
+        "push_against": p.target,
+        "hold": true,
+    }));
+    CanonicalAction {
+        target_frame: e.grasp_frame().to_string(),
+        target_pose: PoseExpr::AxisRelative {
+            direction: p.push_direction.as_ref().map_or(
+                serde_json::Value::String("-surface_normal".to_string()),
+                yaml_to_json,
+            ),
+            distance: Quantity("0 mm".to_string()),
+        },
+        force_budget: Some(p.target_force.clone()),
+        timing: TimingHints {
+            nominal_duration: None,
+            timing_mode: TimingMode::Strict,
+            stop_at_goal: true,
+        },
+        tactile_target: None,
+        monitors: vec![],
+        safety_envelope: env,
+        grasp_stability: None,
+    }
+}
+
+/// Lower `force.pull` (`spec/01` § 6.3): apply tensile force to draw a held target toward the
+/// effector within a force budget, handling breakaway. ForceTrajectory: emits `force_budget` as the
+/// bound, the `stop_condition` as a Monitor, and the breakaway response. The grasp persists (`ctx`
+/// unchanged) — pulling requires a grip.
+fn lower_force_pull(p: &crate::skill_isa::ForcePull, e: &Embodiment) -> CanonicalAction {
+    let mut env = base_envelope(e);
+    env.compliance = compliance_str(p.compliance);
+    env.force_profile = Some(serde_json::json!({
+        "breakaway_response": p.breakaway_response.clone().unwrap_or_else(|| "arrest".to_string()),
+    }));
+    CanonicalAction {
+        target_frame: e.grasp_frame().to_string(),
+        target_pose: PoseExpr::AxisRelative {
+            direction: yaml_to_json(&p.pull_direction),
+            distance: Quantity("0 mm".to_string()),
+        },
+        force_budget: Some(p.force_budget.clone()),
+        timing: TimingHints {
+            nominal_duration: None,
+            timing_mode: TimingMode::TimeScalable,
+            stop_at_goal: true,
+        },
+        tactile_target: None,
+        monitors: vec![Monitor {
+            stop_condition: yaml_to_json(&p.stop_condition),
+        }],
+        safety_envelope: env,
+        grasp_stability: None,
+    }
+}
+
+/// Lower `force.scrub` (`spec/01` § 6.9): oscillating tangential motion over a surface while
+/// regulating normal force. ForceTrajectory: emits the `normal_force` band setpoint + the
+/// oscillation amplitude marker, with `completion` as a Monitor. The tangential trajectory tracking
+/// is deferred (like `force.wipe`'s `wipe_path`).
+fn lower_force_scrub(p: &crate::skill_isa::ForceScrub, e: &Embodiment) -> CanonicalAction {
+    let mut env = base_envelope(e);
+    env.compliance = compliance_str(p.compliance);
+    env.force_profile = Some(serde_json::json!({
+        "normal_force": p.normal_force.0.clone(),
+        "amplitude": p.amplitude.0.clone(),
+        "oscillating": true,
+    }));
+    CanonicalAction {
+        target_frame: e.grasp_frame().to_string(),
+        target_pose: PoseExpr::FrameRelative {
+            frame: p.surface.clone(),
+            offset: serde_json::json!({ "tangential": "oscillation" }),
+        },
+        force_budget: None,
+        timing: TimingHints {
+            nominal_duration: None,
+            timing_mode: TimingMode::TimeScalable,
+            stop_at_goal: true,
+        },
+        tactile_target: None,
+        monitors: vec![Monitor {
+            stop_condition: yaml_to_json(&p.completion),
+        }],
+        safety_envelope: env,
         grasp_stability: None,
     }
 }

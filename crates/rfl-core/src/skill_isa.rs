@@ -172,6 +172,15 @@ pub enum Primitive {
     /// `force.insert_fit`.
     #[serde(rename = "force.insert_fit")]
     ForceInsertFit(ForceInsertFit),
+    /// `force.push`.
+    #[serde(rename = "force.push")]
+    ForcePush(ForcePush),
+    /// `force.pull`.
+    #[serde(rename = "force.pull")]
+    ForcePull(ForcePull),
+    /// `force.scrub`.
+    #[serde(rename = "force.scrub")]
+    ForceScrub(ForceScrub),
     /// `grasp.release`.
     #[serde(rename = "grasp.release")]
     GraspRelease(GraspRelease),
@@ -1086,6 +1095,65 @@ pub struct ForceScrew {
     /// The grasp on the fastener or the driving tool.
     #[serde(default)]
     pub grasp_handle: Option<GraspHandle>,
+}
+
+/// `force.push` parameters (v0 subset of `$defs/ForcePushParams`, § 6.2). Apply a controlled
+/// directional force against a surface to hold / brace / press, without displacing it. The
+/// static-force counterpart: v0 emits the `target_force` as the force-trajectory bound + the push
+/// direction. `max_displacement` / `hold_duration` carry symbolic.
+#[derive(Debug, Clone, serde::Deserialize)]
+pub struct ForcePush {
+    /// The surface to push against (v0: a frame ref).
+    pub target: FrameRef,
+    /// The contact force to establish and hold (the force-trajectory bound).
+    pub target_force: Quantity,
+    /// Direction to apply force (default −target.normal, into the surface); carried symbolic.
+    #[serde(default)]
+    pub push_direction: Option<Direction>,
+    /// Required compliance mode.
+    #[serde(default)]
+    pub compliance: Option<Compliance>,
+}
+
+/// `force.pull` parameters (v0 subset of `$defs/ForcePullParams`, § 6.3). Apply tensile force to
+/// draw a held target toward the effector within a force budget, handling the breakaway moment.
+/// Requires a grip / hook (a held object). The `stop_condition` lowers into a Monitor.
+#[derive(Debug, Clone, serde::Deserialize)]
+pub struct ForcePull {
+    /// Direction of tensile force, in the grasp frame.
+    pub pull_direction: Direction,
+    /// Max tensile force to apply (the force-trajectory bound).
+    pub force_budget: Quantity,
+    /// `PullStop` — distance / breakaway / tension; lowered into a Monitor.
+    pub stop_condition: serde_yaml::Value,
+    /// On a sudden resistance drop: `arrest` (default) or `continue`; carried as a marker.
+    #[serde(default)]
+    pub breakaway_response: Option<String>,
+    /// Required compliance mode.
+    #[serde(default)]
+    pub compliance: Option<Compliance>,
+    /// The grasp on the target being pulled (default active).
+    #[serde(default)]
+    pub grasp_handle: Option<GraspHandle>,
+}
+
+/// `force.scrub` parameters (v0 subset of `$defs/ForceScrubParams`, § 6.9). Oscillating tangential
+/// motion over a surface while regulating normal contact force (scrub / polish / sand). v0 emits
+/// the `normal_force` band (the force-trajectory leg) + the oscillation amplitude marker; the
+/// `completion` lowers into a Monitor. The tangential trajectory tracking is deferred.
+#[derive(Debug, Clone, serde::Deserialize)]
+pub struct ForceScrub {
+    /// The surface to scrub (v0: a frame ref).
+    pub surface: FrameRef,
+    /// Regulated contact force normal to the surface (the band setpoint).
+    pub normal_force: Quantity,
+    /// Tangential oscillation amplitude (carried as a marker).
+    pub amplitude: Quantity,
+    /// `ScrubStop` — duration / passes / state_change; lowered into a Monitor.
+    pub completion: serde_yaml::Value,
+    /// Required compliance mode.
+    #[serde(default)]
+    pub compliance: Option<Compliance>,
 }
 
 /// `force.press_button` parameters (v0 subset of `$defs/ForcePressButtonParams`, § 6.6).
