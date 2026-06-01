@@ -51,7 +51,11 @@ fn lateral_rejected_on_pneumatic_without_capability() {
 #[test]
 fn lateral_generation_is_byte_identical() {
     for stem in ["allegro", "leap"] {
-        assert_eq!(jsonl_for(stem), jsonl_for(stem), "non-deterministic for {stem}");
+        assert_eq!(
+            jsonl_for(stem),
+            jsonl_for(stem),
+            "non-deterministic for {stem}"
+        );
     }
 }
 

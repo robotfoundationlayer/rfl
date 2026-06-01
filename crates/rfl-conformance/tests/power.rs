@@ -40,7 +40,11 @@ fn golden_power_pneumatic() {
 #[test]
 fn power_generation_is_byte_identical() {
     for stem in ["allegro", "leap", "pneumatic-6f"] {
-        assert_eq!(jsonl_for(stem), jsonl_for(stem), "non-deterministic for {stem}");
+        assert_eq!(
+            jsonl_for(stem),
+            jsonl_for(stem),
+            "non-deterministic for {stem}"
+        );
     }
 }
 
