@@ -17,6 +17,8 @@
 
 use std::path::Path;
 
+pub mod replay;
+
 /// Retarget the example skill onto the named embodiment descriptor and return the
 /// JSONL stream (`execute` messages, one per line). The cable-insertion reference
 /// lives under `examples/`.
@@ -848,7 +850,7 @@ pub fn envelope_class_for(suffix: &str) -> Option<EnvelopeClass> {
 }
 
 /// The primitive suffix of an action id (`.../NNNN-<suffix>`; suffixes contain no `-`).
-fn suffix_of(action_id: &str) -> &str {
+pub(crate) fn suffix_of(action_id: &str) -> &str {
     action_id.rsplit('-').next().unwrap_or(action_id)
 }
 
