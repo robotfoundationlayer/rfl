@@ -1,0 +1,41 @@
+# cargo-deny configuration: dependency license + security-advisory hygiene for
+# the Apache-2.0 publish path. Run `cargo deny check`.
+
+[advisories]
+version = 2
+# Deny known-vulnerable / yanked dependencies.
+yanked = "deny"
+ignore = [
+    # `paste` is unmaintained (transitive via nalgebra -> simba -> paste); the
+    # advisory notes "no safe upgrade is available" and it is an unmaintained
+    # warning, not a vulnerability. Revisit when nalgebra drops the dependency.
+    "RUSTSEC-2024-0436",
+]
+
+[licenses]
+version = 2
+# Permissive licenses compatible with Apache-2.0 redistribution. A dependency
+# whose license is not listed fails the check (no accidental copyleft).
+allow = [
+    "MIT",
+    "MIT-0",
+    "Apache-2.0",
+    "Apache-2.0 WITH LLVM-exception",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "ISC",
+    "Unicode-3.0",
+    "Unicode-DFS-2016",
+    "Zlib",
+    "CC0-1.0",
+    "MPL-2.0",
+]
+confidence-threshold = 0.8
+
+[bans]
+multiple-versions = "warn"
+wildcards = "warn"
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"

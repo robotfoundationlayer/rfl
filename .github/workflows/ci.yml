@@ -67,3 +67,10 @@ jobs:
       - uses: astral-sh/setup-uv@v8.1.0
       - name: Validate schemas + reference instances + C1-C7 invariants
         run: uv run --with jsonschema --with pyyaml python schemas/validate.py
+
+  cargo-deny:
+    name: cargo-deny (licenses + advisories)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: EmbarkStudios/cargo-deny-action@v2.0.20
