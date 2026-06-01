@@ -23,6 +23,20 @@ pub enum ScanRegion {
         /// Extent along the frame y-axis (the v direction).
         size_v: Quantity,
     },
+    /// A swept arc at fixed radius (`= standoff`) about a `pivot`, in `frame`'s
+    /// xy-plane, from `arc_start` spanning `arc_extent` (e.g. circumferential
+    /// inspection of a cylindrical surface whose axis is the frame `+z`). The arc
+    /// pattern's region source (`spec/02` Appendix A, arc).
+    Arc {
+        /// The region reference frame (sweep plane = its xy-plane).
+        frame: FrameRef,
+        /// The pivot point the sensor orbits, in the region frame (metres).
+        pivot: [f64; 3],
+        /// The starting sweep angle about the pivot (frame `+z` axis).
+        arc_start: Quantity,
+        /// The angular span of the sweep.
+        arc_extent: Quantity,
+    },
     /// An explicit ordered list of sweep poses (the `waypoints` pattern source).
     Waypoints {
         /// The reference frame the poses are expressed in.
@@ -63,6 +77,25 @@ mod tests {
         assert_eq!(frame, "panel");
         assert_eq!(size_u.0, "200 mm");
         assert_eq!(size_v.0, "150 mm");
+    }
+
+    #[test]
+    fn parses_arc_region() {
+        let yaml = "kind: arc\nframe: panel\npivot: [0.0, 0.0, 0.0]\narc_start: 0 deg\narc_extent: 180 deg\n";
+        let r: ScanRegion = serde_yaml::from_str(yaml).unwrap();
+        let ScanRegion::Arc {
+            frame,
+            pivot,
+            arc_start,
+            arc_extent,
+        } = r
+        else {
+            panic!("expected arc")
+        };
+        assert_eq!(frame, "panel");
+        assert_eq!(pivot, [0.0, 0.0, 0.0]);
+        assert_eq!(arc_start.0, "0 deg");
+        assert_eq!(arc_extent.0, "180 deg");
     }
 
     #[test]

@@ -1,0 +1,6 @@
+---
+source: crates/rfl-conformance/tests/surface_scan_arc.rs
+expression: "jsonl_for(\"pneumatic-6f\")"
+---
+{"message":"execute","action_id":"surface-scan/generic-pneumatic-6f/0001-scan","canonical_action":{"target_frame":"head_cam","target_pose":{"pattern":"arc","poses":[{"position":[0.092388,0.038268,0.0],"orientation":[0.270598,-0.653281,0.0,0.707107]},{"position":[0.038268,0.092388,0.0],"orientation":[0.653281,-0.270598,0.0,0.707107]},{"position":[-0.038268,0.092388,0.0],"orientation":[0.653281,0.270598,0.0,0.707107]},{"position":[-0.092388,0.038268,0.0],"orientation":[0.270598,0.653281,0.0,0.707107]}]},"timing":{"timing_mode":"strict","stop_at_goal":true},"safety_envelope":{"motion_bounds":{"v_max":"0.3 m/s","a_max":"0.8 m/s^2","w_max":"1.2 rad/s"},"stop_time":"0.15 s"}}}
+{"message":"execute","action_id":"surface-scan/generic-pneumatic-6f/0002-inspect","canonical_action":{"target_frame":"head_cam","target_pose":{"ref":"panel"},"timing":{"timing_mode":"strict","stop_at_goal":true},"safety_envelope":{"motion_bounds":{"v_max":"0.3 m/s","a_max":"0.8 m/s^2","w_max":"1.2 rad/s"},"stop_time":"0.15 s"}}}

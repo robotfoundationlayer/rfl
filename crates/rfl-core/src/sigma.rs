@@ -154,6 +154,55 @@ pub fn spiral(
     poses
 }
 
+/// Generate the arc sweep set Σ (`spec/02` Appendix A, arc): a swept arc at fixed
+/// radius `= standoff` about a declared `pivot`, in the region frame's xy-plane,
+/// from `arc_start_rad` spanning `arc_extent_rad`. The angular step
+/// `Δθ = s_u / standoff` advances the footprint by `s_u` along the arc; stations
+/// are centred (`(i + 0.5)·extent/n`). Each pose sits on the circle and its bore
+/// (`+z`) points inward at the pivot (minimal-rotation roll convention, fully
+/// determined). Same units / FOV inputs as `raster`.
+#[must_use]
+pub fn arc(
+    pivot: [f64; 3],
+    arc_start_rad: f64,
+    arc_extent_rad: f64,
+    standoff: f64,
+    coverage_overlap: f64,
+    h_angle_rad: f64,
+    v_angle_rad: f64,
+) -> Vec<Pose6D> {
+    let _ = v_angle_rad; // the arc advances along u only; v_angle is unused (single ring).
+    let f_u = 2.0 * standoff * (h_angle_rad / 2.0).tan();
+    let s_u = f_u * (1.0 - coverage_overlap);
+    let radius = standoff;
+    let d_theta = if standoff > 0.0 { s_u / standoff } else { 0.0 };
+
+    // Degenerate guard: a flat FOV (or zero standoff) gives no angular advance —
+    // emit a single station at the arc midpoint rather than diverging.
+    let n = if d_theta > 0.0 {
+        (arc_extent_rad / d_theta).ceil().max(1.0) as usize
+    } else {
+        1
+    };
+
+    let mut poses = Vec::with_capacity(n);
+    for i in 0..n {
+        let theta = arc_start_rad + (i as f64 + 0.5) * arc_extent_rad / n as f64;
+        let (c, s) = (theta.cos(), theta.sin());
+        let position = [pivot[0] + radius * c, pivot[1] + radius * s, pivot[2]];
+        // Bore (+z) points inward at the pivot: the minimal rotation from +z to the
+        // inward radial direction. inward is horizontal (never (anti)parallel to +z).
+        let inward = Vector3::new(-c, -s, 0.0);
+        let orientation = UnitQuaternion::rotation_between(&Vector3::z_axis(), &inward)
+            .unwrap_or_else(UnitQuaternion::identity);
+        poses.push(Pose6D {
+            position,
+            orientation,
+        });
+    }
+    poses
+}
+
 #[cfg(test)]
 mod tests {
     // Deterministic retarget/geometry output: exact golden-value comparison is intended.
@@ -278,6 +327,73 @@ mod tests {
             assert!(r >= prev - 1e-9, "radius decreased: {r} < {prev}");
             prev = r;
         }
+    }
+
+    #[test]
+    fn arc_has_four_stations_for_half_turn() {
+        // standoff=0.10, fov_h=60deg, overlap=0.2 => f_u=0.11547, s_u=0.092376,
+        // d_theta=0.92376 rad; n=ceil(pi/0.92376)=ceil(3.4009)=4. Analytic.
+        let poses = arc(
+            [0.0, 0.0, 0.0],
+            0.0,
+            std::f64::consts::PI,
+            0.10,
+            0.2,
+            60_f64.to_radians(),
+            45_f64.to_radians(),
+        );
+        assert_eq!(poses.len(), 4);
+        // First centred station at theta = pi/8.
+        let t = std::f64::consts::FRAC_PI_8;
+        assert_eq!(round6(poses[0].position[0]), round6(0.10 * t.cos()));
+        assert_eq!(round6(poses[0].position[1]), round6(0.10 * t.sin()));
+        assert_eq!(round6(poses[0].position[2]), 0.0);
+    }
+
+    #[test]
+    fn arc_stations_lie_on_the_circle_and_bore_points_at_pivot() {
+        let pivot = [0.05, -0.02, 0.30];
+        let poses = arc(
+            pivot,
+            0.5,
+            std::f64::consts::PI,
+            0.10,
+            0.2,
+            60_f64.to_radians(),
+            45_f64.to_radians(),
+        );
+        for p in &poses {
+            // On the circle: planar distance from the pivot equals the standoff.
+            let dx = p.position[0] - pivot[0];
+            let dy = p.position[1] - pivot[1];
+            assert!((((dx * dx + dy * dy).sqrt()) - 0.10).abs() < 1e-9);
+            assert!((p.position[2] - pivot[2]).abs() < 1e-12); // stays in the ring plane
+            // Bore (+z) maps to the inward radial: it should point from the station
+            // toward the pivot, i.e. opposite the outward radial (dot < 0).
+            let bore = p.orientation * Vector3::z_axis();
+            let outward = Vector3::new(dx, dy, 0.0).normalize();
+            assert!(bore.dot(&outward) < -0.999, "bore not pointing at pivot");
+        }
+    }
+
+    #[test]
+    fn arc_count_varies_per_fov_and_degenerates_safely() {
+        let mk = |h: f64| {
+            arc(
+                [0.0, 0.0, 0.0],
+                0.0,
+                std::f64::consts::PI,
+                0.10,
+                0.2,
+                h.to_radians(),
+                45_f64.to_radians(),
+            )
+            .len()
+        };
+        // Smaller FOV -> smaller footprint -> finer angular step -> more stations.
+        assert!(mk(40.0) > mk(60.0));
+        // A flat (zero) FOV degenerates to a single midpoint station, never diverges.
+        assert_eq!(mk(0.0), 1);
     }
 
     #[test]

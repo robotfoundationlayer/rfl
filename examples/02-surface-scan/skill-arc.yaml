@@ -1,0 +1,27 @@
+# Example 02 — Surface scan (arc variant)
+# Circumferential inspection: instead of a planar surface, the sensor sweeps a
+# fixed-radius arc about a declared pivot (e.g. the axis of a cylindrical part),
+# bore pointing inward at the pivot. Demonstrates the third normative Σ generator
+# (spec/02 Appendix A, arc): the station count and angular step follow from each
+# embodiment's sensor field of view (Principle 1), distinct from raster and spiral.
+skill: surface-scan
+description: >
+  Arc-scan a cylindrical surface by orbiting the sensor at a fixed standoff about
+  the part axis, then inspect the covered surface for defects.
+
+body:
+  sequence:
+    - reach.scan:
+        region:
+          kind: arc
+          frame: panel
+          pivot: [0.0, 0.0, 0.0]
+          arc_start: 0 deg
+          arc_extent: 180 deg
+        standoff: 100 mm
+        pattern: arc
+        coverage_overlap: 0.2
+
+    - sense.inspect:
+        target: panel
+        observe: [defect]

@@ -1,6 +1,12 @@
 # Σ arc sweep-pattern generator + arc region model — design
 
-Status: design-complete; implementation **deferred to a focused session** (normative byte-reproducibility)
+Status: **IMPLEMENTED 2026-06-02** — `ScanRegion::Arc` (frame + pivot + arc_start +
+arc_extent, v0 fixed to the frame xy-plane), `sigma::arc` transcribing the
+Appendix A construction verbatim (`Δθ = s_u/standoff`, centred `(i+0.5)·extent/n`,
+bore via the minimal `+z`→inward-radial rotation), dispatched in `lower_reach_scan`,
+with `examples/02-surface-scan/skill-arc.yaml` + per-embodiment goldens
+(`surface_scan_arc`) and `sigma`/`region` unit tests. The design below is retained
+as the record. (`path` / `volume` region kinds remain deferred.)
 
 ## Context
 

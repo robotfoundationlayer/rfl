@@ -2138,9 +2138,9 @@ fn lower_reach_scan(p: &ReachScan, e: &Embodiment) -> CanonicalAction {
                 poses.iter().map(|w| (w.position, w.orientation)).collect();
             crate::sigma::waypoints(&wps)
         }
-        // Surface region: the pattern selects the generator. arc / waypoints-on-a-
-        // surface still fall back to raster in v0 (arc needs a pivot + variable
-        // orientation; the waypoints pattern is driven by a Waypoints region).
+        // Surface region: the pattern selects the generator. A surface with
+        // pattern: arc still falls back to raster (an arc needs a pivot, supplied
+        // by an Arc region); waypoints-on-a-surface likewise falls back.
         crate::region::ScanRegion::Surface { size_u, size_v, .. } => {
             let (h, v) = e.sensor_fov(&sensor_frame).map_or((0.0, 0.0), |f| {
                 (angle_rad(&f.h_angle), angle_rad(&f.v_angle))
@@ -2150,6 +2150,27 @@ fn lower_reach_scan(p: &ReachScan, e: &Embodiment) -> CanonicalAction {
                 ScanPattern::Spiral => crate::sigma::spiral(u, vv, standoff, overlap, h, v),
                 _ => crate::sigma::raster(u, vv, standoff, overlap, h, v),
             }
+        }
+        // Arc region: a swept arc at radius = standoff about the pivot, bore
+        // pointing inward (spec/02 Appendix A, arc). FOV from the sensor as usual.
+        crate::region::ScanRegion::Arc {
+            pivot,
+            arc_start,
+            arc_extent,
+            ..
+        } => {
+            let (h, v) = e.sensor_fov(&sensor_frame).map_or((0.0, 0.0), |f| {
+                (angle_rad(&f.h_angle), angle_rad(&f.v_angle))
+            });
+            crate::sigma::arc(
+                *pivot,
+                angle_rad(arc_start),
+                angle_rad(arc_extent),
+                standoff,
+                overlap,
+                h,
+                v,
+            )
         }
     };
 
