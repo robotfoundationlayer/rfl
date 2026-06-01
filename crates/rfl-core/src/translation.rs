@@ -825,6 +825,15 @@ fn lower_force_cut(p: &ForceCut, e: &Embodiment) -> CanonicalAction {
 /// the downstream release. The bounded-window envelope (max_release_time / safe_drop_zone) and
 /// the momentary_release audit (AUD2) are handled elsewhere (deferred / conformance).
 fn lower_in_hand_flip(p: &InHandFlip, e: &Embodiment) -> CanonicalAction {
+    // in_hand.flip is the only continuity-suspending primitive (spec/01 § 3.7): emit the
+    // bounded-window contract — the hard upper bound on the unsecured window and the
+    // no-uncontrolled-drop landing region — so the GC5 check can verify the measured window
+    // stayed within bound. Carried symbolic (the authored strings, no reformat).
+    let mut env = base_envelope(e);
+    env.force_profile = Some(serde_json::json!({
+        "max_release_time": p.max_release_time.0,
+        "safe_drop_zone": yaml_to_json(&p.safe_drop_zone),
+    }));
     CanonicalAction {
         target_frame: e.grasp_frame().to_string(),
         target_pose: PoseExpr::AxisRelative {
@@ -839,7 +848,7 @@ fn lower_in_hand_flip(p: &InHandFlip, e: &Embodiment) -> CanonicalAction {
         },
         tactile_target: None,
         monitors: vec![],
-        safety_envelope: base_envelope(e),
+        safety_envelope: env,
         grasp_stability: None,
     }
 }
@@ -1686,7 +1695,7 @@ mod tests {
     }
 
     #[test]
-    fn flip_lowers_no_floor() {
+    fn flip_lowers_bounded_window_contract() {
         let dir =
             std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples/03-screw-fasten");
         let skill =
@@ -1699,8 +1708,20 @@ mod tests {
         let out = retarget(&skill, &emb).expect("retarget");
         // locate(0), pinch(1), flip(2), release(3).
         assert_eq!(out.suffixes[2], "flip");
-        // the flip suspends continuity -> no force_profile floor emitted.
-        assert!(out.actions[2].safety_envelope.force_profile.is_none());
+        // the flip suspends continuity but the suspension is BOUNDED: the force_profile
+        // carries the hard window bound and the safe-drop region (no min_holding_force floor,
+        // since the object is momentarily unsecured).
+        let fp = out.actions[2]
+            .safety_envelope
+            .force_profile
+            .as_ref()
+            .expect("flip carries the bounded-window contract");
+        assert_eq!(
+            fp.get("max_release_time").and_then(|v| v.as_str()),
+            Some("0.3 s")
+        );
+        assert!(fp.get("safe_drop_zone").is_some());
+        assert!(fp.get("min_holding_force").is_none());
     }
 
     #[test]
