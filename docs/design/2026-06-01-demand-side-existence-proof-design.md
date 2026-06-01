@@ -165,15 +165,18 @@ nothing is template-copied, and (b) span categories incl. tasks some descriptors
 
 | Task | Exercises | Note |
 |---|---|---|
-| pour | grasp + transport + `in_hand.rotate` + place | reorientation |
-| open-drawer | grasp handle + `force.pull` | rejected by no-F/T descriptors → mismatch path |
-| stack-blocks | grasp + transport + `place.stack` | alignment |
-| press-button-sequence | reach + `force.press_button` ×N in `sequence` | repetition |
-| wipe-surface | `force.wipe` | contact maintenance; rejected by no-F/T descriptors |
+| pour | `grasp.power` + `transport.move_to_pose` (tilt pose) + `place.put_down` | reorientation; `place.*` absent from examples |
+| open-drawer | grasp handle + `force.pull` | `force.pull` not in examples; rejects on no-F/T descriptors |
+| stack-blocks | `grasp.pinch` + transport + `place.stack` | alignment; `place.*` novel |
+| hand-over | grasp + transport + `place.hand_to` | controlled release on contact; `place.*` novel |
+| sort-by-weight | `sense.locate` + grasp + `sense.weigh` + `branch`(mass) + place | exercises `sense.weigh` + the three-valued `branch` |
 | pick-place-light | `grasp.pinch` + transport + `place.put_down` | cross-validates Milchick |
 
-The `force.*` tasks deliberately retarget-reject on `pincherx-100` (no F/T) and Allegro-minus
-descriptors — proving the negative-space gate from the demand side.
+The `examples/` skills already demonstrate `force.{insert_fit,screw,unscrew,cut,press_button,snap_engage,wipe}`,
+`in_hand.flip`, `transport.carry`, `reach.scan`/`hover`, and `sense.inspect`; this suite deliberately
+avoids them, leaning on the **`place.*`** category (entirely absent from the examples), **`sense.weigh`**,
+the three-valued **`branch`**, and **`force.pull`**. The `force.pull` task deliberately retarget-rejects on
+`pincherx-100` (no F/T) — proving the negative-space gate from the demand side.
 
 ## 8. Honest caveats (the substance of the proof)
 
