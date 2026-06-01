@@ -8,6 +8,7 @@ JSON Schema definitions for the machine-readable RFL artifacts. They formalize t
 | `skill-isa.schema.json` | a Skill ISA composition file | `01` | present |
 | `driver-interface.schema.json` | the canonical driver messages (execute / telemetry / status / clearance-query) | `03` | present |
 | `tactile-manifold/` | per-sensor-class adapter mappings (`adapter.schema.json` + ft / array / visuotactile) | `04` | present |
+| `certificate.schema.json` | a conformance certificate emitted by `rfl certify` (shape + integrity, optional ed25519 signature) | `05` | present |
 
 ## Conventions
 
@@ -28,7 +29,7 @@ JSON Schema definitions for the machine-readable RFL artifacts. They formalize t
 ## Validating
 
 `validate.py` is the committed conformance-test-class-1 runner: it checks the
-four schemas (Draft 2020-12), validates every reference instance against them,
+five schemas (Draft 2020-12), validates every reference instance against them,
 and asserts the cross-schema consistency invariants (the descriptor's capability
 enum is exactly `skill-isa`'s `PrimitiveId` set minus `reach.*` plus the four
 category gates; the extension-key pattern is shared; the closed-core tactile
