@@ -10,7 +10,7 @@
     "id": "wonik-allegro-v4",
     "sha256": "5afd2de40c19a108bacb5d1b312d8f80db5d8c82ba3394a19ddb0bc61a0a4cdd"
   },
-  "report_sha256": "eed73189dfe184ed055e0f1c440b897884ba1cefbd3aefff1b0502961472c9c0",
+  "report_sha256": "3e97af797a2445b0f6367eb8b5f13c6966c170099d2bada08692096175943d2d",
   "result": "pass",
   "covered": [
     "class3_driver_protocol"
@@ -53,6 +53,10 @@
         {
           "name": "support_safe_state",
           "result": "pass"
+        },
+        {
+          "name": "hold_test",
+          "result": "pass"
         }
       ],
       "passed": true
@@ -94,6 +98,10 @@
         {
           "name": "support_safe_state",
           "result": "pass"
+        },
+        {
+          "name": "hold_test",
+          "result": "pass"
         }
       ],
       "passed": true
@@ -133,6 +141,10 @@
         },
         {
           "name": "support_safe_state",
+          "result": "pass"
+        },
+        {
+          "name": "hold_test",
           "result": "pass"
         }
       ],
@@ -174,6 +186,10 @@
         {
           "name": "support_safe_state",
           "result": "pass"
+        },
+        {
+          "name": "hold_test",
+          "result": "pass"
         }
       ],
       "passed": true
@@ -185,5 +201,5 @@
       "result": "pass"
     }
   ],
-  "content_hash": "sha256:2f2b648fae116780c896cf331a85d8a76ccef0642ea4b45b7bef400335c14e80"
+  "content_hash": "sha256:db05df550c90f18f9d94069a31e6352b217e0dec5c368570451987d283908508"
 }

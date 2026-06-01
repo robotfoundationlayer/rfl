@@ -10,7 +10,7 @@
     "id": "wonik-allegro-v4",
     "sha256": "c67f1bd1265f62ec69cfda13e6af2cf5904b8ddfa374bda17208f8ee51712c94"
   },
-  "report_sha256": "fcf9e82e217ac0ee07434f42e289ce821bad752b28d637342dfa238f7ac62df7",
+  "report_sha256": "801ebdc8e010bf7e5b2316a376873377e1322e90ee36dce171fde7435e6c56c0",
   "result": "pass",
   "covered": [
     "class3_driver_protocol"
@@ -53,6 +53,10 @@
         {
           "name": "support_safe_state",
           "result": "pass"
+        },
+        {
+          "name": "hold_test",
+          "result": "pass"
         }
       ],
       "passed": true
@@ -94,6 +98,10 @@
         {
           "name": "support_safe_state",
           "result": "pass"
+        },
+        {
+          "name": "hold_test",
+          "result": "pass"
         }
       ],
       "passed": true
@@ -134,6 +142,10 @@
         {
           "name": "support_safe_state",
           "result": "pass"
+        },
+        {
+          "name": "hold_test",
+          "result": "pass"
         }
       ],
       "passed": true
@@ -168,6 +180,10 @@
         },
         {
           "name": "support_safe_state",
+          "result": "pass"
+        },
+        {
+          "name": "hold_test",
           "result": "pass"
         }
       ],
@@ -209,6 +225,10 @@
         {
           "name": "support_safe_state",
           "result": "pass"
+        },
+        {
+          "name": "hold_test",
+          "result": "pass"
         }
       ],
       "passed": true
@@ -248,6 +268,10 @@
         },
         {
           "name": "support_safe_state",
+          "result": "pass"
+        },
+        {
+          "name": "hold_test",
           "result": "pass"
         }
       ],
@@ -289,6 +313,10 @@
         {
           "name": "support_safe_state",
           "result": "pass"
+        },
+        {
+          "name": "hold_test",
+          "result": "pass"
         }
       ],
       "passed": true
@@ -329,6 +357,10 @@
         {
           "name": "support_safe_state",
           "result": "pass"
+        },
+        {
+          "name": "hold_test",
+          "result": "pass"
         }
       ],
       "passed": true
@@ -340,5 +372,5 @@
       "result": "pass"
     }
   ],
-  "content_hash": "sha256:734066b606b758af8108bfb1216452b99956f6f2bfecfd36874cd7894230f4a6"
+  "content_hash": "sha256:f5218b25838de7806ccf3d1d1ff606f436c7c4c7f772f6440025ca2619457506"
 }

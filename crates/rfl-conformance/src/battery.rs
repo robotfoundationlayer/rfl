@@ -12,8 +12,9 @@ use rfl_core::driver::DriverReport;
 
 use crate::{
     CheckOutcome, EnvelopeClass, check_actuation, check_audit_honesty, check_audit_record,
-    check_engagement, check_envelope, check_freed_part_disposition, check_irreversible,
-    check_momentary_release, check_support_safe_state, envelope_class_for, suffix_of,
+    check_engagement, check_envelope, check_freed_part_disposition, check_hold_test,
+    check_irreversible, check_momentary_release, check_support_safe_state, envelope_class_for,
+    suffix_of,
 };
 
 /// A named check outcome.
@@ -80,6 +81,10 @@ pub fn verify_action(goal: &ExecuteGoal, report: &DriverReport) -> ActionVerdict
     checks.push(NamedCheck {
         name: "support_safe_state",
         outcome: check_support_safe_state(goal),
+    });
+    checks.push(NamedCheck {
+        name: "hold_test",
+        outcome: check_hold_test(goal, report),
     });
     let passed = checks
         .iter()
@@ -152,6 +157,41 @@ mod tests {
         assert!(!v.passed);
         let env = v.checks.iter().find(|c| c.name == "envelope").unwrap();
         assert!(matches!(env.outcome, CheckOutcome::Fail(_)));
+    }
+
+    #[test]
+    fn nominal_pinch_passes_hold_test_but_wrong_profile_fails() {
+        let dir = example_dir();
+        // nominal: the force-closure pinch reports an omnidirectional hold test -> passes GC2.
+        let nominal = drive(
+            ReferenceDriver::default(),
+            &dir.join("skill.yaml"),
+            &dir.join("embodiments/allegro.yaml"),
+        )
+        .unwrap();
+        let (g, r) = &nominal[1]; // grasp.pinch
+        let v = verify_action(g, r);
+        let ht = v.checks.iter().find(|c| c.name == "hold_test").unwrap();
+        assert!(
+            matches!(ht.outcome, CheckOutcome::Pass),
+            "checks: {:?}",
+            v.checks
+                .iter()
+                .map(|c| (c.name, &c.outcome))
+                .collect::<Vec<_>>()
+        );
+        // adversarial: a driver running the wrong-closure perturbation profile -> GC2 fails.
+        let wrong = drive(
+            FaultyDriver::new(Fault::WrongHoldTest),
+            &dir.join("skill.yaml"),
+            &dir.join("embodiments/allegro.yaml"),
+        )
+        .unwrap();
+        let (g, r) = &wrong[1];
+        let v = verify_action(g, r);
+        assert!(!v.passed);
+        let ht = v.checks.iter().find(|c| c.name == "hold_test").unwrap();
+        assert!(matches!(ht.outcome, CheckOutcome::Fail(_)));
     }
 
     #[test]

@@ -185,6 +185,18 @@ impl Driver for ReferenceDriver {
         {
             evidence.push("held_confirmed".to_string());
         }
+        // GC2 (hold-test closure, spec/05): a grasp's success is confirmed by a hold test
+        // whose perturbation profile is selected by the closure type. The nominal driver
+        // applies the closure-appropriate profile and the object is retained. Only
+        // grasp-establishing actions (pinch / pin / platform) carry a closure.
+        if let Some(st) = &ca.grasp_stability {
+            let profile = match st.closure {
+                rfl_core::stability::Closure::Force => "omnidirectional",
+                rfl_core::stability::Closure::Form => "load_direction",
+                rfl_core::stability::Closure::Support => "level_gentle",
+            };
+            evidence.push(format!("hold_test:{profile}"));
+        }
         // AUD2 (in_hand.flip, spec/05): the flip declares momentary_release and the flag
         // propagates into every downstream action's audit record (the first cross-action state).
         let is_flip = suffix_of(&goal.action_id) == "flip";
@@ -269,6 +281,9 @@ pub enum Fault {
     LoseContact,
     /// `status.fidelity_tier` over-claimed as `manifold` (undisclosed degradation, AUD3).
     FalseTier,
+    /// The hold-test perturbation profile replaced with one wrong for the closure
+    /// (`level_gentle` on a force-closure grasp — violates GC2 hold-test closure).
+    WrongHoldTest,
 }
 
 /// Wraps the nominal `ReferenceDriver` and injects one `Fault` into every report it
@@ -335,6 +350,17 @@ impl Driver for FaultyDriver {
             }
             Fault::FalseTier => {
                 report.status.fidelity_tier = Some("manifold".to_string());
+            }
+            Fault::WrongHoldTest => {
+                // Replace the closure-appropriate hold-test profile with a wrong one
+                // (level_gentle would not certify a force-closure grasp), violating GC2.
+                if let Some(v) = report.status.verdict.as_mut() {
+                    for e in &mut v.evidence {
+                        if e.starts_with("hold_test:") {
+                            *e = "hold_test:level_gentle".to_string();
+                        }
+                    }
+                }
             }
         }
         report
@@ -1482,6 +1508,44 @@ pub fn check_support_safe_state(goal: &ExecuteGoal) -> CheckOutcome {
     }
 }
 
+/// Verify the GC2 hold-test-closure obligation (`spec/05` § The hold test): a successful
+/// grasp's closure is confirmed by a hold test whose perturbation profile is branched on the
+/// closure type — `force → omnidirectional`, `form → load_direction`, `support → level_gentle`.
+/// Reads the `hold_test:<profile>` evidence the driver records (`verdict.evidence`). Vacuous-
+/// pass for non-grasp actions and for a grasp that did not report `Succeeded` (a non-success
+/// has its own failure path).
+#[must_use]
+pub fn check_hold_test(goal: &ExecuteGoal, report: &DriverReport) -> CheckOutcome {
+    let Some(st) = &goal.canonical_action.grasp_stability else {
+        return CheckOutcome::Pass; // non-grasp action
+    };
+    if report.status.outcome != rfl_core::driver::Outcome::Succeeded {
+        return CheckOutcome::Pass;
+    }
+    let expected = match st.closure {
+        rfl_core::stability::Closure::Force => "omnidirectional",
+        rfl_core::stability::Closure::Form => "load_direction",
+        rfl_core::stability::Closure::Support => "level_gentle",
+    };
+    let reported = report
+        .status
+        .verdict
+        .as_ref()
+        .and_then(|v| v.evidence.iter().find_map(|e| e.strip_prefix("hold_test:")));
+    match reported {
+        Some(p) if p == expected => CheckOutcome::Pass,
+        Some(p) => CheckOutcome::Fail(format!(
+            "hold test used a {p} perturbation but {expected} is required for {:?} closure",
+            st.closure
+        )),
+        None => CheckOutcome::Fail(
+            "a successful grasp must report a hold test (no hold_test \
+                                evidence)"
+                .to_string(),
+        ),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1753,6 +1817,102 @@ mod tests {
         );
         assert_eq!(
             check_support_safe_state(&goal(None, None)),
+            CheckOutcome::Pass
+        );
+    }
+
+    #[test]
+    fn hold_test_must_match_the_closure_perturbation_profile() {
+        use rfl_core::canonical::{
+            CanonicalAction, Envelope, MotionBounds, PoseExpr, TimingHints, TimingMode,
+        };
+        use rfl_core::driver::{Outcome, RealizedPose, Status, Verdict};
+        use rfl_core::grasp_force::GraspMode;
+        use rfl_core::stability::StabilityMetadata;
+        let goal = |mode: Option<GraspMode>| {
+            let ca = CanonicalAction {
+                target_frame: "grip".into(),
+                target_pose: PoseExpr::Ref {
+                    r#ref: "part".into(),
+                },
+                force_budget: None,
+                timing: TimingHints {
+                    nominal_duration: None,
+                    timing_mode: TimingMode::Strict,
+                    stop_at_goal: true,
+                },
+                tactile_target: None,
+                monitors: vec![],
+                safety_envelope: Envelope {
+                    motion_bounds: MotionBounds::default(),
+                    force_profile: None,
+                    station_keeping: None,
+                    clearance: None,
+                    compliance: None,
+                    stop_time: None,
+                },
+                grasp_stability: mode.map(StabilityMetadata::for_mode),
+            };
+            ExecuteGoal::wrap("s/e/0001-pinch".to_string(), ca)
+        };
+        let report = |outcome: Outcome, evidence: &[&str]| DriverReport {
+            telemetry: vec![],
+            status: Status {
+                message: "status",
+                action_id: "s/e/0001-pinch".to_string(),
+                outcome,
+                verdict: Some(Verdict {
+                    value: true,
+                    confidence: 1.0,
+                    evidence: evidence.iter().map(|s| (*s).to_string()).collect(),
+                }),
+                fidelity_tier: None,
+                final_pose: Some(RealizedPose::placeholder()),
+                failure_class: None,
+                failure_detail: None,
+                stop_latency: None,
+                safety_flags: None,
+            },
+        };
+        // force closure confirmed by an omnidirectional hold test -> pass.
+        assert_eq!(
+            check_hold_test(
+                &goal(Some(GraspMode::Pinch)),
+                &report(Outcome::Succeeded, &["hold_test:omnidirectional"])
+            ),
+            CheckOutcome::Pass
+        );
+        // wrong profile for a force closure (level_gentle would not certify a force grasp) -> fail.
+        assert!(matches!(
+            check_hold_test(
+                &goal(Some(GraspMode::Pinch)),
+                &report(Outcome::Succeeded, &["hold_test:level_gentle"])
+            ),
+            CheckOutcome::Fail(_)
+        ));
+        // a successful grasp with no hold test reported -> fail.
+        assert!(matches!(
+            check_hold_test(
+                &goal(Some(GraspMode::Pinch)),
+                &report(Outcome::Succeeded, &["nominal"])
+            ),
+            CheckOutcome::Fail(_)
+        ));
+        // support closure is confirmed by a level, gentle hold test -> pass.
+        assert_eq!(
+            check_hold_test(
+                &goal(Some(GraspMode::Platform)),
+                &report(Outcome::Succeeded, &["hold_test:level_gentle"])
+            ),
+            CheckOutcome::Pass
+        );
+        // non-grasp action, and a non-Succeeded grasp, are vacuous-pass.
+        assert_eq!(
+            check_hold_test(&goal(None), &report(Outcome::Succeeded, &[])),
+            CheckOutcome::Pass
+        );
+        assert_eq!(
+            check_hold_test(&goal(Some(GraspMode::Pinch)), &report(Outcome::Failed, &[])),
             CheckOutcome::Pass
         );
     }
