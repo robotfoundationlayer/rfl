@@ -1,10 +1,16 @@
 # PROPOSAL: a contact-geometry wire extension to unblock STB1 / STB2 / supported()
 
-Status: **PROPOSAL — awaiting spec-owner approval for the WIRE.** The
-wire-independent **geometry core is IMPLEMENTED** (`rfl-core::geometry` 2026-06-02:
-`triangle_area` / `tripod_non_degenerate` [STB1] + `com_over_polygon` [STB2 /
-`supported()`], 6 unit tests incl. a tilted-plane case). Only the normative
-telemetry field + the conformance benches that consume it await approval.
+Status: **APPROVED + SHIPPED 2026-06-02** (spec owner: "use defaults"). Landed:
+the optional `contact_geometry` telemetry field (`schemas/driver-interface` +
+`rfl-core::driver::ContactGeometry` + replay parsing), the `check_contact_geometry`
+battery obligation (STB1 tripod non-collinearity + STB2 / `supported()`
+CoM-over-polygon, reading `rfl-core::geometry`), and a unit test (spread vs
+near-collinear tripod; CoM inside vs outside). Vacuous for any report that omits
+`contact_geometry`, so it is opt-in (existing reference certs re-blessed only to
+record the new vacuous-pass obligation). **Still deferred (data-dependent, like the
+ε-values):** the absolute `min_contact_area` threshold (a fraction of object
+cross-section) and the STB2 stability *margin* — v0 enforces non-degeneracy
+(non-collinear / inside-polygon). The original proposal follows.
 
 ## Why this is a proposal, not an increment
 

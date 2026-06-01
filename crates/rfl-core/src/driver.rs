@@ -47,6 +47,19 @@ pub struct Wrench {
     pub torque: [f64; 3],
 }
 
+/// The contact-polygon geometry at a sample (`spec/05` § Closure, stability;
+/// the `contact_geometry` wire extension). `sites` are the contact-site positions
+/// in the telemetry frame (metres), in polygon-boundary order; `object_com` is the
+/// supported object's centre of mass. Read by the STB1 / STB2 stability checks.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct ContactGeometry {
+    /// Contact-site positions (metres), boundary-ordered. >= 3 forms a polygon.
+    pub sites: Vec<[f64; 3]>,
+    /// The supported object's centre of mass (metres), for the CoM-over-polygon test.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub object_com: Option<[f64; 3]>,
+}
+
 /// A tactile feature reading.
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct TactileReading {
@@ -113,6 +126,10 @@ pub struct Telemetry {
     /// The fidelity tier in effect.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub fidelity_tier: Option<String>,
+    /// Contact-polygon geometry (STB1 tripod non-degeneracy / STB2 CoM-over-polygon).
+    /// Present only for a grasp that opts into reporting it.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub contact_geometry: Option<ContactGeometry>,
 }
 
 /// The terminal action result (`StatusResult`; required: message, action_id, outcome).
@@ -205,6 +222,7 @@ mod tests {
             tactile: vec![],
             events: vec![],
             fidelity_tier: Some("manifold".into()),
+            contact_geometry: None,
         };
         let j = serde_json::to_string(&t).unwrap();
         assert!(j.contains("\"message\":\"telemetry\""));

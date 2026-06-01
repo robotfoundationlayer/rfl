@@ -129,7 +129,27 @@
           "type": "array",
           "items": { "$ref": "#/$defs/ForceEventFloor" }
         },
-        "fidelity_tier": { "$ref": "#/$defs/FidelityTier" }
+        "fidelity_tier": { "$ref": "#/$defs/FidelityTier" },
+        "contact_geometry": {
+          "description": "Contact-polygon geometry (05 § Closure, stability): the STB1 tripod non-degeneracy and STB2 / supported() CoM-over-polygon tests read it. Present only for a grasp that opts into reporting it.",
+          "type": "object",
+          "required": ["sites"],
+          "additionalProperties": false,
+          "properties": {
+            "sites": {
+              "description": "Contact-site positions [x, y, z] in the telemetry frame (metres), in polygon-boundary order.",
+              "type": "array",
+              "items": { "type": "array", "items": { "type": "number" }, "minItems": 3, "maxItems": 3 }
+            },
+            "object_com": {
+              "description": "The supported object's centre of mass [x, y, z] (metres), for the CoM-over-polygon test.",
+              "type": "array",
+              "items": { "type": "number" },
+              "minItems": 3,
+              "maxItems": 3
+            }
+          }
+        }
       },
       "additionalProperties": false
     },

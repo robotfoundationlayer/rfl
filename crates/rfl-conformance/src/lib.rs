@@ -171,6 +171,7 @@ impl Driver for ReferenceDriver {
                     tactile: vec![],
                     events: events.clone(),
                     fidelity_tier: fidelity_tier.clone(),
+                    contact_geometry: None,
                 }
             })
             .collect();
@@ -1456,6 +1457,46 @@ pub fn check_freed_part_disposition(goal: &ExecuteGoal, report: &DriverReport) -
     }
 }
 
+/// Verify the STB1 / STB2 contact-polygon obligations (`spec/05` § Closure,
+/// stability) from the `contact_geometry` telemetry. For any sample that reports
+/// it: **STB1** — a three-contact set (a tripod) must be non-collinear (a
+/// near-collinear triple is not a valid tripod, the claimed rotation constraint
+/// would be absent); **STB2 / `supported()`** — when `object_com` is present, it
+/// must project inside the contact polygon. Vacuous when no sample reports
+/// `contact_geometry` (the driver opts in). The absolute minimum-area / margin
+/// thresholds (a fraction of object cross-section) are a data-dependent follow-up;
+/// v0 enforces the non-degenerate (non-collinear / inside-polygon) requirement.
+#[must_use]
+pub fn check_contact_geometry(_goal: &ExecuteGoal, report: &DriverReport) -> CheckOutcome {
+    const NONCOLLINEAR_EPS: f64 = 1e-9; // m^2: below this a triangle is collinear
+    const SUPPORT_MARGIN: f64 = 0.0; // inside-or-on-boundary; the stability margin is data-dependent
+    for t in &report.telemetry {
+        let Some(cg) = &t.contact_geometry else {
+            continue;
+        };
+        if cg.sites.len() == 3 {
+            let sites = [cg.sites[0], cg.sites[1], cg.sites[2]];
+            if !rfl_core::geometry::tripod_non_degenerate(sites, NONCOLLINEAR_EPS) {
+                return CheckOutcome::Fail(
+                    "degenerate tripod: the three contacts are (near-)collinear (STB1)".to_string(),
+                );
+            }
+        }
+        if let Some(com) = cg.object_com {
+            if cg.sites.len() >= 3
+                && !rfl_core::geometry::com_over_polygon(com, &cg.sites, SUPPORT_MARGIN)
+            {
+                return CheckOutcome::Fail(
+                    "unsupported: the object CoM projects outside the contact polygon \
+                     (STB2 / supported)"
+                        .to_string(),
+                );
+            }
+        }
+    }
+    CheckOutcome::Pass
+}
+
 /// Verify the § 6.6 actuation postcondition for `force.press_button`: an actuated (Succeeded)
 /// press MUST show the detent ForceEvent that marks actuation. Vacuous unless the action
 /// carries an `actuation` contract (every non-press_button action passes). Makes the `events`
@@ -2659,6 +2700,7 @@ mod tests {
             tactile: vec![],
             events: vec![],
             fidelity_tier: None,
+            contact_geometry: None,
         };
         let status = Status {
             message: "status",
@@ -2732,6 +2774,7 @@ mod tests {
                     tactile: vec![],
                     events: vec![],
                     fidelity_tier: None,
+                    contact_geometry: None,
                 }],
                 status,
             }
@@ -2985,6 +3028,7 @@ mod tests {
             tactile: vec![],
             events,
             fidelity_tier: None,
+            contact_geometry: None,
         };
         let status = |outcome: Outcome| Status {
             message: "status",
@@ -3072,6 +3116,7 @@ mod tests {
                 tactile: vec![],
                 events: vec![],
                 fidelity_tier: None,
+                contact_geometry: None,
             };
             DriverReport {
                 telemetry: vec![t],
@@ -3106,6 +3151,111 @@ mod tests {
         // over-force (9 N, above 6) -> Fail.
         assert!(matches!(
             check_envelope(EnvelopeClass::ForceTrajectory, &goal, &report(9.0)),
+            CheckOutcome::Fail(_)
+        ));
+    }
+
+    #[test]
+    fn check_contact_geometry_stb1_stb2() {
+        use rfl_core::canonical::{
+            CanonicalAction, Envelope, MotionBounds, PoseExpr, TimingHints, TimingMode,
+        };
+        use rfl_core::driver::{ContactGeometry, Outcome, Status, Telemetry};
+        let action = CanonicalAction {
+            target_frame: "control".into(),
+            target_pose: PoseExpr::Ref {
+                r#ref: "obj".into(),
+            },
+            force_budget: None,
+            timing: TimingHints {
+                nominal_duration: None,
+                timing_mode: TimingMode::Strict,
+                stop_at_goal: true,
+            },
+            tactile_target: None,
+            monitors: vec![],
+            safety_envelope: Envelope {
+                motion_bounds: MotionBounds::default(),
+                force_profile: None,
+                station_keeping: None,
+                clearance: None,
+                compliance: None,
+                stop_time: None,
+            },
+            grasp_stability: None,
+        };
+        let goal = ExecuteGoal::wrap("s/e/0001-tripod".to_string(), action);
+        let report = |cg: Option<ContactGeometry>| DriverReport {
+            telemetry: vec![Telemetry {
+                message: "telemetry",
+                action_id: "s/e/0001-tripod".to_string(),
+                t: 1.0,
+                realized_pose: None,
+                wrench: None,
+                securing_force: None,
+                station_error: None,
+                tactile: vec![],
+                events: vec![],
+                fidelity_tier: None,
+                contact_geometry: cg,
+            }],
+            status: Status {
+                message: "status",
+                action_id: "s/e/0001-tripod".to_string(),
+                outcome: Outcome::Succeeded,
+                verdict: None,
+                fidelity_tier: None,
+                final_pose: None,
+                failure_class: None,
+                failure_detail: None,
+                stop_latency: None,
+                safety_flags: None,
+            },
+        };
+        // No contact_geometry -> vacuous Pass.
+        assert_eq!(
+            check_contact_geometry(&goal, &report(None)),
+            CheckOutcome::Pass
+        );
+        // A well-spread tripod -> STB1 Pass.
+        let spread = ContactGeometry {
+            sites: vec![[0.0, 0.0, 0.0], [0.04, 0.0, 0.0], [0.02, 0.035, 0.0]],
+            object_com: None,
+        };
+        assert_eq!(
+            check_contact_geometry(&goal, &report(Some(spread))),
+            CheckOutcome::Pass
+        );
+        // A near-collinear tripod -> STB1 Fail.
+        let collinear = ContactGeometry {
+            sites: vec![[0.0, 0.0, 0.0], [0.04, 0.0, 0.0], [0.02, 0.0, 0.0]],
+            object_com: None,
+        };
+        assert!(matches!(
+            check_contact_geometry(&goal, &report(Some(collinear))),
+            CheckOutcome::Fail(_)
+        ));
+        // CoM inside the contact polygon -> STB2 Pass; outside -> Fail.
+        let square = vec![
+            [0.0, 0.0, 0.0],
+            [0.1, 0.0, 0.0],
+            [0.1, 0.1, 0.0],
+            [0.0, 0.1, 0.0],
+        ];
+        let supported = ContactGeometry {
+            sites: square.clone(),
+            object_com: Some([0.05, 0.05, 0.0]),
+        };
+        assert_eq!(
+            check_contact_geometry(&goal, &report(Some(supported))),
+            CheckOutcome::Pass
+        );
+        let toppling = ContactGeometry {
+            sites: square,
+            object_com: Some([0.2, 0.05, 0.0]),
+        };
+        assert!(matches!(
+            check_contact_geometry(&goal, &report(Some(toppling))),
             CheckOutcome::Fail(_)
         ));
     }

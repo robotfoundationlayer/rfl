@@ -159,6 +159,7 @@ fn telemetry_with_station_error_is_schema_valid() {
         tactile: vec![],
         events: vec![],
         fidelity_tier: None,
+        contact_geometry: None,
     };
     let v = serde_json::to_value(&t).unwrap();
     schemas
@@ -193,6 +194,7 @@ fn telemetry_with_detent_event_is_schema_valid() {
         tactile: vec![],
         events: vec![serde_json::json!({ "kind": "detent" })],
         fidelity_tier: None,
+        contact_geometry: None,
     };
     let v = serde_json::to_value(&t).unwrap();
     schemas

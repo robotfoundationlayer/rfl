@@ -55,6 +55,10 @@
           "result": "pass"
         },
         {
+          "name": "contact_geometry",
+          "result": "pass"
+        },
+        {
           "name": "hold_test",
           "result": "pass"
         },
@@ -113,6 +117,10 @@
         },
         {
           "name": "support_safe_state",
+          "result": "pass"
+        },
+        {
+          "name": "contact_geometry",
           "result": "pass"
         },
         {
@@ -176,6 +184,10 @@
           "result": "pass"
         },
         {
+          "name": "contact_geometry",
+          "result": "pass"
+        },
+        {
           "name": "hold_test",
           "result": "pass"
         },
@@ -228,6 +240,10 @@
         },
         {
           "name": "support_safe_state",
+          "result": "pass"
+        },
+        {
+          "name": "contact_geometry",
           "result": "pass"
         },
         {
@@ -291,6 +307,10 @@
           "result": "pass"
         },
         {
+          "name": "contact_geometry",
+          "result": "pass"
+        },
+        {
           "name": "hold_test",
           "result": "pass"
         },
@@ -348,6 +368,10 @@
         },
         {
           "name": "support_safe_state",
+          "result": "pass"
+        },
+        {
+          "name": "contact_geometry",
           "result": "pass"
         },
         {
@@ -411,6 +435,10 @@
           "result": "pass"
         },
         {
+          "name": "contact_geometry",
+          "result": "pass"
+        },
+        {
           "name": "hold_test",
           "result": "pass"
         },
@@ -471,6 +499,10 @@
           "result": "pass"
         },
         {
+          "name": "contact_geometry",
+          "result": "pass"
+        },
+        {
           "name": "hold_test",
           "result": "pass"
         },
@@ -500,5 +532,5 @@
       "result": "pass"
     }
   ],
-  "content_hash": "sha256:bb58710f7e1514ff54a5367c0e7154c3f62c0ea7e204273c638e12fb02578cb2"
+  "content_hash": "sha256:acadeb5353fad38d49aad2997e04db08e245f0f00d4d3ced58e517ab99596572"
 }

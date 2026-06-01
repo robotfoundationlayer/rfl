@@ -21,8 +21,8 @@ use std::collections::BTreeMap;
 
 use anyhow::{Context, Result, anyhow, bail};
 use rfl_core::driver::{
-    DriverReport, FreedPartDisposition, Outcome, RealizedPose, SafetyFlags, Status, Telemetry,
-    Verdict, Wrench,
+    ContactGeometry, DriverReport, FreedPartDisposition, Outcome, RealizedPose, SafetyFlags,
+    Status, Telemetry, Verdict, Wrench,
 };
 use rfl_core::quantity::Quantity;
 
@@ -96,6 +96,15 @@ struct TelemetryIn {
     events: Vec<serde_json::Value>,
     #[serde(default)]
     fidelity_tier: Option<String>,
+    #[serde(default)]
+    contact_geometry: Option<ContactGeometryIn>,
+}
+
+#[derive(serde::Deserialize)]
+struct ContactGeometryIn {
+    sites: Vec<[f64; 3]>,
+    #[serde(default)]
+    object_com: Option<[f64; 3]>,
 }
 
 #[derive(serde::Deserialize)]
@@ -133,6 +142,10 @@ fn to_telemetry(t: TelemetryIn) -> Telemetry {
         tactile: vec![],
         events: t.events,
         fidelity_tier: t.fidelity_tier,
+        contact_geometry: t.contact_geometry.map(|c| ContactGeometry {
+            sites: c.sites,
+            object_com: c.object_com,
+        }),
     }
 }
 

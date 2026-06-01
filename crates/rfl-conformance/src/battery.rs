@@ -12,10 +12,10 @@ use rfl_core::driver::DriverReport;
 
 use crate::{
     CheckOutcome, EnvelopeClass, check_actuation, check_audit_honesty, check_audit_record,
-    check_controlled_under_actuation, check_engagement, check_envelope, check_flip_bounded_window,
-    check_freed_part_disposition, check_hold_test, check_irreversible, check_make_before_break,
-    check_momentary_release, check_support_safe_state, check_two_party_handoff, envelope_class_for,
-    suffix_of,
+    check_contact_geometry, check_controlled_under_actuation, check_engagement, check_envelope,
+    check_flip_bounded_window, check_freed_part_disposition, check_hold_test, check_irreversible,
+    check_make_before_break, check_momentary_release, check_support_safe_state,
+    check_two_party_handoff, envelope_class_for, suffix_of,
 };
 
 /// A named check outcome.
@@ -82,6 +82,10 @@ pub fn verify_action(goal: &ExecuteGoal, report: &DriverReport) -> ActionVerdict
     checks.push(NamedCheck {
         name: "support_safe_state",
         outcome: check_support_safe_state(goal),
+    });
+    checks.push(NamedCheck {
+        name: "contact_geometry",
+        outcome: check_contact_geometry(goal, report),
     });
     checks.push(NamedCheck {
         name: "hold_test",

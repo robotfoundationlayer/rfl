@@ -55,6 +55,10 @@
           "result": "pass"
         },
         {
+          "name": "contact_geometry",
+          "result": "pass"
+        },
+        {
           "name": "hold_test",
           "result": "pass"
         },
@@ -113,6 +117,10 @@
         },
         {
           "name": "support_safe_state",
+          "result": "pass"
+        },
+        {
+          "name": "contact_geometry",
           "result": "pass"
         },
         {
@@ -176,6 +184,10 @@
           "result": "pass"
         },
         {
+          "name": "contact_geometry",
+          "result": "pass"
+        },
+        {
           "name": "hold_test",
           "result": "pass"
         },
@@ -236,6 +248,10 @@
           "result": "pass"
         },
         {
+          "name": "contact_geometry",
+          "result": "pass"
+        },
+        {
           "name": "hold_test",
           "result": "pass"
         },
@@ -265,5 +281,5 @@
       "result": "pass"
     }
   ],
-  "content_hash": "sha256:3d33a05bd90c0848ba60fdd8ecc8ba0a6de78e7fc687d9d1417c48bf8b601ef6"
+  "content_hash": "sha256:cc22c4430cdd6e6f87c5c2d31d9e4f41a993140425dce0156bc2c348252046e3"
 }
