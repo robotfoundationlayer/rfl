@@ -11,6 +11,20 @@ This chapter defines:
 3. The deterministic retargeting algorithm `retarget(skill, embodiment) -> canonical_actions`
 4. The safety envelope semantics and how envelope constraints flow from Skill ISA into per-embodiment action parameters
 
+## Relation to the whitepaper's I1–I5 contract
+
+The whitepaper states the retargeting contract as five binding invariants (I1–I5). This chapter is their machine-checkable form: it mechanizes the same contract as the finer obligations `CA1c–CA4c` (canonical-action) and `RD1c–RD4c` (retarget-determinism), with two invariants whose home is an adjacent chapter. The correspondence (derived; I2–I4 each span more than one obligation, so treat this table as the traceability map, not a one-to-one rename):
+
+| Whitepaper invariant | Mechanized by |
+|---|---|
+| **I1 — Determinism** | `RD1c` (generation byte-determinism, unconditional) + `RD2c` (the Class 2-loose realized-execution boundary for contact dynamics) |
+| **I2 — Embodiment-respect** | `CA1c` (pose reachability decidable) + `CA4c` (envelope clamped to the embodiment's declared limits) + the `03` `capability_absent` gate |
+| **I3 — Composability (rest-stable)** | the `01` compositional algebra's rest-stable composition validity — not a `02` obligation; recorded here so the invariant is traceable |
+| **I4 — Failure-mode preservation** | `CA4c` (an action exceeding a declared limit is malformed, never silently relaxed) + the binary `capability_absent` gate + `RD4c` (uncertainty-robust routing rather than degraded emission) |
+| **I5 — Extension-namespace isolation** | the `06` extension registry pass-through + unknown-tag rejection (`03`) |
+
+I1–I5 is the authoritative public statement of the contract; `CA*c` / `RD*c` are the same contract at the granularity a conformance test reads. The two label systems are not competing claims.
+
 ## Canonical action representation
 
 A canonical action is the embodiment-agnostic instruction `retarget` emits — the one representation a conformant driver (`03`) consumes. It is a tuple:
