@@ -1,0 +1,5 @@
+---
+source: crates/rfl-conformance/tests/snap_engage.rs
+expression: "jsonl_for(\"allegro\")"
+---
+{"message":"execute","action_id":"surface-snap/wonik-allegro-v4/0001-snap_engage","canonical_action":{"target_frame":"tcp_thumb","target_pose":{"direction":"+z","distance":"0 mm"},"force_budget":"25 N","timing":{"timing_mode":"time_scalable","stop_at_goal":true},"monitors":[{"stop_condition":"detent"}],"safety_envelope":{"motion_bounds":{"v_max":"0.4 m/s","a_max":"1.5 m/s^2","w_max":"2.0 rad/s"},"force_profile":{"actuation":"detent","confirm_held":true},"compliance":"active","stop_time":"0.1 s"}}}

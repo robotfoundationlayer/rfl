@@ -149,6 +149,9 @@ pub enum Primitive {
     /// `force.wipe`.
     #[serde(rename = "force.wipe")]
     ForceWipe(ForceWipe),
+    /// `force.snap_engage`.
+    #[serde(rename = "force.snap_engage")]
+    ForceSnapEngage(ForceSnapEngage),
 }
 
 /// `sense.locate` modality (`$defs/SenseLocateParams.modality`).
@@ -515,6 +518,30 @@ pub struct ForceWipe {
     /// Allowed deviation of the maintained normal force (`Force | auto`; explicit → the band).
     #[serde(default)]
     pub normal_force_tolerance: Option<serde_yaml::Value>,
+    /// Required compliance mode.
+    #[serde(default)]
+    pub compliance: Option<Compliance>,
+}
+
+/// `force.snap_engage` parameters (v0 subset of `$defs/ForceSnapEngageParams`, § 6.10).
+/// `mate_feature` + `engage_direction` + `force_budget` are required. v0 lowers the force_budget
+/// (the force-trajectory leg) + the detent snap-in marker (reusing press_button's detent) + the
+/// confirm_held engagement-confirmation marker. `mate_feature` is carried symbolic; the
+/// documented reverse path (snap_disengage) is deferred.
+#[derive(Debug, Clone, serde::Deserialize)]
+pub struct ForceSnapEngage {
+    /// The bistable mechanism / receptacle to engage (carried symbolic in v0).
+    pub mate_feature: serde_yaml::Value,
+    /// Direction to drive engagement, in `frame`.
+    pub engage_direction: Direction,
+    /// Max engagement force (mechanism-break / over-force limit) — the force-trajectory bound.
+    pub force_budget: Quantity,
+    /// `ActuationSpec` — what marks snap-in: `detent` (default) | `effort_rise(force_threshold)`.
+    #[serde(default)]
+    pub snap_signature: Option<serde_yaml::Value>,
+    /// Verify the bistable connection holds after engagement (release-test; default true).
+    #[serde(default)]
+    pub confirm_held: Option<bool>,
     /// Required compliance mode.
     #[serde(default)]
     pub compliance: Option<Compliance>,

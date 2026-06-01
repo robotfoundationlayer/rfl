@@ -1,0 +1,20 @@
+# Example 03 — Snap engage (force.snap_engage variant)
+# Engage a bistable clip / latch / snap-fit by driving the held part through the engagement
+# force peak until the snap-in detent fires, within a force budget, then confirm the connection
+# holds. Exercises the reversibility classification (spec/05 REV2, semi-reversible-persistent):
+# the snap-in reuses press_button's detent, and confirm_held verifies the engagement actually
+# holds (a false_engagement claiming success fails).
+skill: surface-snap
+description: >
+  Engage a bistable clip by driving the held part to its snap-in detent within a force
+  budget, then confirm the connection holds.
+
+body:
+  sequence:
+
+    - force.snap_engage:
+        mate_feature: clip
+        engage_direction: +z
+        force_budget: 25 N
+        confirm_held: true
+        compliance: active

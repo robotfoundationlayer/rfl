@@ -1,0 +1,5 @@
+---
+source: crates/rfl-conformance/tests/snap_engage.rs
+expression: "jsonl_for(\"pneumatic-6f\")"
+---
+{"message":"execute","action_id":"surface-snap/generic-pneumatic-6f/0001-snap_engage","canonical_action":{"target_frame":"palm","target_pose":{"direction":"+z","distance":"0 mm"},"force_budget":"25 N","timing":{"timing_mode":"time_scalable","stop_at_goal":true},"monitors":[{"stop_condition":"detent"}],"safety_envelope":{"motion_bounds":{"v_max":"0.3 m/s","a_max":"0.8 m/s^2","w_max":"1.2 rad/s"},"force_profile":{"actuation":"detent","confirm_held":true},"compliance":"active","stop_time":"0.15 s"}}}

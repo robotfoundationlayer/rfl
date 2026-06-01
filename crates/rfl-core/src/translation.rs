@@ -17,7 +17,7 @@ use crate::canonical::{
 use crate::embodiment::Embodiment;
 use crate::quantity::Quantity;
 use crate::skill_isa::{
-    Axes, Axis, Compliance, DisturbanceArg, ForceInsertFit, ForcePressButton, ForceScrew, ForceUnscrew, ForceWipe, GraspPinch, GraspRelease,
+    Axes, Axis, Compliance, DisturbanceArg, ForceInsertFit, ForcePressButton, ForceScrew, ForceSnapEngage, ForceUnscrew, ForceWipe, GraspPinch, GraspRelease,
     Primitive, ReachAlign, ReachHover, ReachRetract, ReachScan, ScanPattern, SenseInspect, Skill, StabilityMarginArg,
     Statement, TactileTargetArg, TransportCarry, TransportMoveToPose,
 };
@@ -133,6 +133,7 @@ fn check_capability(prim: &Primitive, e: &Embodiment) -> crate::Result<()> {
         Primitive::ForceUnscrew(_) => "force.unscrew",
         Primitive::ForcePressButton(_) => "force.press_button",
         Primitive::ForceWipe(_) => "force.wipe",
+        Primitive::ForceSnapEngage(_) => "force.snap_engage",
         Primitive::SenseInspect(_) => "sense.inspect",
     };
     if e.has_skill(key) {
@@ -162,6 +163,7 @@ fn lower(
         Primitive::ForceUnscrew(p) => (lower_force_unscrew(p, e, ctx), "unscrew"),
         Primitive::ForcePressButton(p) => (lower_force_press_button(p, e), "press_button"),
         Primitive::ForceWipe(p) => (lower_force_wipe(p, e), "wipe"),
+        Primitive::ForceSnapEngage(p) => (lower_force_snap_engage(p, e), "snap_engage"),
         Primitive::GraspRelease(p) => (lower_grasp_release(p, e, ctx), "release"),
         Primitive::ReachRetract(p) => (lower_reach_retract(p, e), "retract"),
         Primitive::ReachScan(p) => (lower_reach_scan(p, e), "scan"),
@@ -549,6 +551,58 @@ fn lower_force_wipe(p: &ForceWipe, e: &Embodiment) -> CanonicalAction {
         },
         tactile_target: None,
         monitors: vec![],
+        safety_envelope: env,
+    }
+}
+
+/// Lower `force.snap_engage` (`spec/01` § 6.10): a bistable engagement bounded by a force
+/// trajectory (engagement force ≤ `force_budget`) and gated by a snap-in event (reusing
+/// press_button's detent) + a confirm_held engagement-confirmation. v0 emits force_budget (the
+/// ForceTrajectory leg), `force_profile.actuation = "detent"` (when snap_signature is detent /
+/// default), and `force_profile.confirm_held = true` (default); the snap_signature lowers into a
+/// Monitor. The held part's motion is along `engage_direction` (grasp frame, like force.screw);
+/// `mate_feature` is carried symbolic; the snap_disengage reverse path is deferred.
+fn lower_force_snap_engage(p: &ForceSnapEngage, e: &Embodiment) -> CanonicalAction {
+    let is_detent = p.snap_signature.as_ref().map_or(true, actuation_is_detent);
+    let do_confirm = p.confirm_held != Some(false);
+    let mut env = base_envelope(e);
+    env.compliance = p.compliance.map(|c| {
+        match c {
+            Compliance::Passive => "passive",
+            Compliance::Active => "active",
+            Compliance::Auto => "auto",
+        }
+        .to_string()
+    });
+    if is_detent || do_confirm {
+        let mut fp = serde_json::json!({});
+        if is_detent {
+            fp["actuation"] = serde_json::json!("detent");
+        }
+        if do_confirm {
+            fp["confirm_held"] = serde_json::json!(true);
+        }
+        env.force_profile = Some(fp);
+    }
+    let sig = p
+        .snap_signature
+        .clone()
+        .unwrap_or_else(|| serde_yaml::Value::String("detent".to_string()));
+    let monitors = vec![Monitor { stop_condition: yaml_to_json(&sig) }];
+    CanonicalAction {
+        target_frame: e.grasp_frame().to_string(),
+        target_pose: PoseExpr::AxisRelative {
+            direction: yaml_to_json(&p.engage_direction),
+            distance: Quantity("0 mm".to_string()),
+        },
+        force_budget: Some(p.force_budget.clone()),
+        timing: TimingHints {
+            nominal_duration: None,
+            timing_mode: TimingMode::TimeScalable,
+            stop_at_goal: true,
+        },
+        tactile_target: None,
+        monitors,
         safety_envelope: env,
     }
 }
@@ -1148,6 +1202,35 @@ mod tests {
         let emb = load("allegro").1; // cable allegro lacks force.wipe
         let err = retarget(&skill, &emb).unwrap_err();
         assert!(err.to_string().contains("capability_absent: force.wipe"), "got {err}");
+    }
+
+    const SNAP_SKILL: &str = "skill: t\nbody:\n  sequence:\n    - force.snap_engage: { mate_feature: clip, engage_direction: +z, force_budget: 25 N, confirm_held: true }\n";
+
+    #[test]
+    fn snap_engage_capability_absent_when_not_declared() {
+        let skill = Skill::parse_yaml(SNAP_SKILL).unwrap();
+        let emb = load("allegro").1; // cable allegro lacks force.snap_engage
+        let err = retarget(&skill, &emb).unwrap_err();
+        assert!(err.to_string().contains("capability_absent: force.snap_engage"), "got {err}");
+    }
+
+    #[test]
+    fn snap_engage_lowers_actuation_confirm_held_and_force_budget() {
+        let dir =
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples/03-screw-fasten");
+        let skill =
+            Skill::parse_yaml(&std::fs::read_to_string(dir.join("skill-snap.yaml")).unwrap()).unwrap();
+        let emb = crate::embodiment::Embodiment::parse_yaml(
+            &std::fs::read_to_string(dir.join("embodiments/allegro.yaml")).unwrap(),
+        )
+        .unwrap();
+        let out = retarget(&skill, &emb).expect("retarget");
+        assert_eq!(out.suffixes, vec!["snap_engage"]);
+        let a = &out.actions[0];
+        assert_eq!(a.force_budget.as_ref().map(|q| q.0.as_str()), Some("25 N"));
+        let fp = serde_json::to_string(&a.safety_envelope.force_profile).unwrap();
+        assert!(fp.contains("\"actuation\":\"detent\""), "got {fp}");
+        assert!(fp.contains("\"confirm_held\":true"), "got {fp}");
     }
 
     #[test]
