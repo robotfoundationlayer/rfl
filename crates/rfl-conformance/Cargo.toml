@@ -16,6 +16,9 @@ serde.workspace = true
 serde_json.workspace = true
 boon = "0.6"
 sha2 = "0.10"
+ed25519-dalek = { version = "2", features = ["rand_core"] }
+rand = "0.8"
+hex = "0.4"
 
 [dev-dependencies]
 insta.workspace = true
