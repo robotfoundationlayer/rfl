@@ -64,18 +64,25 @@ pub fn run(skill_path: &Path, embodiment_path: &Path, report_path: &Path) -> Res
         std::fs::read(embodiment_path).with_context(|| format!("read {embodiment_path:?}"))?;
     let report_bytes =
         std::fs::read(report_path).with_context(|| format!("read {report_path:?}"))?;
+    certify_core(
+        &skill_bytes,
+        &emb_bytes,
+        std::str::from_utf8(&report_bytes).context("report is not UTF-8")?,
+    )
+}
 
+/// The certify pipeline over already-read inputs: parse + retarget + replay the report text +
+/// correlate + battery + seal. Shared by `run` (replay) and `run_live` (subprocess).
+fn certify_core(skill_bytes: &[u8], emb_bytes: &[u8], report_text: &str) -> Result<CertifyOutcome> {
     let skill = rfl_core::skill_isa::Skill::parse_yaml(
-        std::str::from_utf8(&skill_bytes).context("skill is not UTF-8")?,
+        std::str::from_utf8(skill_bytes).context("skill is not UTF-8")?,
     )?;
     let emb = rfl_core::embodiment::Embodiment::parse_yaml(
-        std::str::from_utf8(&emb_bytes).context("embodiment is not UTF-8")?,
+        std::str::from_utf8(emb_bytes).context("embodiment is not UTF-8")?,
     )?;
     let out = rfl_core::translation::retarget(&skill, &emb)?;
 
-    let reports = replay::replay_report(
-        std::str::from_utf8(&report_bytes).context("report is not UTF-8")?,
-    )?;
+    let reports = replay::replay_report(report_text)?;
 
     // Correlate the expected goal set against the replayed reports.
     let mut pairs = Vec::new();
@@ -113,9 +120,9 @@ pub fn run(skill_path: &Path, embodiment_path: &Path, report_path: &Path) -> Res
         certificate_schema_version: "0.1",
         spec_version: rfl_core::SPEC_VERSION,
         tool_version: env!("CARGO_PKG_VERSION"),
-        skill: FileRef { id: skill.skill.clone(), sha256: certificate::sha256_hex(&skill_bytes) },
-        embodiment: FileRef { id: emb.id.clone(), sha256: certificate::sha256_hex(&emb_bytes) },
-        report_sha256: certificate::sha256_hex(&report_bytes),
+        skill: FileRef { id: skill.skill.clone(), sha256: certificate::sha256_hex(skill_bytes) },
+        embodiment: FileRef { id: emb.id.clone(), sha256: certificate::sha256_hex(emb_bytes) },
+        report_sha256: certificate::sha256_hex(report_text.as_bytes()),
         result: if all_passed { "pass" } else { "fail" },
         covered: vec!["class3_driver_protocol"],
         excluded: vec![
