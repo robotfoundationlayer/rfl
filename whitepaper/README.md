@@ -16,7 +16,7 @@ The project's argument is published in **two complementary documents**, both che
 
 The two documents share Abstract content, Keywords, References, and Appendix A (TactileManifold formal specification) by construction; everything else is independently developed.
 
-A legacy filename `RFL_position_paper_v1.0_en.pdf` (294 KB, 21:43) exists from an earlier naming convention. `RFL_v1.0_en.pdf` is the canonical filename for the position paper (newer, used in external citation including the Sergey Levine endorsement request).
+`RFL_v1.0_en.pdf` is the canonical filename for the position paper, used in external citation including the Sergey Levine endorsement request.
 
 ## Status (2026-05-30)
 
