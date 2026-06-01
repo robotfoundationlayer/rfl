@@ -155,6 +155,9 @@ pub enum Primitive {
     /// `force.cut`.
     #[serde(rename = "force.cut")]
     ForceCut(ForceCut),
+    /// `in_hand.flip`.
+    #[serde(rename = "in_hand.flip")]
+    InHandFlip(InHandFlip),
 }
 
 /// `sense.locate` modality (`$defs/SenseLocateParams.modality`).
@@ -565,6 +568,23 @@ pub struct ForceCut {
     /// Required compliance mode.
     #[serde(default)]
     pub compliance: Option<Compliance>,
+}
+
+/// `in_hand.flip` parameters (v0 subset of `$defs/InHandFlipParams`, § 3.7). The only
+/// continuity-suspending primitive. `flip_axis` + `angle` + `max_release_time` + `safe_drop_zone`
+/// are required. v0 lowers a symbolic reorientation about `flip_axis`; angle / max_release_time /
+/// safe_drop_zone are carried symbolic (the bounded-window envelope geometry is deferred). The
+/// momentary_release audit (AUD2) is verified in conformance, not lowered.
+#[derive(Debug, Clone, serde::Deserialize)]
+pub struct InHandFlip {
+    /// Reorientation axis, in the grasp frame.
+    pub flip_axis: Direction,
+    /// Reorientation magnitude (carried symbolic in v0).
+    pub angle: Quantity,
+    /// Hard upper bound on the unsecured window (carried symbolic in v0).
+    pub max_release_time: Quantity,
+    /// Region below the operation where an uncaught object lands safely (carried symbolic; mandatory).
+    pub safe_drop_zone: serde_yaml::Value,
 }
 
 /// `force.unscrew` parameters (v0 subset of `$defs/ForceUnscrewParams`). Mirrors

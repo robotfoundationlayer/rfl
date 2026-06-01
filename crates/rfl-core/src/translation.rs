@@ -17,7 +17,7 @@ use crate::canonical::{
 use crate::embodiment::Embodiment;
 use crate::quantity::Quantity;
 use crate::skill_isa::{
-    Axes, Axis, Compliance, DisturbanceArg, ForceCut, ForceInsertFit, ForcePressButton, ForceScrew, ForceSnapEngage, ForceUnscrew, ForceWipe, GraspPinch, GraspRelease,
+    Axes, Axis, Compliance, DisturbanceArg, ForceCut, ForceInsertFit, ForcePressButton, ForceScrew, ForceSnapEngage, ForceUnscrew, ForceWipe, GraspPinch, GraspRelease, InHandFlip,
     Primitive, ReachAlign, ReachHover, ReachRetract, ReachScan, ScanPattern, SenseInspect, Skill, StabilityMarginArg,
     Statement, TactileTargetArg, TransportCarry, TransportMoveToPose,
 };
@@ -135,6 +135,7 @@ fn check_capability(prim: &Primitive, e: &Embodiment) -> crate::Result<()> {
         Primitive::ForceWipe(_) => "force.wipe",
         Primitive::ForceSnapEngage(_) => "force.snap_engage",
         Primitive::ForceCut(_) => "force.cut",
+        Primitive::InHandFlip(_) => "in_hand.flip",
         Primitive::SenseInspect(_) => "sense.inspect",
     };
     if e.has_skill(key) {
@@ -166,6 +167,7 @@ fn lower(
         Primitive::ForceWipe(p) => (lower_force_wipe(p, e), "wipe"),
         Primitive::ForceSnapEngage(p) => (lower_force_snap_engage(p, e), "snap_engage"),
         Primitive::ForceCut(p) => (lower_force_cut(p, e), "cut"),
+        Primitive::InHandFlip(p) => (lower_in_hand_flip(p, e), "flip"),
         Primitive::GraspRelease(p) => (lower_grasp_release(p, e, ctx), "release"),
         Primitive::ReachRetract(p) => (lower_reach_retract(p, e), "retract"),
         Primitive::ReachScan(p) => (lower_reach_scan(p, e), "scan"),
@@ -642,6 +644,32 @@ fn lower_force_cut(p: &ForceCut, e: &Embodiment) -> CanonicalAction {
         tactile_target: None,
         monitors,
         safety_envelope: env,
+    }
+}
+
+/// Lower `in_hand.flip` (`spec/01` § 3.7): the only continuity-suspending primitive — a large
+/// reorientation through a bounded, recoverable unsecured window. v0 lowers a symbolic
+/// reorientation about `flip_axis` in the grasp frame and emits **no** force_profile floor (the
+/// securing floor is intentionally suspended during the window, so the grasp-continuity check is
+/// vacuous for it). `ctx` is unchanged — the flip re-secures, so a prior held object persists for
+/// the downstream release. The bounded-window envelope (max_release_time / safe_drop_zone) and
+/// the momentary_release audit (AUD2) are handled elsewhere (deferred / conformance).
+fn lower_in_hand_flip(p: &InHandFlip, e: &Embodiment) -> CanonicalAction {
+    CanonicalAction {
+        target_frame: e.grasp_frame().to_string(),
+        target_pose: PoseExpr::AxisRelative {
+            direction: yaml_to_json(&p.flip_axis),
+            distance: Quantity("0 mm".to_string()),
+        },
+        force_budget: None,
+        timing: TimingHints {
+            nominal_duration: None,
+            timing_mode: TimingMode::Strict,
+            stop_at_goal: true,
+        },
+        tactile_target: None,
+        monitors: vec![],
+        safety_envelope: base_envelope(e),
     }
 }
 
@@ -1260,6 +1288,33 @@ mod tests {
         let emb = load("allegro").1; // cable allegro lacks force.cut
         let err = retarget(&skill, &emb).unwrap_err();
         assert!(err.to_string().contains("capability_absent: force.cut"), "got {err}");
+    }
+
+    const FLIP_SKILL: &str = "skill: t\nbody:\n  sequence:\n    - in_hand.flip: { flip_axis: +x, angle: 180 deg, max_release_time: 0.3 s, safe_drop_zone: tray }\n";
+
+    #[test]
+    fn flip_capability_absent_when_not_declared() {
+        let skill = Skill::parse_yaml(FLIP_SKILL).unwrap();
+        let emb = load("allegro").1; // cable-01 allegro lacks in_hand.flip
+        let err = retarget(&skill, &emb).unwrap_err();
+        assert!(err.to_string().contains("capability_absent: in_hand.flip"), "got {err}");
+    }
+
+    #[test]
+    fn flip_lowers_no_floor() {
+        let dir =
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples/03-screw-fasten");
+        let skill =
+            Skill::parse_yaml(&std::fs::read_to_string(dir.join("skill-flip.yaml")).unwrap()).unwrap();
+        let emb = crate::embodiment::Embodiment::parse_yaml(
+            &std::fs::read_to_string(dir.join("embodiments/allegro.yaml")).unwrap(),
+        )
+        .unwrap();
+        let out = retarget(&skill, &emb).expect("retarget");
+        // locate(0), pinch(1), flip(2), release(3).
+        assert_eq!(out.suffixes[2], "flip");
+        // the flip suspends continuity -> no force_profile floor emitted.
+        assert!(out.actions[2].safety_envelope.force_profile.is_none());
     }
 
     #[test]

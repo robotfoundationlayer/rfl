@@ -21,7 +21,7 @@ embodiment:
     tool_axis: { palm: +z }
 
   capabilities:
-    skills: [grasp.pinch, grasp.envelope, transport, force.insert_fit, force.screw, force.unscrew, force.press_button, force.wipe, force.snap_engage, force.cut, sense.locate]
+    skills: [grasp.pinch, grasp.envelope, transport, force.insert_fit, force.screw, force.unscrew, force.press_button, force.wipe, force.snap_engage, force.cut, in_hand.flip, sense.locate]
     aux:
       # tactile_sensing NOT declared → grasp.pinch confirms via the force/position proxy,
       # and the insertion seating is detected from chamber-pressure (force) alone.
