@@ -1,0 +1,7 @@
+---
+source: crates/rfl-conformance/tests/grasp_envelope.rs
+expression: "jsonl_for(\"pneumatic-6f\")"
+---
+{"message":"execute","action_id":"object-envelope-grasp/generic-pneumatic-6f/0001-locate","canonical_action":{"target_frame":"head_cam","target_pose":{"ref":"part"},"timing":{"timing_mode":"strict","stop_at_goal":true},"safety_envelope":{"motion_bounds":{}}}}
+{"message":"execute","action_id":"object-envelope-grasp/generic-pneumatic-6f/0002-cage","canonical_action":{"target_frame":"palm","target_pose":{"ref":"part_t"},"force_budget":"3 N","timing":{"timing_mode":"strict","stop_at_goal":true},"tactile_target":{"proxy":{"tier":"proxy","criterion":"enclosure_closed_around_object"}},"safety_envelope":{"motion_bounds":{"v_max":"0.3 m/s","a_max":"0.8 m/s^2","w_max":"1.2 rad/s"},"force_profile":{"cage_clearance":"4 mm","crush_protection":true},"stop_time":"0.15 s"},"grasp_stability":{"closure":"form","secured_dof":{"enclosure":"friction_held"},"stable_directions":"omnidirectional","residual_mobility":"4 mm"}}}
+{"message":"execute","action_id":"object-envelope-grasp/generic-pneumatic-6f/0003-release","canonical_action":{"target_frame":"palm","target_pose":{"direction":"-tool_axis","distance":"0 mm"},"timing":{"timing_mode":"strict","stop_at_goal":true},"safety_envelope":{"motion_bounds":{"v_max":"0.3 m/s","a_max":"0.8 m/s^2","w_max":"1.2 rad/s"},"stop_time":"0.15 s"}}}

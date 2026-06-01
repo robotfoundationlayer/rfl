@@ -1,0 +1,33 @@
+# Example 03 — Envelope grasp (grasp.envelope variant, cage sub-mode)
+# A caging form-closure enclosure for an irregular / imprecisely-localized object: a loose
+# geometric trap that holds the object without rigid fixation, leaving it residual mobility inside
+# the enclosure. Exercises the cage stability class (closure: form, residual_mobility set, no grip
+# floor). allegro + pneumatic declare grasp.envelope; the direct-drive leap hand does not, so it is
+# rejected at the capability gate (capability_absent). The conform sub-mode is unit-tested in
+# translation.rs (compliant flag + min_holding_force).
+skill: object-envelope-grasp
+description: >
+  Locate an irregular part, cage it in a loose enclosure with 4 mm of residual mobility, then
+  release. Demonstrates the caging form-closure mode for fragile / uncertain-geometry objects.
+
+objects:
+  part: { ref: part }
+
+body:
+  sequence:
+
+    - let: part_t
+      from:
+        sense.locate:
+          target_ref: part
+          modality: auto
+
+    - grasp.envelope:
+        target: part_t
+        force_budget: 3 N
+        mode: cage
+        cage_clearance: 4 mm
+        tactile_target: auto
+
+    - grasp.release:
+        grasp_handle: active
