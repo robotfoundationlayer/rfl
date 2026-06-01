@@ -169,6 +169,10 @@ fn check_capability(prim: &Primitive, e: &Embodiment) -> crate::Result<()> {
         // transport.carry is a DISTINCT capability beyond the base transport gate
         // (§ 4.4 precondition: "declares transport with carry support").
         Primitive::TransportCarry(_) => "transport.carry",
+        // The other non-base transport sub-capabilities (spec/03 § 280): each its own key.
+        Primitive::TransportLift(_) => "transport.lift",
+        Primitive::TransportLower(_) => "transport.lower",
+        Primitive::TransportFollowTrajectory(_) => "transport.follow_trajectory",
         Primitive::ForceInsertFit(_) => "force.insert_fit",
         Primitive::ForceScrew(_) => "force.screw",
         Primitive::ForceUnscrew(_) => "force.unscrew",
@@ -269,6 +273,12 @@ fn lower(
         ),
         Primitive::TransportHandoff(p) => (lower_transport_handoff(p, e, ctx), "handoff"),
         Primitive::TransportMoveToPose(p) => (lower_transport_move_to_pose(p, e, ctx), "transport"),
+        Primitive::TransportLift(p) => (lower_transport_lift(p, e, ctx), "lift"),
+        Primitive::TransportLower(p) => (lower_transport_lower(p, e, ctx), "lower"),
+        Primitive::TransportFollowTrajectory(p) => (
+            lower_transport_follow_trajectory(p, e, ctx),
+            "follow_trajectory",
+        ),
         Primitive::PlacePutDown(_) => (
             lower_place_action("target_surface", "put_down", vec![], e, ctx),
             "put_down",
@@ -766,25 +776,7 @@ fn lower_transport_move_to_pose(
         },
     };
     let mut env = base_envelope(e);
-    if let Some(held) = &ctx.held {
-        // GC1 static floor: the held carry maintains min_holding_force (the static
-        // counterpart of the dynamic a_max clamp below; spec/05 GC1 base continuity for
-        // transport.move_to_pose, spec/02 § min_holding_force). Mirrors lower_grasp_pinch.
-        let mhf = grasp_force::min_holding_force(held.weight_n, held.mode);
-        env.force_profile =
-            Some(serde_json::json!({ "min_holding_force": Quantity::from_si(mhf, "N").0 }));
-        let payload = e
-            .scalar_limit(held.mode.payload_key())
-            .and_then(|q| q.parse());
-        let ceiling = e.scalar_limit("a_cartesian_max").and_then(|q| q.parse());
-        if let (Some((payload_n, _)), Some((ceiling_v, unit))) = (payload, ceiling) {
-            let unit = unit.to_string();
-            let dyn_a = grasp_force::dynamic_a_max(held.weight_n, payload_n);
-            if dyn_a < ceiling_v {
-                env.motion_bounds.a_max = Some(Quantity::from_si(dyn_a, &unit));
-            }
-        }
-    }
+    apply_held_transport_bounds(&mut env, ctx, e);
     CanonicalAction {
         target_frame: e.grasp_frame().to_string(),
         target_pose,
@@ -792,6 +784,132 @@ fn lower_transport_move_to_pose(
         timing: TimingHints {
             nominal_duration: None,
             timing_mode: TimingMode::TimeScalable,
+            stop_at_goal: true,
+        },
+        tactile_target: None,
+        monitors: vec![],
+        safety_envelope: env,
+        grasp_stability: None,
+    }
+}
+
+/// Apply the held-transport continuity floor (GC1 `min_holding_force`) and the GF2c
+/// dynamic-stability `a_max` clamp to `env`, from the read-only `ctx.held`. Shared by the plain
+/// held transports — `transport.move_to_pose` / `lift` / `lower` / `follow_trajectory`. (`carry`
+/// reserves additional disturbance margin via `carry_a_max`, so it does its own clamp.)
+fn apply_held_transport_bounds(env: &mut Envelope, ctx: &GraspContext, e: &Embodiment) {
+    let Some(held) = &ctx.held else { return };
+    let mhf = grasp_force::min_holding_force(held.weight_n, held.mode);
+    env.force_profile =
+        Some(serde_json::json!({ "min_holding_force": Quantity::from_si(mhf, "N").0 }));
+    let payload = e
+        .scalar_limit(held.mode.payload_key())
+        .and_then(|q| q.parse());
+    let ceiling = e.scalar_limit("a_cartesian_max").and_then(|q| q.parse());
+    if let (Some((payload_n, _)), Some((ceiling_v, unit))) = (payload, ceiling) {
+        let unit = unit.to_string();
+        let dyn_a = grasp_force::dynamic_a_max(held.weight_n, payload_n);
+        if dyn_a < ceiling_v {
+            env.motion_bounds.a_max = Some(Quantity::from_si(dyn_a, &unit));
+        }
+    }
+}
+
+/// Lower `transport.lift` (`spec/01` § 4.5): raise a held object vertically along `up_direction`
+/// (default −gravity) by `height`, with the held-transport continuity floor + dynamic-stability
+/// clamp. The load-transfer anti-slip monitoring is the driver's; v0 emits the bounds + the pose.
+fn lower_transport_lift(
+    p: &crate::skill_isa::TransportLift,
+    e: &Embodiment,
+    ctx: &GraspContext,
+) -> CanonicalAction {
+    let mut env = base_envelope(e);
+    apply_held_transport_bounds(&mut env, ctx, e);
+    CanonicalAction {
+        target_frame: e.grasp_frame().to_string(),
+        target_pose: PoseExpr::AxisRelative {
+            direction: p.up_direction.as_ref().map_or(
+                serde_json::Value::String("-gravity".to_string()),
+                yaml_to_json,
+            ),
+            distance: p.height.clone(),
+        },
+        force_budget: None,
+        timing: TimingHints {
+            nominal_duration: None,
+            timing_mode: TimingMode::TimeScalable,
+            stop_at_goal: true,
+        },
+        tactile_target: None,
+        monitors: vec![],
+        safety_envelope: env,
+        grasp_stability: None,
+    }
+}
+
+/// Lower `transport.lower` (`spec/01` § 4.6): lower a held object vertically along `down_direction`
+/// (default gravity) with controlled deceleration, keeping the grasp (release is separate). v0
+/// emits the held-transport bounds + the pose + the `stop_mode` marker (touchdown vs height).
+fn lower_transport_lower(
+    p: &crate::skill_isa::TransportLower,
+    e: &Embodiment,
+    ctx: &GraspContext,
+) -> CanonicalAction {
+    let mut env = base_envelope(e);
+    apply_held_transport_bounds(&mut env, ctx, e);
+    // distance: an explicit height, else symbolic (auto = until touchdown).
+    let distance = p
+        .height
+        .clone()
+        .unwrap_or_else(|| Quantity("0 mm".to_string()));
+    CanonicalAction {
+        target_frame: e.grasp_frame().to_string(),
+        target_pose: PoseExpr::AxisRelative {
+            direction: p.down_direction.as_ref().map_or(
+                serde_json::Value::String("gravity".to_string()),
+                yaml_to_json,
+            ),
+            distance,
+        },
+        force_budget: None,
+        timing: TimingHints {
+            nominal_duration: None,
+            timing_mode: TimingMode::TimeScalable,
+            stop_at_goal: true,
+        },
+        tactile_target: None,
+        monitors: vec![],
+        safety_envelope: env,
+        grasp_stability: None,
+    }
+}
+
+/// Lower `transport.follow_trajectory` (`spec/01` § 4.2): transport a held object tracking a
+/// caller-owned parameterized path. v0 carries the `trajectory` opaque (like `carry`'s
+/// `{trajectory}` MoveSpec) and emits the held-transport bounds; the per-waypoint tracking is the
+/// driver's. `time_scalable` timing (the default) lets the path slow for dynamic stability.
+fn lower_transport_follow_trajectory(
+    p: &crate::skill_isa::TransportFollowTrajectory,
+    e: &Embodiment,
+    ctx: &GraspContext,
+) -> CanonicalAction {
+    let mut env = base_envelope(e);
+    apply_held_transport_bounds(&mut env, ctx, e);
+    let strict = p.timing_mode.as_deref() == Some("strict");
+    CanonicalAction {
+        target_frame: e.grasp_frame().to_string(),
+        target_pose: PoseExpr::FrameRelative {
+            frame: "task".to_string(),
+            offset: yaml_to_json(&p.trajectory),
+        },
+        force_budget: None,
+        timing: TimingHints {
+            nominal_duration: None,
+            timing_mode: if strict {
+                TimingMode::Strict
+            } else {
+                TimingMode::TimeScalable
+            },
             stop_at_goal: true,
         },
         tactile_target: None,

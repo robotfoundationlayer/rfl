@@ -133,6 +133,15 @@ pub enum Primitive {
     /// `transport.move_to_pose`.
     #[serde(rename = "transport.move_to_pose")]
     TransportMoveToPose(TransportMoveToPose),
+    /// `transport.lift`.
+    #[serde(rename = "transport.lift")]
+    TransportLift(TransportLift),
+    /// `transport.lower`.
+    #[serde(rename = "transport.lower")]
+    TransportLower(TransportLower),
+    /// `transport.follow_trajectory`.
+    #[serde(rename = "transport.follow_trajectory")]
+    TransportFollowTrajectory(TransportFollowTrajectory),
     /// `place.put_down`.
     #[serde(rename = "place.put_down")]
     PlacePutDown(PlacePutDown),
@@ -643,6 +652,44 @@ impl TransportHandoff {
             _ => GraspMode::Pinch,
         }
     }
+}
+
+/// `transport.lift` parameters (v0 subset of `$defs/TransportLiftParams`, § 4.5). Raise a held
+/// object vertically by `height` along `up_direction` (default −gravity, declared not assumed).
+#[derive(Debug, Clone, serde::Deserialize)]
+pub struct TransportLift {
+    /// Vertical lift distance.
+    pub height: Quantity,
+    /// The "up" direction (default −gravity); carried symbolic in v0.
+    #[serde(default)]
+    pub up_direction: Option<Direction>,
+}
+
+/// `transport.lower` parameters (v0 subset of `$defs/TransportLowerParams`, § 4.6). Lower a held
+/// object vertically with controlled deceleration, keeping the grasp (release is separate).
+#[derive(Debug, Clone, serde::Deserialize)]
+pub struct TransportLower {
+    /// Stop after a fixed descent (`height`) or on touchdown (default touchdown); carried symbolic.
+    #[serde(default)]
+    pub stop_mode: Option<String>,
+    /// (`height` mode) descent distance; absent = until touchdown.
+    #[serde(default)]
+    pub height: Option<Quantity>,
+    /// Descent direction (default gravity); carried symbolic in v0.
+    #[serde(default)]
+    pub down_direction: Option<Direction>,
+}
+
+/// `transport.follow_trajectory` parameters (v0 subset of `$defs/TransportFollowTrajectoryParams`,
+/// § 4.2). Transport a held object tracking a caller-owned parameterized path. The `trajectory` is
+/// carried opaque in v0; `timing_mode` (default time_scalable) selects the timing semantics.
+#[derive(Debug, Clone, serde::Deserialize)]
+pub struct TransportFollowTrajectory {
+    /// The parameterized path of the held object (carried opaque in v0).
+    pub trajectory: serde_yaml::Value,
+    /// `strict` | `time_scalable` (default time_scalable — may slow for dynamic stability).
+    #[serde(default)]
+    pub timing_mode: Option<String>,
 }
 
 /// `transport.move_to_pose` parameters (v0 subset of `$defs/TransportMoveToPoseParams`).
