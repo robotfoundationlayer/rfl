@@ -1,0 +1,41 @@
+# Example 03 — Sense (probe / weigh / verify)
+# The three remaining perception primitives, completing the sense category (5/5). sense.probe makes
+# one light tactile contact to measure a surface; sense.weigh estimates a held object's mass from
+# the force/torque reaction (the only sense primitive needing a held object); sense.verify checks a
+# predicate over external state. All are perception — no motion envelope (ENV1), no state change.
+skill: sense-suite
+description: >
+  Probe a panel, grasp a part, weigh it in-hand, verify it is seated, then release. Demonstrates the
+  perception primitives that produce measurements other categories consume.
+
+objects:
+  part: { ref: part, estimated_mass: 1.0 N }
+
+body:
+  sequence:
+
+    - sense.probe:
+        target_pose: { frame: panel, offset: { along: -z, distance: 0 mm } }
+        contact_force: 0.5 N
+        measure: [presence, normal]
+
+    - let: part_t
+      from:
+        sense.locate:
+          target_ref: part
+          modality: auto
+
+    - grasp.pinch:
+        target: part_t
+        force_budget: 8 N
+        tactile_target: auto
+
+    - sense.weigh:
+        method: static
+        measure: [mass]
+
+    - sense.verify:
+        predicate: { object_present: part }
+
+    - grasp.release:
+        grasp_handle: active
