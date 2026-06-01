@@ -14,7 +14,8 @@ rfl-core = { path = "../rfl-core" }
 anyhow.workspace = true
 serde.workspace = true
 serde_json.workspace = true
+boon = "0.6"
+sha2 = "0.10"
 
 [dev-dependencies]
 insta.workspace = true
-boon = "0.6"
