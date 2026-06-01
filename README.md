@@ -56,6 +56,8 @@ The whitepaper is the long-form argument; the [`spec/`](spec/) directory hosts t
 
 The whitepaper PDFs above are the authoritative reference at v0.1; the in-repo `spec/*.md` files are the developing machine-readable form intended to converge with the whitepaper by v1.0 (2027 Q2–Q3).
 
+To self-certify a driver against the Class 3 driver-protocol obligations — capture a report, run `rfl certify`, then `rfl verify` — see the [Certifying a driver](docs/certifying-a-driver.md) guide.
+
 ## Repository layout
 
 ```
