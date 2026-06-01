@@ -27,7 +27,7 @@ The physical-AI ecosystem of 2026 faces a coordination problem. Approximately ni
 
 Five constitutional principles govern every design choice: **embodiment-agnostic, compositional, verifiable, provider-neutral, forward-compatible.**
 
-[^1]: No published per-pair benchmark exists yet. The project commits to publishing one against the v0.1 nine-cell support matrix during the 2026 Q3 – 2027 Q1 review period.
+[^1]: No published per-pair benchmark exists yet. The project commits to publishing one against the v0.1 nine-cell support matrix during the 2026 Q3 – 2027 Q1 review period; the measurement methodology is fixed in [docs/integration-cost-methodology.md](docs/integration-cost-methodology.md).
 
 ## The whitepaper
 
