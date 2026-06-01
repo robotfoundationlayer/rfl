@@ -7,9 +7,9 @@
 //! - `rfl validate <skill.yaml>` — parse and validate a Skill ISA composition
 //! - `rfl retarget <skill.yaml> --embodiment <descriptor.yaml>` — print the
 //!   resolved canonical actions for the target embodiment
-//! - `rfl conformance --driver <binary>` — run the conformance test suite
-//! - `rfl certify --skill <s> --embodiment <e> --report <j>` — certify a vendor
-//!   driver report (JSONL replay) against the Class 3 driver-protocol obligations
+//! - `rfl certify --skill <s> --embodiment <e> (--report <j> | --driver <bin>)` — certify a
+//!   vendor driver against the Class 3 driver-protocol obligations (replay a captured report, or
+//!   spawn the driver live)
 //! - `rfl verify <certificate.json>` — schema-validate a certificate and re-verify its
 //!   content hash (tamper detection)
 
@@ -38,14 +38,8 @@ enum Command {
         #[arg(long)]
         embodiment: std::path::PathBuf,
     },
-    /// Run the conformance test suite against a driver implementation.
-    Conformance {
-        /// Path to the driver binary to test.
-        #[arg(long)]
-        driver: std::path::PathBuf,
-    },
-    /// Certify a vendor driver report (JSONL replay) against the Class 3 driver-protocol
-    /// obligations and emit a deterministic certificate.
+    /// Certify a vendor driver (replay via --report, or live via --driver) against the Class 3
+    /// driver-protocol obligations and emit a deterministic certificate.
     Certify {
         /// Path to the skill YAML file.
         #[arg(long)]
@@ -53,9 +47,15 @@ enum Command {
         /// Path to the embodiment descriptor YAML file.
         #[arg(long)]
         embodiment: std::path::PathBuf,
-        /// Path to the captured driver-report JSONL (telemetry + status lines).
+        /// Path to a captured driver-report JSONL (replay mode). Mutually exclusive with --driver.
         #[arg(long)]
-        report: std::path::PathBuf,
+        report: Option<std::path::PathBuf>,
+        /// Path to a driver binary to spawn (live mode). Mutually exclusive with --report.
+        #[arg(long)]
+        driver: Option<std::path::PathBuf>,
+        /// Timeout in seconds for live (--driver) mode.
+        #[arg(long, default_value_t = 30)]
+        timeout: u64,
         /// Optional path to write the canonical certificate JSON.
         #[arg(long)]
         out: Option<std::path::PathBuf>,
@@ -88,13 +88,21 @@ fn main() -> Result<()> {
             print!("{jsonl}");
             Ok(())
         }
-        Command::Conformance { driver } => {
-            anyhow::bail!(
-                "conformance not yet implemented (target: spec v0.1, 2027 Q1) — driver {driver:?}"
-            );
-        }
-        Command::Certify { skill, embodiment, report, out } => {
-            let outcome = match rfl_conformance::certify::run(&skill, &embodiment, &report) {
+        Command::Certify { skill, embodiment, report, driver, timeout, out } => {
+            let result = match (report, driver) {
+                (Some(r), None) => rfl_conformance::certify::run(&skill, &embodiment, &r),
+                (None, Some(d)) => rfl_conformance::certify::run_live(
+                    &skill,
+                    &embodiment,
+                    &d,
+                    std::time::Duration::from_secs(timeout),
+                ),
+                _ => {
+                    eprintln!("certify: exactly one of --report or --driver is required");
+                    std::process::exit(2);
+                }
+            };
+            let outcome = match result {
                 Ok(o) => o,
                 Err(e) => {
                     eprintln!("certify: invalid run: {e:#}");
