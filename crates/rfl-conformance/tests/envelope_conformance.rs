@@ -429,11 +429,27 @@ fn hover_over_envelope_aborts_gracefully() {
     .expect("drive");
     let (goal, report) = &pairs[0];
     // opposite-verdicts: aborts (Failed + station_exceeded) -> settling Pass, interval Fail.
-    assert_eq!(check_settling(report), CheckOutcome::Pass);
+    assert_eq!(check_settling(goal, report), CheckOutcome::Pass);
     assert!(matches!(
         check_envelope(EnvelopeClass::IntervalInvariant, goal, report),
         CheckOutcome::Fail(_)
     ));
+}
+
+#[test]
+fn hover_over_envelope_abort_too_slow_fails_timing() {
+    let dir = surface_dir();
+    let pairs = drive(
+        HoverSettlingDriver::new(HoverResponse::AbortsTooSlow),
+        &dir.join("skill-hover.yaml"),
+        &dir.join("embodiments/allegro.yaml"),
+    )
+    .expect("drive");
+    let (goal, report) = &pairs[0];
+    // non-circular: the abort is honest (Failed + station_exceeded) yet overruns stop_time,
+    // so the timing leg fails while the outcome leg alone would have passed.
+    assert_eq!(report.status.failure_detail.as_deref(), Some("station_exceeded"));
+    assert!(matches!(check_settling(goal, report), CheckOutcome::Fail(_)));
 }
 
 #[test]
@@ -445,8 +461,8 @@ fn hover_over_envelope_false_success_fails_settling() {
         &dir.join("embodiments/allegro.yaml"),
     )
     .expect("drive");
-    let (_, report) = &pairs[0];
-    assert!(matches!(check_settling(report), CheckOutcome::Fail(_)));
+    let (goal, report) = &pairs[0];
+    assert!(matches!(check_settling(goal, report), CheckOutcome::Fail(_)));
 }
 
 // --- force.press_button event-gated actuation (spec/01 § 6.6) --------------------------------

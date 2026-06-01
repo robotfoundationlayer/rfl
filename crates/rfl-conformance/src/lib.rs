@@ -361,8 +361,11 @@ pub enum HoverResponse {
     Recovers,
     /// Adversarial: drifts past `station_tolerance` throughout yet claims success.
     FailsToRecover,
-    /// Conformant (over-envelope): abort to a safe state (Failed + `station_exceeded`).
+    /// Conformant (over-envelope): abort to a safe state (Failed + `station_exceeded`) within
+    /// `stop_time`.
     Aborts,
+    /// Adversarial (over-envelope): aborts honestly (`station_exceeded`) but overruns `stop_time`.
+    AbortsTooSlow,
     /// Adversarial (over-envelope): claim success despite the station-exceeding impulse.
     ClaimsSuccess,
 }
@@ -412,13 +415,25 @@ impl Driver for HoverSettlingDriver {
                     t.station_error = q(over);
                 }
             }
-            HoverResponse::Aborts => {
+            HoverResponse::Aborts | HoverResponse::AbortsTooSlow => {
                 report.status.outcome = Outcome::Failed;
                 report.status.failure_class = Some("blocked".to_string());
                 report.status.failure_detail = Some("station_exceeded".to_string());
                 if let Some(v) = report.status.verdict.as_mut() {
                     v.value = false; // honest: the station was not held
                 }
+                // Emit the measured abort latency relative to the envelope stop_time: a
+                // conformant abort halts within it; AbortsTooSlow overruns it.
+                let stop = goal
+                    .canonical_action
+                    .safety_envelope
+                    .stop_time
+                    .as_ref()
+                    .and_then(|q| q.parse().map(|(v, _)| v))
+                    .unwrap_or(0.1);
+                let factor = if matches!(self.response, HoverResponse::AbortsTooSlow) { 5.0 } else { 0.5 };
+                report.status.stop_latency =
+                    Some(rfl_core::quantity::Quantity::from_si(stop * factor, "s"));
             }
             HoverResponse::ClaimsSuccess => {
                 for t in &mut report.telemetry {
@@ -977,7 +992,7 @@ pub fn check_graceful_degradation(goal: &ExecuteGoal, report: &DriverReport) -> 
 /// `check_envelope`: this judges the failure shape of an over-envelope impulse (`05` ENV3),
 /// not correct recovery.
 #[must_use]
-pub fn check_settling(report: &DriverReport) -> CheckOutcome {
+pub fn check_settling(goal: &ExecuteGoal, report: &DriverReport) -> CheckOutcome {
     if matches!(report.status.outcome, Outcome::Succeeded) {
         return CheckOutcome::Fail(
             "claimed success under a station-exceeding disturbance".to_string(),
@@ -989,7 +1004,25 @@ pub fn check_settling(report: &DriverReport) -> CheckOutcome {
             report.status.failure_detail
         ));
     }
-    CheckOutcome::Pass
+    // Timing leg (spec/01 § 1.5 C2): the abort must reach a safe state within stop_time.
+    // Non-vacuous for the station_exceeded abort — an abort that omits its measured time, or
+    // that overruns stop_time, is malformed.
+    let bound = goal
+        .canonical_action
+        .safety_envelope
+        .stop_time
+        .as_ref()
+        .and_then(quantity_mag);
+    let Some(bound) = bound else {
+        return CheckOutcome::Fail("envelope missing stop_time for an aborting hover".to_string());
+    };
+    match report.status.stop_latency.as_ref().and_then(quantity_mag) {
+        None => CheckOutcome::Fail("station_exceeded abort reported no stop_latency".to_string()),
+        Some(lat) if lat > bound => {
+            CheckOutcome::Fail(format!("abort stop_latency {lat} s exceeds stop_time {bound} s"))
+        }
+        Some(_) => CheckOutcome::Pass,
+    }
 }
 
 /// Verify the § 6.6 actuation postcondition for `force.press_button`: an actuated (Succeeded)
@@ -1406,7 +1439,11 @@ mod tests {
     #[test]
     fn check_settling_accepts_station_exceeded_abort_rejects_pretended_success() {
         use rfl_core::driver::{Outcome, RealizedPose, Status, Verdict};
-        let status = |outcome: Outcome, detail: Option<&str>| Status {
+        use rfl_core::quantity::Quantity;
+        let mut action = sample_action();
+        action.safety_envelope.stop_time = Some(Quantity("0.1 s".into()));
+        let goal = ExecuteGoal::wrap("s/e/0001-hover".to_string(), action);
+        let status = |outcome: Outcome, detail: Option<&str>, lat: Option<&str>| Status {
             message: "status",
             action_id: "s/e/0001-hover".to_string(),
             outcome,
@@ -1415,15 +1452,34 @@ mod tests {
             final_pose: Some(RealizedPose::placeholder()),
             failure_class: detail.map(|_| "blocked".to_string()),
             failure_detail: detail.map(str::to_string),
-            stop_latency: None,
+            stop_latency: lat.map(|s| Quantity(s.to_string())),
         };
-        let report = |o, d| DriverReport { telemetry: vec![], status: status(o, d) };
-        // abort to safe state: Failed + station_exceeded -> Pass.
-        assert_eq!(check_settling(&report(Outcome::Failed, Some("station_exceeded"))), CheckOutcome::Pass);
-        // pretended success -> Fail.
-        assert!(matches!(check_settling(&report(Outcome::Succeeded, None)), CheckOutcome::Fail(_)));
-        // wrong halt reason -> Fail.
-        assert!(matches!(check_settling(&report(Outcome::Failed, Some("blocked"))), CheckOutcome::Fail(_)));
+        let report = |o, d, l| DriverReport { telemetry: vec![], status: status(o, d, l) };
+        // abort within stop_time -> Pass.
+        assert_eq!(
+            check_settling(&goal, &report(Outcome::Failed, Some("station_exceeded"), Some("0.05 s"))),
+            CheckOutcome::Pass
+        );
+        // abort too slow (> stop_time) -> Fail (the new timing leg).
+        assert!(matches!(
+            check_settling(&goal, &report(Outcome::Failed, Some("station_exceeded"), Some("0.5 s"))),
+            CheckOutcome::Fail(_)
+        ));
+        // abort with no measured latency -> Fail (malformed abort; non-vacuous timing leg).
+        assert!(matches!(
+            check_settling(&goal, &report(Outcome::Failed, Some("station_exceeded"), None)),
+            CheckOutcome::Fail(_)
+        ));
+        // pretended success -> Fail (outcome leg, unchanged).
+        assert!(matches!(
+            check_settling(&goal, &report(Outcome::Succeeded, None, None)),
+            CheckOutcome::Fail(_)
+        ));
+        // wrong halt reason -> Fail (outcome leg, unchanged).
+        assert!(matches!(
+            check_settling(&goal, &report(Outcome::Failed, Some("blocked"), None)),
+            CheckOutcome::Fail(_)
+        ));
     }
 
     #[test]
