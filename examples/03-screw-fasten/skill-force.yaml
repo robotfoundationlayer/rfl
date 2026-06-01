@@ -1,0 +1,50 @@
+# Example 03 — Force (push / pull / scrub)
+# The three remaining force-controlled primitives, completing the force category (10/10) and the
+# full 51-primitive Skill ISA. force.push holds a directional contact force against a surface;
+# force.pull draws a held target with breakaway handling; force.scrub regulates normal force under
+# oscillating tangential motion. All three are force-trajectory (ENV1): the force/torque profile is
+# the verified envelope.
+skill: force-suite
+description: >
+  Push to brace against a fixture, then grasp and pull a cable to a stop, then scrub a panel under
+  regulated normal force. Demonstrates the static, tensile, and oscillating force primitives.
+
+objects:
+  cable: { ref: cable, estimated_mass: 0.3 N }
+
+body:
+  sequence:
+
+    - force.push:
+        target: fixture
+        target_force: 10 N
+        push_direction: -z
+        compliance: active
+
+    - let: cable_t
+      from:
+        sense.locate:
+          target_ref: cable
+          modality: auto
+
+    - grasp.pinch:
+        target: cable_t
+        force_budget: 8 N
+        tactile_target: auto
+
+    - force.pull:
+        pull_direction: +z
+        force_budget: 12 N
+        stop_condition: effort_drop
+        breakaway_response: arrest
+        compliance: active
+
+    - grasp.release:
+        grasp_handle: active
+
+    - force.scrub:
+        surface: panel
+        normal_force: 5 N
+        amplitude: 8 mm
+        completion: { count: 10 }
+        compliance: active
