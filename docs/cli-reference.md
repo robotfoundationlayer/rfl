@@ -24,6 +24,7 @@ rfl keygen   <secret-key-out>
 rfl sign     --key <secret-key> <certificate.json>
 rfl badge    <certificate.json>
 rfl sim      --skill <skill.yaml> --embodiment <descriptor.yaml>
+rfl measure  --skill <skill.yaml> --embodiment <descriptor.yaml> --run <trace.jsonl> --run <trace.jsonl> …
 rfl spec-version
 ```
 
@@ -229,6 +230,40 @@ rfl certify --skill … --embodiment … --driver "$(command -v rfl) sim"
 Both modes produce a byte-identical certificate for the same skill+embodiment —
 the parsed-goal path and the typed-action path agree. (For real third-party
 certification, point `--driver` at a *vendor's* driver binary instead.)
+
+## `rfl measure`
+
+Measure a **provisional** ε-tolerance table from N captured driver-report traces
+of one skill+embodiment. The tool retargets the skill to recover the `action_id
+-> primitive` map, schema-parses each trace, and for each terminal quantity
+(`final_position` / `final_orientation` / `wrench_force` / `wrench_torque` /
+`securing_force` / `station_error`) computes the run-to-run deviation versus the
+first (reference) run, then a candidate ε = percentile × safety factor. Samples
+pool across actions sharing a primitive.
+
+```bash
+rfl measure --skill examples/01-cable-insertion/skill.yaml \
+  --embodiment examples/01-cable-insertion/embodiments/allegro.yaml \
+  --run run1.jsonl --run run2.jsonl --run run3.jsonl \
+  --percentile 0.95 --safety 1.2 --out provisional.yaml
+```
+
+The output is **never** the committed normative `schemas/epsilon-tolerances.yaml`
+(all `null` = "not yet measured"). It is a distinct provisional document: a
+`# PROVISIONAL` banner, `provisional: true`, and per-entry `source: measured`
+plus `n_runs` / `n_samples`. A quantity observed in the reference but in no later
+run stays `tolerance: null` (not yet gradeable) rather than a fabricated zero.
+Promoting a provisional value into the normative table is a deliberate,
+out-of-band step.
+
+Deterministic simulators (`rfl sim`) exhibit zero run-to-run variation, so they
+yield ε = 0 — a true value, but not a meaningful tolerance. A meaningful table
+needs real hardware traces or a declared-conformant stochastic simulator.
+
+| Exit | Meaning |
+|---|---|
+| `0` | Provisional table written (to `--out` or stdout). |
+| `2` | Fewer than two `--run` traces, an unreadable file, a parse error, or a `capability_absent` retarget rejection. |
 
 ## `rfl spec-version`
 

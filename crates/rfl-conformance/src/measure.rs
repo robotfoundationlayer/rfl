@@ -339,6 +339,94 @@ pub fn aggregate_epsilon(
     }
 }
 
+/// Build the `action_id -> primitive name` map for a retargeted skill. The id
+/// format mirrors `rfl_core::canonical::to_jsonl` (`{skill}/{emb}/{NNNN}-{suffix}`,
+/// one per sequence statement, in order), so the ids match what a driver echoes
+/// back in its report.
+#[must_use]
+pub fn action_primitives(
+    skill: &rfl_core::skill_isa::Skill,
+    embodiment: &rfl_core::embodiment::Embodiment,
+    out: &rfl_core::translation::RetargetOutput,
+) -> BTreeMap<String, String> {
+    use rfl_core::skill_isa::Statement;
+    let mut map = BTreeMap::new();
+    for (i, stmt) in skill.body.sequence.iter().enumerate() {
+        let prim = match stmt {
+            Statement::Primitive(p) => p,
+            Statement::LetBind(b) => &b.from,
+        };
+        let id = format!(
+            "{}/{}/{:04}-{}",
+            skill.skill,
+            embodiment.id,
+            i + 1,
+            out.suffixes[i]
+        );
+        map.insert(id, prim.name().to_string());
+    }
+    map
+}
+
+/// Measure a provisional ε table from N captured trace JSONLs for one
+/// skill+embodiment. Retargets to recover the `action_id -> primitive` map,
+/// schema-parses each trace via `replay::replay_report`, and aggregates the
+/// run-to-run deviations. `runs_jsonl[0]` is the reference.
+///
+/// # Errors
+/// Propagates a retarget error (e.g. `capability_absent`) or a malformed-trace
+/// parse error.
+pub fn measure_traces(
+    skill: &rfl_core::skill_isa::Skill,
+    embodiment: &rfl_core::embodiment::Embodiment,
+    runs_jsonl: &[String],
+    percentile: f64,
+    safety: f64,
+) -> anyhow::Result<ProvisionalTable> {
+    let out = rfl_core::translation::retarget(skill, embodiment)?;
+    let primitives = action_primitives(skill, embodiment, &out);
+    let runs: Vec<_> = runs_jsonl
+        .iter()
+        .map(|j| crate::replay::replay_report(j))
+        .collect::<anyhow::Result<_>>()?;
+    Ok(aggregate_epsilon(&primitives, &runs, percentile, safety))
+}
+
+impl ProvisionalTable {
+    /// Render the table as a provisional ε-tolerance YAML document. Deliberately
+    /// distinct from the committed `schemas/epsilon-tolerances.yaml`: a header
+    /// banner plus `provisional: true` / per-entry `source: measured` + sample
+    /// provenance so a measured table can never be mistaken for the normative one.
+    /// Deterministic (the maps are `BTreeMap`s).
+    #[must_use]
+    pub fn to_provisional_yaml(&self) -> String {
+        let mut s = String::new();
+        s.push_str(
+            "# PROVISIONAL: measured, NOT normative. Do not commit as schemas/epsilon-tolerances.yaml.\n",
+        );
+        s.push_str("provisional: true\n");
+        s.push_str("source: measured\n");
+        s.push_str(&format!("percentile: {}\n", self.percentile));
+        s.push_str(&format!("safety_factor: {}\n", self.safety_factor));
+        s.push_str("epsilon_tolerances:\n");
+        for (primitive, quantities) in &self.tolerances {
+            s.push_str(&format!("  {primitive}:\n"));
+            for (quantity, e) in quantities {
+                s.push_str(&format!("    {quantity}:\n"));
+                s.push_str(&format!("      metric: {}\n", e.metric.as_str()));
+                match e.tolerance {
+                    Some(t) => s.push_str(&format!("      tolerance: {t}\n")),
+                    None => s.push_str("      tolerance: null\n"),
+                }
+                s.push_str(&format!("      unit: {}\n", e.unit));
+                s.push_str(&format!("      n_runs: {}\n", e.n_runs));
+                s.push_str(&format!("      n_samples: {}\n", e.n_samples));
+            }
+        }
+        s
+    }
+}
+
 #[cfg(test)]
 mod tests {
     #![allow(clippy::float_cmp)]
@@ -536,6 +624,33 @@ mod tests {
         assert_eq!(entry.n_samples, 2); // both actions pooled
         // p95 nearest-rank over {0.2, 0.4} = 0.4; safety 1.0.
         assert!((entry.tolerance.unwrap() - 0.4).abs() < 1e-12);
+    }
+
+    #[test]
+    fn provisional_yaml_carries_the_honesty_firewall() {
+        // r0 reports a wrench; r1 does not -> wrench_force is applicable but
+        // ungradeable (null). Position deviates 0.5 m -> 0.6 candidate.
+        let r0 = report(
+            vec![telemetry_force([5.0, 0.0, 0.0])],
+            status_with_pose([0.0; 3], [0.0, 0.0, 0.0, 1.0]),
+        );
+        let r1 = report(
+            vec![],
+            status_with_pose([0.0, 0.0, 0.5], [0.0, 0.0, 0.0, 1.0]),
+        );
+        let runs = vec![run("a/b/0001-x", r0), run("a/b/0001-x", r1)];
+        let table = aggregate_epsilon(&prim_map("a/b/0001-x", "force.screw"), &runs, 0.95, 1.2);
+        let yaml = table.to_provisional_yaml();
+        assert!(yaml.starts_with("# PROVISIONAL"));
+        assert!(yaml.contains("provisional: true"));
+        assert!(yaml.contains("source: measured"));
+        assert!(yaml.contains("force.screw"));
+        assert!(yaml.contains("final_position"));
+        assert!(yaml.contains("metric: l2_norm"));
+        assert!(yaml.contains("n_samples: 1"));
+        // A measured candidate renders as a number, an ungradeable one as null.
+        assert!(yaml.contains("tolerance: 0.6"));
+        assert!(yaml.contains("tolerance: null")); // final_orientation: identical -> 0; wrench absent -> null
     }
 
     #[test]

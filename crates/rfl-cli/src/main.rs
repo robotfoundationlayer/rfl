@@ -17,6 +17,8 @@
 //! - `rfl badge <certificate.json>` — derive a conformance badge (regime + fidelity tier + trademark gate)
 //! - `rfl sim --skill <s> --embodiment <e>` — the reference simulator driver: retarget + execute,
 //!   emitting a conformant driver-report JSONL (the supply-side reference; feed it to `rfl certify --report`)
+//! - `rfl measure --skill <s> --embodiment <e> --run <t> --run <t> …` — measure a provisional
+//!   ε-tolerance table from N captured driver-report traces (never the committed normative table)
 
 use anyhow::Result;
 use clap::{Parser, Subcommand};
@@ -98,6 +100,30 @@ enum Command {
         /// Path to the embodiment descriptor YAML file (regenerate mode).
         #[arg(long)]
         embodiment: Option<std::path::PathBuf>,
+    },
+    /// Measure a provisional epsilon-tolerance table from N captured driver-report traces
+    /// for one skill+embodiment. Emits a clearly-marked provisional document; never the
+    /// committed normative table.
+    Measure {
+        /// Path to the skill YAML file.
+        #[arg(long)]
+        skill: std::path::PathBuf,
+        /// Path to the embodiment descriptor YAML file.
+        #[arg(long)]
+        embodiment: std::path::PathBuf,
+        /// Path to a captured driver-report JSONL trace. Repeatable; at least two are required
+        /// (a single run has no run-to-run variation).
+        #[arg(long = "run", required = true)]
+        runs: Vec<std::path::PathBuf>,
+        /// The percentile (in [0, 1]) for the epsilon candidate.
+        #[arg(long, default_value_t = 0.95)]
+        percentile: f64,
+        /// The safety factor applied to the percentile.
+        #[arg(long, default_value_t = 1.2)]
+        safety: f64,
+        /// Optional path to write the provisional table to (default: stdout).
+        #[arg(long)]
+        out: Option<std::path::PathBuf>,
     },
     /// Print the specification version this CLI implements.
     SpecVersion,
@@ -380,6 +406,55 @@ fn main() -> Result<()> {
                 }
             };
             print!("{}", rfl_conformance::reports_to_jsonl(&reports));
+            Ok(())
+        }
+        Command::Measure {
+            skill,
+            embodiment,
+            runs,
+            percentile,
+            safety,
+            out,
+        } => {
+            if runs.len() < 2 {
+                eprintln!(
+                    "measure: at least two --run traces are required (a single run has no run-to-run variation)"
+                );
+                std::process::exit(2);
+            }
+            let skill_text = std::fs::read_to_string(&skill)
+                .map_err(|e| anyhow::anyhow!("read skill {skill:?}: {e}"))?;
+            let emb_text = std::fs::read_to_string(&embodiment)
+                .map_err(|e| anyhow::anyhow!("read embodiment {embodiment:?}: {e}"))?;
+            let parsed_skill = rfl_core::skill_isa::Skill::parse_yaml(&skill_text)?;
+            let emb = rfl_core::embodiment::Embodiment::parse_yaml(&emb_text)?;
+            let mut runs_jsonl = Vec::with_capacity(runs.len());
+            for r in &runs {
+                runs_jsonl.push(
+                    std::fs::read_to_string(r)
+                        .map_err(|e| anyhow::anyhow!("read run {r:?}: {e}"))?,
+                );
+            }
+            let table = match rfl_conformance::measure::measure_traces(
+                &parsed_skill,
+                &emb,
+                &runs_jsonl,
+                percentile,
+                safety,
+            ) {
+                Ok(t) => t,
+                Err(e) => {
+                    eprintln!("measure: {e:#}");
+                    std::process::exit(2);
+                }
+            };
+            let yaml = table.to_provisional_yaml();
+            match out {
+                Some(p) => {
+                    std::fs::write(&p, yaml).map_err(|e| anyhow::anyhow!("write {p:?}: {e}"))?
+                }
+                None => print!("{yaml}"),
+            }
             Ok(())
         }
         Command::SpecVersion => {
