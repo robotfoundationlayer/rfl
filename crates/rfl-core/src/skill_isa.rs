@@ -161,6 +161,9 @@ pub enum Primitive {
     /// `in_hand.flip`.
     #[serde(rename = "in_hand.flip")]
     InHandFlip(InHandFlip),
+    /// `grasp.pin`.
+    #[serde(rename = "grasp.pin")]
+    GraspPin(GraspPin),
 }
 
 /// `sense.locate` modality (`$defs/SenseLocateParams.modality`).
@@ -244,6 +247,23 @@ pub struct GraspPinch {
 
 fn tactile_auto() -> TactileTargetArg {
     TactileTargetArg::Auto(AutoLiteral::Auto)
+}
+
+/// `grasp.pin` parameters (v0 subset of `$defs/GraspPinParams`, § 2.7). `target` +
+/// `against_surface` + `force_budget` required. `against_surface` is the external
+/// surface the object is pinned against; v0 floors the SurfaceTarget (point + normal)
+/// to a frame name, as `force.wipe` floors its `surface`.
+#[derive(Debug, Clone, serde::Deserialize)]
+pub struct GraspPin {
+    /// The object target to pin (a let-reference in the reference skill).
+    pub target: Ref,
+    /// The external surface to pin the object against (v0: a frame ref).
+    pub against_surface: FrameRef,
+    /// Normal force pressing the object onto the surface.
+    pub force_budget: Quantity,
+    /// Contact-confirmation criterion (default auto = effector contact + surface reaction).
+    #[serde(default = "tactile_auto")]
+    pub tactile_target: TactileTargetArg,
 }
 
 /// `transport.move_to_pose` parameters (v0 subset of `$defs/TransportMoveToPoseParams`).

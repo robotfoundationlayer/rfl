@@ -14,22 +14,25 @@
 /// gravity (`spec/01`), so only the dynamic clamp needs this as a scale.
 pub const G0: f64 = 9.80665;
 
-/// A held-grasp closure mode. v0 lowers only `grasp.pinch`; the enum gives the
-/// derivations a forward-compatible key for the per-mode factors and payload limit.
+/// A held-grasp closure mode. v0 lowers `grasp.pinch` and `grasp.pin`; the enum gives
+/// the derivations a forward-compatible key for the per-mode factors and payload limit.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum GraspMode {
     /// Antipodal force-closure pinch.
     Pinch,
+    /// Extrinsic force-closure pin against an external surface (`spec/01` § 2.7).
+    Pin,
 }
 
 impl GraspMode {
     /// The schematic holding factor: required grip per unit held weight
     /// (`min_holding_force = weight · k_holding`). `≈ 1/(2μ)` at μ=0.25 for a
-    /// 2-contact force-closure pinch.
+    /// 2-contact force-closure pinch; the pin's two friction interfaces (effector +
+    /// surface) give the same schematic factor.
     #[must_use]
     pub fn k_holding(self) -> f64 {
         match self {
-            GraspMode::Pinch => 2.0,
+            GraspMode::Pinch | GraspMode::Pin => 2.0,
         }
     }
 
@@ -38,7 +41,7 @@ impl GraspMode {
     #[must_use]
     pub fn k_reaction(self) -> f64 {
         match self {
-            GraspMode::Pinch => 2.0,
+            GraspMode::Pinch | GraspMode::Pin => 2.0,
         }
     }
 
@@ -47,6 +50,7 @@ impl GraspMode {
     pub fn payload_key(self) -> &'static str {
         match self {
             GraspMode::Pinch => "payload_grasp_pinch",
+            GraspMode::Pin => "payload_grasp_pin",
         }
     }
 }

@@ -19,8 +19,8 @@ use crate::grasp_force::{self, GraspMode};
 use crate::quantity::Quantity;
 use crate::skill_isa::{
     Axes, Axis, Compliance, DisturbanceArg, ForceCut, ForceInsertFit, ForcePressButton, ForceScrew,
-    ForceSnapEngage, ForceUnscrew, ForceWipe, GraspPinch, GraspRelease, InHandFlip, Primitive,
-    ReachAlign, ReachHover, ReachRetract, ReachScan, ScanPattern, SenseInspect, Skill,
+    ForceSnapEngage, ForceUnscrew, ForceWipe, GraspPin, GraspPinch, GraspRelease, InHandFlip,
+    Primitive, ReachAlign, ReachHover, ReachRetract, ReachScan, ScanPattern, SenseInspect, Skill,
     StabilityMarginArg, Statement, TactileTargetArg, TransportCarry, TransportMoveToPose,
 };
 use crate::stability::StabilityMetadata;
@@ -128,6 +128,7 @@ fn check_capability(prim: &Primitive, e: &Embodiment) -> crate::Result<()> {
         }
         Primitive::SenseLocate(_) => "sense.locate",
         Primitive::GraspPinch(_) => "grasp.pinch",
+        Primitive::GraspPin(_) => "grasp.pin",
         // A category key implies the base primitive: `transport` = transport.move_to_pose.
         Primitive::TransportMoveToPose(_) => "transport",
         // transport.carry is a DISTINCT capability beyond the base transport gate
@@ -178,6 +179,7 @@ fn lower(
     match prim {
         Primitive::SenseLocate(p) => (lower_sense_locate(p, e), "locate"),
         Primitive::GraspPinch(p) => (lower_grasp_pinch(p, e, ctx, weights), "pinch"),
+        Primitive::GraspPin(p) => (lower_grasp_pin(p, e), "pin"),
         Primitive::TransportMoveToPose(p) => (lower_transport_move_to_pose(p, e, ctx), "transport"),
         Primitive::TransportCarry(p) => (lower_transport_carry(p, e, ctx), "carry"),
         Primitive::ReachAlign(p) => (lower_reach_align(p, e), "align"),
@@ -318,6 +320,51 @@ fn lower_grasp_pinch(
         monitors: vec![],
         safety_envelope: env,
         grasp_stability: Some(stability),
+    }
+}
+
+/// Lower `grasp.pin` (`spec/01` § 2.7): pin a target against an external surface by
+/// normal force (extrinsic force closure). Mirrors `lower_grasp_pinch` minus the
+/// weight floor — a pinned object's retention is surface-normal-directional, not a
+/// free hang, so v0 emits no `min_holding_force`. The `against_surface` rides the
+/// envelope's `force_profile` as a symbolic marker; the surface-bound stability class
+/// (`StabilityMetadata::for_mode(Pin)`) declares `extrinsic` + `surface_bound`, which
+/// the STB3 composition check reads to forbid a free-transport successor. The pinned
+/// object is NOT recorded in `ctx.held` (it is not a freely-carried load).
+fn lower_grasp_pin(p: &GraspPin, e: &Embodiment) -> CanonicalAction {
+    let force_budget = clamp_force(&p.force_budget, "grip_force_max", e);
+    let tactile_target = Some(match (&p.tactile_target, e.tactile_sensing()) {
+        (TactileTargetArg::Auto(_), true) => TactileTargetOut::Auto,
+        (TactileTargetArg::Auto(_), false) => TactileTargetOut::Proxy {
+            proxy: ProxySpec {
+                tier: "proxy",
+                criterion: "effector_contact_and_surface_reaction",
+            },
+        },
+        (TactileTargetArg::Other(v), _) => {
+            TactileTargetOut::Explicit(serde_json::to_value(v).unwrap_or(serde_json::Value::Null))
+        }
+    });
+    let mut env = base_envelope(e);
+    env.force_profile = Some(serde_json::json!({
+        "against_surface": p.against_surface,
+        "extrinsic": true,
+    }));
+    CanonicalAction {
+        target_frame: e.grasp_frame().to_string(),
+        target_pose: PoseExpr::Ref {
+            r#ref: p.target.clone(),
+        },
+        force_budget: Some(force_budget),
+        timing: TimingHints {
+            nominal_duration: None,
+            timing_mode: TimingMode::Strict,
+            stop_at_goal: true,
+        },
+        tactile_target,
+        monitors: vec![],
+        safety_envelope: env,
+        grasp_stability: Some(StabilityMetadata::for_mode(GraspMode::Pin)),
     }
 }
 
@@ -1356,6 +1403,31 @@ mod tests {
         assert!(
             !json.contains("grasp_stability"),
             "a non-grasp action must omit the key on the wire: {json}"
+        );
+    }
+
+    #[test]
+    fn pin_emits_surface_bound_extrinsic_grasp_stability() {
+        use crate::stability::Closure;
+        let emb = load("allegro").1;
+        let yaml = "skill: t\nbody:\n  sequence:\n    - grasp.pin:\n        target: part_t\n        against_surface: workbench\n        force_budget: 8 N\n";
+        let skill = Skill::parse_yaml(yaml).expect("parse grasp.pin");
+        let Statement::Primitive(Primitive::GraspPin(p)) = &skill.body.sequence[0] else {
+            panic!("expected grasp.pin at index 0");
+        };
+        let a = super::lower_grasp_pin(p, &emb);
+        let st = a
+            .grasp_stability
+            .as_ref()
+            .expect("pin carries grasp_stability");
+        assert_eq!(st.closure, Closure::Force);
+        assert!(st.flags.surface_bound && st.flags.extrinsic);
+        assert_eq!(a.force_budget.as_ref().unwrap().0, "8 N"); // under grip_force_max 20 N
+        let json = serde_json::to_string(&a).unwrap();
+        assert!(json.contains("\"surface_bound\":true"), "got {json}");
+        assert!(
+            json.contains("\"against_surface\":\"workbench\""),
+            "got {json}"
         );
     }
 

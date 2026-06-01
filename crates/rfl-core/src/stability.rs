@@ -146,6 +146,25 @@ impl StabilityMetadata {
                 residual_mobility: None,
                 min_holding_force: None,
             },
+            // pin: extrinsic force closure against a surface — clamp-normal friction_held,
+            // stable only along the surface normal, surface-bound (no free transport).
+            GraspMode::Pin => StabilityMetadata {
+                closure: Closure::Force,
+                secured_dof: BTreeMap::from([(
+                    "clamp_normal".to_string(),
+                    DofSecuring::FrictionHeld,
+                )]),
+                stable_directions: StableDirections::Set(vec![
+                    "against_surface.normal".to_string(),
+                ]),
+                flags: StabilityFlags {
+                    extrinsic: true,
+                    surface_bound: true,
+                    ..StabilityFlags::default()
+                },
+                residual_mobility: None,
+                min_holding_force: None,
+            },
         }
     }
 }
@@ -166,6 +185,28 @@ mod tests {
         assert!(m.flags.is_empty());
         assert_eq!(m.min_holding_force, None);
         assert_eq!(m.residual_mobility, None);
+    }
+
+    #[test]
+    fn for_mode_pin_is_surface_bound_extrinsic_directional() {
+        let m = StabilityMetadata::for_mode(GraspMode::Pin);
+        assert_eq!(m.closure, Closure::Force);
+        assert_eq!(
+            m.secured_dof.get("clamp_normal"),
+            Some(&DofSecuring::FrictionHeld)
+        );
+        assert!(m.flags.surface_bound && m.flags.extrinsic);
+        assert_eq!(
+            m.stable_directions,
+            StableDirections::Set(vec!["against_surface.normal".to_string()])
+        );
+        // the first non-empty flags + first non-omnidirectional directions on the wire.
+        let json = serde_json::to_string(&m).unwrap();
+        assert!(json.contains("\"surface_bound\":true"), "json: {json}");
+        assert!(
+            json.contains("\"stable_directions\":[\"against_surface.normal\"]"),
+            "json: {json}"
+        );
     }
 
     #[test]
