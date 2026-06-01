@@ -5,11 +5,10 @@
 #   validate -> retarget -> certify (live, via a mock driver) -> verify
 #   -> sign -> verify (signed)
 #
-# The "mock driver" is a one-line stand-in for a real embodiment driver: it
-# drains the canonical execute goals on stdin and replays a committed,
-# conforming telemetry+status session. The certificate it produces is
-# byte-identical to the --report replay path, demonstrating that the live
-# (--driver) and replay (--report) certify paths agree.
+# The "driver" spawned by `rfl certify --driver` is `rfl sim`, the reference
+# simulator: it drains the canonical execute goals on stdin and emits a freshly
+# generated, conformant telemetry+status session (no pre-recorded report) — the
+# supply-side reference driving the demand-side certify, all in software.
 #
 #   scripts/demo.sh
 set -euo pipefail
@@ -19,7 +18,6 @@ cd "$ROOT"
 
 SKILL="examples/01-cable-insertion/skill.yaml"
 EMB="examples/01-cable-insertion/embodiments/allegro.yaml"
-REPORT="$ROOT/examples/01-cable-insertion/driver-report.jsonl"
 
 WORK="$(mktemp -d)"
 trap 'rm -rf "$WORK"' EXIT
@@ -37,16 +35,17 @@ say "2. retarget — lower onto the Allegro hand (first goal shown)"
 "$RFL" retarget "$SKILL" --embodiment "$EMB" | head -1
 echo "   ($("$RFL" retarget "$SKILL" --embodiment "$EMB" | wc -l | tr -d ' ') canonical execute goals total)"
 
-say "3. certify (live) — spawn a mock driver and check Class-3 obligations"
-# A mock embodiment driver: drain the execute goals, replay a recorded session.
-cat > "$WORK/mock-driver.sh" <<EOF
+say "3. certify (live) — spawn the reference simulator and check Class-3 obligations"
+# The driver is `rfl sim`: drain the execute goals on stdin, then generate a
+# fresh conformant session for this skill+embodiment (no pre-recorded report).
+cat > "$WORK/sim-driver.sh" <<EOF
 #!/bin/sh
 cat > /dev/null
-cat "$REPORT"
+exec "$RFL" sim --skill "$ROOT/$SKILL" --embodiment "$ROOT/$EMB"
 EOF
-chmod +x "$WORK/mock-driver.sh"
+chmod +x "$WORK/sim-driver.sh"
 "$RFL" certify --skill "$SKILL" --embodiment "$EMB" \
-  --driver "$WORK/mock-driver.sh" --out "$WORK/certificate.json"
+  --driver "$WORK/sim-driver.sh" --out "$WORK/certificate.json"
 
 say "4. verify — re-check the certificate's integrity (unsigned)"
 "$RFL" verify "$WORK/certificate.json"

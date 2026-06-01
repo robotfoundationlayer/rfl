@@ -4,18 +4,19 @@
 
 ## Quickstart — the whole pipeline, no hardware
 
-One script runs the entire loop on the committed cable-insertion example —
-validate → retarget → certify (live, against a mock driver) → verify → sign →
-verify-signed:
+One script runs the entire loop on the cable-insertion example —
+validate → retarget → certify (live, against the reference simulator) → verify →
+sign → verify-signed:
 
 ```bash
 scripts/demo.sh
 ```
 
-The "mock driver" drains the canonical execute goals and replays a recorded,
-conforming telemetry session; the certificate it produces is byte-identical to
-the `--report` replay path, so the live and replay certify paths demonstrably
-agree. Every command it uses is documented in the [CLI reference](cli-reference.md).
+The driver spawned by `rfl certify --driver` is `rfl sim`, the **reference
+simulator**: it drains the canonical execute goals and *generates* a fresh,
+conformant telemetry+status session (no pre-recorded report) — the supply-side
+reference driving the demand-side certify, entirely in software. Every command it
+uses is documented in the [CLI reference](cli-reference.md).
 
 To write your own skill or embodiment instead of running the example, see
 [Authoring a Skill ISA composition](authoring-skills.md) and
