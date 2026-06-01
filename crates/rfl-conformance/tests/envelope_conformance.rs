@@ -7,10 +7,11 @@
 //! REJECTED by the matching checker — the non-circular proof that the suite bites.
 
 use rfl_conformance::{
-    check_actuation, check_engagement, check_envelope, check_graceful_degradation, check_settling,
-    drive, envelope_class_for, CheckOutcome, DisturbanceDriver, DisturbanceResponse, EnvelopeClass,
-    Fault, FaultyDriver, HoverResponse, HoverSettlingDriver, PressButtonDriver, PressButtonResponse,
-    ReferenceDriver, SnapEngageDriver, SnapEngageResponse,
+    check_actuation, check_engagement, check_envelope, check_graceful_degradation,
+    check_irreversible, check_settling, drive, envelope_class_for, CheckOutcome, CutDriver,
+    CutResponse, DisturbanceDriver, DisturbanceResponse, EnvelopeClass, Fault, FaultyDriver,
+    HoverResponse, HoverSettlingDriver, PressButtonDriver, PressButtonResponse, ReferenceDriver,
+    SnapEngageDriver, SnapEngageResponse,
 };
 use std::path::{Path, PathBuf};
 
@@ -616,6 +617,68 @@ fn snap_engage_over_force_fails() {
     let pairs = drive(
         FaultyDriver::new(Fault::OverForce),
         &dir.join("skill-snap.yaml"),
+        &dir.join("embodiments/allegro.yaml"),
+    )
+    .expect("drive");
+    let (goal, report) = &pairs[0];
+    assert!(matches!(
+        check_envelope(EnvelopeClass::ForceTrajectory, goal, report),
+        CheckOutcome::Fail(_)
+    ));
+}
+
+// --- force.cut irreversibility / partial-state on interruption (spec/01 § 6.7) --------------
+
+#[test]
+fn nominal_cut_passes() {
+    let dir = screw_dir();
+    let pairs = drive(
+        ReferenceDriver::default(),
+        &dir.join("skill-cut.yaml"),
+        &dir.join("embodiments/allegro.yaml"),
+    )
+    .expect("drive");
+    let (goal, report) = &pairs[0];
+    assert_eq!(suffix_of(&goal.action_id), "cut");
+    assert_eq!(check_envelope(EnvelopeClass::ForceTrajectory, goal, report), CheckOutcome::Pass);
+    assert_eq!(check_irreversible(goal, report), CheckOutcome::Pass); // Succeeded -> vacuous
+}
+
+#[test]
+fn cut_partial_state_reported_is_honest() {
+    let dir = screw_dir();
+    let pairs = drive(
+        CutDriver::new(CutResponse::PartialReported),
+        &dir.join("skill-cut.yaml"),
+        &dir.join("embodiments/allegro.yaml"),
+    )
+    .expect("drive");
+    let (goal, report) = &pairs[0];
+    // interrupted, but the precise partial state is reported -> honest.
+    assert!(!matches!(report.status.outcome, rfl_core::driver::Outcome::Succeeded));
+    assert_eq!(check_irreversible(goal, report), CheckOutcome::Pass);
+}
+
+#[test]
+fn cut_binary_halt_fails() {
+    let dir = screw_dir();
+    let pairs = drive(
+        CutDriver::new(CutResponse::BinaryHalt),
+        &dir.join("skill-cut.yaml"),
+        &dir.join("embodiments/allegro.yaml"),
+    )
+    .expect("drive");
+    let (goal, report) = &pairs[0];
+    // interrupted irreversible op reported a binary failure without the partial state -> the bite.
+    assert!(matches!(check_irreversible(goal, report), CheckOutcome::Fail(_)));
+}
+
+#[test]
+fn cut_over_force_fails() {
+    let dir = screw_dir();
+    let pairs = drive(
+        FaultyDriver::new(Fault::OverForce),
+        &dir.join("skill-cut.yaml"),
         &dir.join("embodiments/allegro.yaml"),
     )
     .expect("drive");

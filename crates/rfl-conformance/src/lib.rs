@@ -526,6 +526,62 @@ impl Driver for SnapEngageDriver {
     }
 }
 
+/// How a driver reports a `force.cut` (`spec/01` § 6.7). `Completes` is the nominal success;
+/// `PartialReported` is the conformant interruption (the precise partial state is reported);
+/// `BinaryHalt` is adversarial (an interrupted cut hides the partial state behind a bare failure).
+#[derive(Debug, Clone, Copy)]
+pub enum CutResponse {
+    /// Conformant: the cut completed and separated (Succeeded).
+    Completes,
+    /// Conformant: interrupted, but reports the precise partial state (how far it progressed).
+    PartialReported,
+    /// Adversarial: interrupted, reports a bare binary failure with no partial state.
+    BinaryHalt,
+}
+
+/// The `force.cut` bench: models a driver's cut outcome. Reuses the nominal `ReferenceDriver`
+/// (a Succeeded cut) and mutates it per `response`. Non-cut actions pass through unchanged.
+#[derive(Debug)]
+pub struct CutDriver {
+    inner: ReferenceDriver,
+    response: CutResponse,
+}
+
+impl CutDriver {
+    /// A cut driver with the given outcome.
+    #[must_use]
+    pub fn new(response: CutResponse) -> Self {
+        CutDriver { inner: ReferenceDriver::default(), response }
+    }
+}
+
+impl Driver for CutDriver {
+    fn execute(&mut self, goal: &ExecuteGoal) -> DriverReport {
+        let mut report = self.inner.execute(goal);
+        match self.response {
+            CutResponse::Completes => {} // nominal: Succeeded
+            CutResponse::PartialReported => {
+                report.status.outcome = Outcome::Failed;
+                report.status.failure_class = Some("blocked".to_string());
+                report.status.failure_detail = Some("incomplete_cut".to_string());
+                if let Some(v) = report.status.verdict.as_mut() {
+                    v.value = false;
+                    v.evidence.push("partial_cut: 0.6".to_string()); // the precise irreversible state
+                }
+            }
+            CutResponse::BinaryHalt => {
+                report.status.outcome = Outcome::Failed;
+                report.status.failure_class = Some("blocked".to_string());
+                report.status.failure_detail = Some("incomplete_cut".to_string());
+                if let Some(v) = report.status.verdict.as_mut() {
+                    v.value = false; // no partial_cut evidence -> a binary halt (adversarial)
+                }
+            }
+        }
+        report
+    }
+}
+
 /// Retarget the skill onto the embodiment and drive every `execute` message through
 /// `driver`, returning the `(goal, report)` pair per action. Generic over any
 /// `Driver` (the nominal `ReferenceDriver` or a `FaultyDriver`). Action ids match the
@@ -606,7 +662,7 @@ pub fn envelope_class_for(suffix: &str) -> Option<EnvelopeClass> {
     match suffix {
         "align" | "retract" | "scan" => Some(EnvelopeClass::TerminalPostcondition),
         "pinch" | "release" | "transport" => Some(EnvelopeClass::GraspContinuity),
-        "insert_fit" | "screw" | "unscrew" | "press_button" | "wipe" | "snap_engage" => {
+        "insert_fit" | "screw" | "unscrew" | "press_button" | "wipe" | "snap_engage" | "cut" => {
             Some(EnvelopeClass::ForceTrajectory)
         }
         "hover" | "carry" => Some(EnvelopeClass::IntervalInvariant),
@@ -921,6 +977,41 @@ pub fn check_engagement(goal: &ExecuteGoal, report: &DriverReport) -> CheckOutco
         if !held {
             return CheckOutcome::Fail(
                 "snap_engage claimed success without confirming the connection holds (confirm_held)"
+                    .to_string(),
+            );
+        }
+    }
+    CheckOutcome::Pass
+}
+
+/// Verify the § 175 / § 6.7 irreversibility obligation for `force.cut`: an irreversible op that
+/// is INTERRUPTED (outcome != Succeeded) MUST report the precise partial state (how far it
+/// progressed) in `verdict.evidence`, never a bare binary failure. Vacuous unless the action
+/// declares `irreversible`; a completed (Succeeded) cut is vacuous (nothing partial to report).
+/// The mirror of `check_actuation`/`check_engagement`: those bite the success path, this bites
+/// the failure path.
+#[must_use]
+pub fn check_irreversible(goal: &ExecuteGoal, report: &DriverReport) -> CheckOutcome {
+    let irreversible = goal
+        .canonical_action
+        .safety_envelope
+        .force_profile
+        .as_ref()
+        .and_then(|fp| fp.get("irreversible"))
+        .and_then(serde_json::Value::as_bool)
+        == Some(true);
+    if !irreversible {
+        return CheckOutcome::Pass; // not an irreversible op -> vacuous
+    }
+    if !matches!(report.status.outcome, Outcome::Succeeded) {
+        let reported = report
+            .status
+            .verdict
+            .as_ref()
+            .is_some_and(|v| v.evidence.iter().any(|e| e.starts_with("partial_cut")));
+        if !reported {
+            return CheckOutcome::Fail(
+                "interrupted irreversible cut reported a binary failure without the precise partial state"
                     .to_string(),
             );
         }
@@ -1396,5 +1487,59 @@ mod tests {
             check_engagement(&goal, &report(Outcome::Failed, vec![])),
             CheckOutcome::Pass
         );
+    }
+
+    #[test]
+    fn check_irreversible_requires_partial_state_on_interruption() {
+        use rfl_core::canonical::{
+            CanonicalAction, Envelope, MotionBounds, PoseExpr, TimingHints, TimingMode,
+        };
+        use rfl_core::driver::{Outcome, RealizedPose, Status, Verdict};
+        let action = CanonicalAction {
+            target_frame: "grasp".into(),
+            target_pose: PoseExpr::Ref { r#ref: "seam".into() },
+            force_budget: Some(rfl_core::quantity::Quantity("30 N".into())),
+            timing: TimingHints {
+                nominal_duration: None,
+                timing_mode: TimingMode::TimeScalable,
+                stop_at_goal: true,
+            },
+            tactile_target: None,
+            monitors: vec![],
+            safety_envelope: Envelope {
+                motion_bounds: MotionBounds::default(),
+                force_profile: Some(serde_json::json!({ "irreversible": true })),
+                station_keeping: None,
+                clearance: None,
+                compliance: None,
+                stop_time: None,
+            },
+        };
+        let goal = ExecuteGoal::wrap("s/e/0001-cut".to_string(), action);
+        let report = |outcome: Outcome, evidence: Vec<String>| DriverReport {
+            telemetry: vec![],
+            status: Status {
+                message: "status",
+                action_id: "s/e/0001-cut".to_string(),
+                outcome,
+                verdict: Some(Verdict { value: true, confidence: 1.0, evidence }),
+                fidelity_tier: None,
+                final_pose: Some(RealizedPose::placeholder()),
+                failure_class: None,
+                failure_detail: None,
+            },
+        };
+        // Succeeded -> vacuously Pass (completed; nothing partial).
+        assert_eq!(check_irreversible(&goal, &report(Outcome::Succeeded, vec![])), CheckOutcome::Pass);
+        // Interrupted + partial state reported -> Pass.
+        assert_eq!(
+            check_irreversible(&goal, &report(Outcome::Failed, vec!["partial_cut: 0.6".to_string()])),
+            CheckOutcome::Pass
+        );
+        // Interrupted + binary halt (no partial state) -> Fail.
+        assert!(matches!(
+            check_irreversible(&goal, &report(Outcome::Failed, vec![])),
+            CheckOutcome::Fail(_)
+        ));
     }
 }
