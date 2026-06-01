@@ -1,6 +1,14 @@
 # ROS 2 transport binding — message-mapping design + pure-Rust shim
 
-Status: design-complete; pure-Rust shim **ready to implement**; live ROS 2 bringup **BLOCKED on a ROS 2 environment**
+Status: **INTERFACE-MAPPING CORE IMPLEMENTED 2026-06-02** — `rfl-conformance::ros2`
+classifies each canonical message (`execute` / `telemetry` / `status` /
+`clearance` request+response) to its ROS 2 surface(s) per the mapping table
+below (`ros2_surfaces_for` / `ros2_surfaces_of`), fail-closed on an unknown
+message, verified against the five committed driver-message reference instances.
+**Still BLOCKED on a ROS 2 environment:** the `rosidl`-generated `.msg`/`.action`/
+`.srv` field layouts (redundant with `schemas/driver-interface`, which already
+encodes the normative payloads) and the live `rclrs` node / DDS interop. This
+core fixes the *routing*; those fix the *transport*.
 
 ## Context
 

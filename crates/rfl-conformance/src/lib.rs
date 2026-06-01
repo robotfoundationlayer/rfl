@@ -22,6 +22,7 @@ pub mod battery;
 pub mod certificate;
 pub mod certify;
 pub mod replay;
+pub mod ros2;
 
 /// Retarget the example skill onto the named embodiment descriptor and return the
 /// JSONL stream (`execute` messages, one per line). The cable-insertion reference
