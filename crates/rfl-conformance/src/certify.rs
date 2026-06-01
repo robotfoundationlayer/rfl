@@ -7,7 +7,10 @@
 //! not cover.
 
 use std::collections::BTreeSet;
+use std::io::{Read, Write};
 use std::path::Path;
+use std::process::{Command, Stdio};
+use std::time::{Duration, Instant};
 
 use anyhow::{anyhow, bail, Context, Result};
 use rfl_core::canonical::ExecuteGoal;
@@ -136,4 +139,95 @@ fn certify_core(skill_bytes: &[u8], emb_bytes: &[u8], report_text: &str) -> Resu
     };
     let result = if all_passed { CertResult::Pass } else { CertResult::Fail };
     Ok(CertifyOutcome { certificate: certificate::seal(body), result })
+}
+
+/// Spawn `driver`, write the execute goals to its stdin (EOF on completion), and return its
+/// stdout. The stdin write runs on its own thread alongside the stdout reader so a driver that
+/// fills its stdout pipe while we are still writing stdin does not deadlock; a broken-pipe on
+/// stdin is ignored (a driver may emit a full report without consuming all its input). A driver
+/// that does not finish within `timeout` is killed.
+///
+/// # Errors
+/// The driver fails to spawn, exits non-zero, or overruns `timeout`.
+fn drive_subprocess(driver: &Path, goals: &str, timeout: Duration) -> Result<String> {
+    let mut child = Command::new(driver)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .map_err(|e| anyhow!("spawn driver {driver:?}: {e}"))?;
+
+    let mut stdin = child.stdin.take().expect("piped stdin");
+    let goals_owned = goals.to_string();
+    let writer = std::thread::spawn(move || {
+        let _ = stdin.write_all(goals_owned.as_bytes()); // EPIPE tolerated; stdin dropped -> EOF
+    });
+
+    let mut stdout = child.stdout.take().expect("piped stdout");
+    let reader = std::thread::spawn(move || {
+        let mut s = String::new();
+        let _ = stdout.read_to_string(&mut s);
+        s
+    });
+    let mut stderr = child.stderr.take().expect("piped stderr");
+    let ereader = std::thread::spawn(move || {
+        let mut s = String::new();
+        let _ = stderr.read_to_string(&mut s);
+        s
+    });
+
+    let start = Instant::now();
+    let status = loop {
+        if let Some(st) = child.try_wait().map_err(|e| anyhow!("wait driver: {e}"))? {
+            break st;
+        }
+        if start.elapsed() > timeout {
+            let _ = child.kill();
+            let _ = child.wait();
+            let _ = writer.join();
+            bail!("driver did not finish within {timeout:?}");
+        }
+        std::thread::sleep(Duration::from_millis(10));
+    };
+
+    let _ = writer.join();
+    let out = reader.join().map_err(|_| anyhow!("driver stdout reader panicked"))?;
+    let err = ereader.join().unwrap_or_default();
+    if !status.success() {
+        let tail = if err.trim().is_empty() {
+            String::new()
+        } else {
+            format!(" (stderr: {})", err.trim())
+        };
+        bail!("driver exited unsuccessfully ({status}){tail}");
+    }
+    Ok(out)
+}
+
+/// Certify by spawning a driver (live mode): retarget the skill onto the embodiment, write the
+/// canonical execute goals to the driver's stdin, read its telemetry+status from stdout, and run
+/// the certify pipeline on that report. The driver's stdin is exactly the `rfl retarget` output.
+///
+/// # Errors
+/// The skill / embodiment is unparseable, the driver fails to spawn / exits non-zero / times out,
+/// or its stdout is an invalid or uncorrelated report.
+pub fn run_live(
+    skill_path: &Path,
+    embodiment_path: &Path,
+    driver_path: &Path,
+    timeout: Duration,
+) -> Result<CertifyOutcome> {
+    let skill_bytes = std::fs::read(skill_path).with_context(|| format!("read {skill_path:?}"))?;
+    let emb_bytes =
+        std::fs::read(embodiment_path).with_context(|| format!("read {embodiment_path:?}"))?;
+    let skill = rfl_core::skill_isa::Skill::parse_yaml(
+        std::str::from_utf8(&skill_bytes).context("skill is not UTF-8")?,
+    )?;
+    let emb = rfl_core::embodiment::Embodiment::parse_yaml(
+        std::str::from_utf8(&emb_bytes).context("embodiment is not UTF-8")?,
+    )?;
+    let out = rfl_core::translation::retarget(&skill, &emb)?;
+    let goals = rfl_core::canonical::to_jsonl(&skill.skill, &emb.id, &out.actions, &out.suffixes);
+    let report_text = drive_subprocess(driver_path, &goals, timeout)?;
+    certify_core(&skill_bytes, &emb_bytes, &report_text)
 }
