@@ -61,6 +61,10 @@
         {
           "name": "flip_bounded_window",
           "result": "pass"
+        },
+        {
+          "name": "make_before_break",
+          "result": "pass"
         }
       ],
       "passed": true
@@ -110,6 +114,10 @@
         {
           "name": "flip_bounded_window",
           "result": "pass"
+        },
+        {
+          "name": "make_before_break",
+          "result": "pass"
         }
       ],
       "passed": true
@@ -158,6 +166,10 @@
         {
           "name": "flip_bounded_window",
           "result": "pass"
+        },
+        {
+          "name": "make_before_break",
+          "result": "pass"
         }
       ],
       "passed": true
@@ -200,6 +212,10 @@
         },
         {
           "name": "flip_bounded_window",
+          "result": "pass"
+        },
+        {
+          "name": "make_before_break",
           "result": "pass"
         }
       ],
@@ -249,6 +265,10 @@
         {
           "name": "flip_bounded_window",
           "result": "pass"
+        },
+        {
+          "name": "make_before_break",
+          "result": "pass"
         }
       ],
       "passed": true
@@ -296,6 +316,10 @@
         },
         {
           "name": "flip_bounded_window",
+          "result": "pass"
+        },
+        {
+          "name": "make_before_break",
           "result": "pass"
         }
       ],
@@ -345,6 +369,10 @@
         {
           "name": "flip_bounded_window",
           "result": "pass"
+        },
+        {
+          "name": "make_before_break",
+          "result": "pass"
         }
       ],
       "passed": true
@@ -393,6 +421,10 @@
         {
           "name": "flip_bounded_window",
           "result": "pass"
+        },
+        {
+          "name": "make_before_break",
+          "result": "pass"
         }
       ],
       "passed": true
@@ -404,5 +436,5 @@
       "result": "pass"
     }
   ],
-  "content_hash": "sha256:08e26ed3c34e16414214d88902d9ad9e164ba62a0eee42d99c07459d45a9a07e"
+  "content_hash": "sha256:c409c8e425d868da6f094f9588f7cdb64f9d16db97e9c9ef3a42f985451ab595"
 }

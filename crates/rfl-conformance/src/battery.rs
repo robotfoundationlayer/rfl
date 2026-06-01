@@ -13,8 +13,8 @@ use rfl_core::driver::DriverReport;
 use crate::{
     CheckOutcome, EnvelopeClass, check_actuation, check_audit_honesty, check_audit_record,
     check_engagement, check_envelope, check_flip_bounded_window, check_freed_part_disposition,
-    check_hold_test, check_irreversible, check_momentary_release, check_support_safe_state,
-    envelope_class_for, suffix_of,
+    check_hold_test, check_irreversible, check_make_before_break, check_momentary_release,
+    check_support_safe_state, envelope_class_for, suffix_of,
 };
 
 /// A named check outcome.
@@ -89,6 +89,10 @@ pub fn verify_action(goal: &ExecuteGoal, report: &DriverReport) -> ActionVerdict
     checks.push(NamedCheck {
         name: "flip_bounded_window",
         outcome: check_flip_bounded_window(goal, report),
+    });
+    checks.push(NamedCheck {
+        name: "make_before_break",
+        outcome: check_make_before_break(goal, report),
     });
     let passed = checks
         .iter()
@@ -232,6 +236,42 @@ mod tests {
             .find(|c| c.name == "flip_bounded_window")
             .unwrap();
         assert!(matches!(bw.outcome, CheckOutcome::Fail(_)));
+    }
+
+    #[test]
+    fn nominal_regrasp_passes_make_before_break_but_a_gap_fails() {
+        let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples/03-screw-fasten");
+        let skill = dir.join("skill-regrasp.yaml");
+        let emb = dir.join("embodiments/allegro.yaml");
+        // nominal: the regrasp confirms the new grasp before releasing the old -> GC3 pass.
+        let nominal = drive(ReferenceDriver::default(), &skill, &emb).unwrap();
+        let (g, r) = &nominal[2]; // locate(0), pinch(1), regrasp(2), release(3)
+        assert_eq!(g.action_id.rsplit('-').next(), Some("regrasp"));
+        let v = verify_action(g, r);
+        let mbb = v
+            .checks
+            .iter()
+            .find(|c| c.name == "make_before_break")
+            .unwrap();
+        assert!(
+            matches!(mbb.outcome, CheckOutcome::Pass),
+            "checks: {:?}",
+            v.checks
+                .iter()
+                .map(|c| (c.name, &c.outcome))
+                .collect::<Vec<_>>()
+        );
+        // adversarial: a driver that released the old grasp before confirming the new -> GC3 fails.
+        let gap = drive(FaultyDriver::new(Fault::BreakBeforeMake), &skill, &emb).unwrap();
+        let (g, r) = &gap[2];
+        let v = verify_action(g, r);
+        assert!(!v.passed);
+        let mbb = v
+            .checks
+            .iter()
+            .find(|c| c.name == "make_before_break")
+            .unwrap();
+        assert!(matches!(mbb.outcome, CheckOutcome::Fail(_)));
     }
 
     #[test]

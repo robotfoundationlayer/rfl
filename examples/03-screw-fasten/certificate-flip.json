@@ -61,6 +61,10 @@
         {
           "name": "flip_bounded_window",
           "result": "pass"
+        },
+        {
+          "name": "make_before_break",
+          "result": "pass"
         }
       ],
       "passed": true
@@ -110,6 +114,10 @@
         {
           "name": "flip_bounded_window",
           "result": "pass"
+        },
+        {
+          "name": "make_before_break",
+          "result": "pass"
         }
       ],
       "passed": true
@@ -157,6 +165,10 @@
         },
         {
           "name": "flip_bounded_window",
+          "result": "pass"
+        },
+        {
+          "name": "make_before_break",
           "result": "pass"
         }
       ],
@@ -206,6 +218,10 @@
         {
           "name": "flip_bounded_window",
           "result": "pass"
+        },
+        {
+          "name": "make_before_break",
+          "result": "pass"
         }
       ],
       "passed": true
@@ -217,5 +233,5 @@
       "result": "pass"
     }
   ],
-  "content_hash": "sha256:b4014341bbd41f1e27ec4168f29c7ddcbeaf76c91413f7650fc46046cd0770ff"
+  "content_hash": "sha256:59c59c57f67df81cbef8ab3fd708d780f61e56a25620df9f1fc6c0a9f63bbb3e"
 }

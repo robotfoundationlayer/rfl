@@ -225,6 +225,18 @@ impl Driver for ReferenceDriver {
             evidence.push(format!("unsecured_window:{}", measured.0));
             evidence.push("recatch_confirmed".to_string());
         }
+        // GC3 (make-before-break, spec/05): for a regrasp (a contact-set transition) the nominal
+        // driver confirms the new grasp before releasing the old — the two overlap, never gap.
+        if ca
+            .safety_envelope
+            .force_profile
+            .as_ref()
+            .and_then(|fp| fp.get("transition"))
+            .and_then(serde_json::Value::as_str)
+            == Some("make_before_break")
+        {
+            evidence.push("make_before_break:confirmed".to_string());
+        }
         // Freed-part disposition (spec/04 TM21c): a freeing operation (force.unscrew, carrying
         // force_profile.on_disengagement) discloses where the freed part went — retained, or
         // released into a declared safe zone. Absent for every non-freeing action.
@@ -306,6 +318,9 @@ pub enum Fault {
     /// The flip's measured unsecured window driven over `max_release_time` (the object held
     /// unsecured too long — violates GC5 bounded continuity-exception).
     FlipWindowExceeded,
+    /// A regrasp's make-before-break ordering broken — the old grasp released before the new is
+    /// confirmed (a break-before-make gap, an unsecured instant — violates GC3).
+    BreakBeforeMake,
 }
 
 /// Wraps the nominal `ReferenceDriver` and injects one `Fault` into every report it
@@ -404,6 +419,16 @@ impl Driver for FaultyDriver {
                     for e in &mut v.evidence {
                         if e.starts_with("unsecured_window:") {
                             *e = format!("unsecured_window:{}", over.0);
+                        }
+                    }
+                }
+            }
+            Fault::BreakBeforeMake => {
+                // Mark the transition as a gap (old released before new confirmed), violating GC3.
+                if let Some(v) = report.status.verdict.as_mut() {
+                    for e in &mut v.evidence {
+                        if e == "make_before_break:confirmed" {
+                            *e = "make_before_break:gap".to_string();
                         }
                     }
                 }
@@ -976,7 +1001,9 @@ pub enum EnvelopeClass {
 pub fn envelope_class_for(suffix: &str) -> Option<EnvelopeClass> {
     match suffix {
         "align" | "retract" | "scan" => Some(EnvelopeClass::TerminalPostcondition),
-        "pinch" | "release" | "transport" | "flip" => Some(EnvelopeClass::GraspContinuity),
+        "pinch" | "release" | "transport" | "flip" | "regrasp" => {
+            Some(EnvelopeClass::GraspContinuity)
+        }
         "insert_fit" | "screw" | "unscrew" | "press_button" | "wipe" | "snap_engage" | "cut" => {
             Some(EnvelopeClass::ForceTrajectory)
         }
@@ -1645,6 +1672,43 @@ pub fn check_flip_bounded_window(goal: &ExecuteGoal, report: &DriverReport) -> C
     CheckOutcome::Pass
 }
 
+/// Verify the GC3 make-before-break obligation (`spec/05` § Make-before-break): a contact-set
+/// transition (`in_hand.regrasp`) confirms the new grasp **before** releasing the old, so the
+/// two overlap rather than gap — there is no unsecured instant. Keyed on the action carrying a
+/// `transition: make_before_break` marker, so vacuous for every other action. A non-`Succeeded`
+/// transition is the abort-to-original path (the original grasp is retained), verified elsewhere.
+/// The union-securing floor itself is checked by the grasp-continuity envelope (GC1).
+#[must_use]
+pub fn check_make_before_break(goal: &ExecuteGoal, report: &DriverReport) -> CheckOutcome {
+    let is_transition = goal
+        .canonical_action
+        .safety_envelope
+        .force_profile
+        .as_ref()
+        .and_then(|fp| fp.get("transition"))
+        .and_then(serde_json::Value::as_str)
+        == Some("make_before_break");
+    if !is_transition {
+        return CheckOutcome::Pass; // not a make-before-break transition
+    }
+    if report.status.outcome != rfl_core::driver::Outcome::Succeeded {
+        return CheckOutcome::Pass; // abort-to-original (original grasp retained) is its own path
+    }
+    let confirmed = report.status.verdict.as_ref().is_some_and(|v| {
+        v.evidence
+            .iter()
+            .any(|e| e == "make_before_break:confirmed")
+    });
+    if confirmed {
+        CheckOutcome::Pass
+    } else {
+        CheckOutcome::Fail(
+            "a regrasp released the old grasp before confirming the new (break-before-make gap)"
+                .to_string(),
+        )
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -2116,6 +2180,92 @@ mod tests {
         );
         assert_eq!(
             check_flip_bounded_window(&goal(true), &report(Outcome::Failed, &[])),
+            CheckOutcome::Pass
+        );
+    }
+
+    #[test]
+    fn make_before_break_requires_the_new_grasp_confirmed_before_release() {
+        use rfl_core::canonical::{
+            CanonicalAction, Envelope, MotionBounds, PoseExpr, TimingHints, TimingMode,
+        };
+        use rfl_core::driver::{Outcome, RealizedPose, Status, Verdict};
+        let goal = |transition: bool| {
+            let force_profile = transition.then(|| {
+                serde_json::json!({ "transition": "make_before_break", "min_holding_force": "2 N" })
+            });
+            let ca = CanonicalAction {
+                target_frame: "grip".into(),
+                target_pose: PoseExpr::Ref {
+                    r#ref: "held".into(),
+                },
+                force_budget: None,
+                timing: TimingHints {
+                    nominal_duration: None,
+                    timing_mode: TimingMode::Strict,
+                    stop_at_goal: true,
+                },
+                tactile_target: None,
+                monitors: vec![],
+                safety_envelope: Envelope {
+                    motion_bounds: MotionBounds::default(),
+                    force_profile,
+                    station_keeping: None,
+                    clearance: None,
+                    compliance: None,
+                    stop_time: None,
+                },
+                grasp_stability: None,
+            };
+            ExecuteGoal::wrap("s/e/0003-regrasp".to_string(), ca)
+        };
+        let report = |outcome: Outcome, evidence: &[&str]| DriverReport {
+            telemetry: vec![],
+            status: Status {
+                message: "status",
+                action_id: "s/e/0003-regrasp".to_string(),
+                outcome,
+                verdict: Some(Verdict {
+                    value: true,
+                    confidence: 1.0,
+                    evidence: evidence.iter().map(|s| (*s).to_string()).collect(),
+                }),
+                fidelity_tier: None,
+                final_pose: Some(RealizedPose::placeholder()),
+                failure_class: None,
+                failure_detail: None,
+                stop_latency: None,
+                safety_flags: None,
+            },
+        };
+        // new confirmed before old released -> pass.
+        assert_eq!(
+            check_make_before_break(
+                &goal(true),
+                &report(Outcome::Succeeded, &["make_before_break:confirmed"])
+            ),
+            CheckOutcome::Pass
+        );
+        // a break-before-make gap (old released first) -> fail (the bite).
+        assert!(matches!(
+            check_make_before_break(
+                &goal(true),
+                &report(Outcome::Succeeded, &["make_before_break:gap"])
+            ),
+            CheckOutcome::Fail(_)
+        ));
+        // no ordering evidence at all -> fail.
+        assert!(matches!(
+            check_make_before_break(&goal(true), &report(Outcome::Succeeded, &["nominal"])),
+            CheckOutcome::Fail(_)
+        ));
+        // a non-transition action, and a non-Succeeded transition (abort-to-original), are vacuous.
+        assert_eq!(
+            check_make_before_break(&goal(false), &report(Outcome::Succeeded, &[])),
+            CheckOutcome::Pass
+        );
+        assert_eq!(
+            check_make_before_break(&goal(true), &report(Outcome::Failed, &[])),
             CheckOutcome::Pass
         );
     }

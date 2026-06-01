@@ -61,6 +61,10 @@
         {
           "name": "flip_bounded_window",
           "result": "pass"
+        },
+        {
+          "name": "make_before_break",
+          "result": "pass"
         }
       ],
       "passed": true
@@ -110,6 +114,10 @@
         {
           "name": "flip_bounded_window",
           "result": "pass"
+        },
+        {
+          "name": "make_before_break",
+          "result": "pass"
         }
       ],
       "passed": true
@@ -158,6 +166,10 @@
         {
           "name": "flip_bounded_window",
           "result": "pass"
+        },
+        {
+          "name": "make_before_break",
+          "result": "pass"
         }
       ],
       "passed": true
@@ -200,6 +212,10 @@
         },
         {
           "name": "flip_bounded_window",
+          "result": "pass"
+        },
+        {
+          "name": "make_before_break",
           "result": "pass"
         }
       ],
@@ -249,6 +265,10 @@
         {
           "name": "flip_bounded_window",
           "result": "pass"
+        },
+        {
+          "name": "make_before_break",
+          "result": "pass"
         }
       ],
       "passed": true
@@ -296,6 +316,10 @@
         },
         {
           "name": "flip_bounded_window",
+          "result": "pass"
+        },
+        {
+          "name": "make_before_break",
           "result": "pass"
         }
       ],
@@ -345,6 +369,10 @@
         {
           "name": "flip_bounded_window",
           "result": "pass"
+        },
+        {
+          "name": "make_before_break",
+          "result": "pass"
         }
       ],
       "passed": true
@@ -393,6 +421,10 @@
         {
           "name": "flip_bounded_window",
           "result": "pass"
+        },
+        {
+          "name": "make_before_break",
+          "result": "pass"
         }
       ],
       "passed": true
@@ -404,5 +436,5 @@
       "result": "pass"
     }
   ],
-  "content_hash": "sha256:ec0f15a581a8028cae91f48eb9042d1336749cf4e830c41fa94f803224a2b22c"
+  "content_hash": "sha256:a6b9b623848d82d7bbf33cca9313487e792670ad8868bee06282dc5423324c8f"
 }
