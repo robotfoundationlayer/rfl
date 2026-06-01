@@ -8,9 +8,10 @@
 
 use rfl_conformance::{
     check_actuation, check_audit_honesty, check_engagement, check_envelope,
-    check_graceful_degradation, check_irreversible, check_momentary_release, check_settling, drive,
-    envelope_class_for, CheckOutcome, CutDriver, CutResponse, DisturbanceDriver, DisturbanceResponse,
-    EnvelopeClass, Fault, FaultyDriver, FlipDriver, FlipResponse, HoverResponse, HoverSettlingDriver,
+    check_freed_part_disposition, check_graceful_degradation, check_irreversible,
+    check_momentary_release, check_settling, drive, envelope_class_for, CheckOutcome, CutDriver,
+    CutResponse, DisturbanceDriver, DisturbanceResponse, EnvelopeClass, Fault, FaultyDriver,
+    FlipDriver, FlipResponse, FreeingDriver, FreeingResponse, HoverResponse, HoverSettlingDriver,
     PressButtonDriver, PressButtonResponse, ReferenceDriver, SnapEngageDriver, SnapEngageResponse,
 };
 use std::path::{Path, PathBuf};
@@ -211,6 +212,49 @@ fn over_torque_driver_fails_unscrew_force_trajectory() {
         check_envelope(EnvelopeClass::ForceTrajectory, goal, report),
         CheckOutcome::Fail(_)
     ));
+}
+
+// --- freed-part disposition (spec/04 TM21c, safety_flags) --------------------------------------
+
+#[test]
+fn nominal_unscrew_discloses_freed_part_disposition() {
+    let dir = screw_dir();
+    let pairs = drive(
+        FreeingDriver::new(FreeingResponse::Discloses),
+        &dir.join("skill-unscrew.yaml"),
+        &dir.join("embodiments/allegro.yaml"),
+    )
+    .expect("drive");
+    let (goal, report) = &pairs[5];
+    assert_eq!(suffix_of(&goal.action_id), "unscrew");
+    assert_eq!(check_freed_part_disposition(goal, report), CheckOutcome::Pass);
+}
+
+#[test]
+fn unscrew_uncontrolled_drop_fails_disposition() {
+    let dir = screw_dir();
+    let pairs = drive(
+        FreeingDriver::new(FreeingResponse::DropsUncontrolled),
+        &dir.join("skill-unscrew.yaml"),
+        &dir.join("embodiments/allegro.yaml"),
+    )
+    .expect("drive");
+    let (goal, report) = &pairs[5];
+    assert_eq!(suffix_of(&goal.action_id), "unscrew");
+    assert!(matches!(check_freed_part_disposition(goal, report), CheckOutcome::Fail(_)));
+}
+
+#[test]
+fn unscrew_false_disposition_fails() {
+    let dir = screw_dir();
+    let pairs = drive(
+        FreeingDriver::new(FreeingResponse::FalseDisposition),
+        &dir.join("skill-unscrew.yaml"),
+        &dir.join("embodiments/allegro.yaml"),
+    )
+    .expect("drive");
+    let (goal, report) = &pairs[5];
+    assert!(matches!(check_freed_part_disposition(goal, report), CheckOutcome::Fail(_)));
 }
 
 #[test]

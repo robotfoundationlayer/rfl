@@ -35,7 +35,10 @@ pub fn retarget_example_to_jsonl(
 }
 
 use rfl_core::canonical::{ExecuteGoal, TactileTargetOut};
-use rfl_core::driver::{Driver, DriverReport, Outcome, RealizedPose, Status, Telemetry, Verdict, Wrench};
+use rfl_core::driver::{
+    Driver, DriverReport, FreedPartDisposition, Outcome, RealizedPose, SafetyFlags, Status,
+    Telemetry, Verdict, Wrench,
+};
 
 /// A nominal-echo reference driver: it does not simulate physics; it returns the
 /// in-protocol report a conformant driver would produce on a nominal execution,
@@ -169,6 +172,28 @@ impl Driver for ReferenceDriver {
         if is_flip {
             self.momentary_release_seen = true;
         }
+        // Freed-part disposition (spec/04 TM21c): a freeing operation (force.unscrew, carrying
+        // force_profile.on_disengagement) discloses where the freed part went — retained, or
+        // released into a declared safe zone. Absent for every non-freeing action.
+        let safety_flags = ca
+            .safety_envelope
+            .force_profile
+            .as_ref()
+            .and_then(|fp| fp.get("on_disengagement"))
+            .and_then(serde_json::Value::as_str)
+            .map(|od| {
+                let (disposition, zone) = if od == "drop_safe" {
+                    ("safe_zone_release", Some(serde_json::json!({ "zone": "discard_bin" })))
+                } else {
+                    ("retained", None)
+                };
+                SafetyFlags {
+                    freed_part_disposition: Some(FreedPartDisposition {
+                        disposition: disposition.to_string(),
+                        zone,
+                    }),
+                }
+            });
         let status = Status {
             message: "status",
             action_id: goal.action_id.clone(),
@@ -183,7 +208,7 @@ impl Driver for ReferenceDriver {
             failure_class: None,
             failure_detail: None,
             stop_latency: None,
-            safety_flags: None,
+            safety_flags,
         };
         DriverReport { telemetry, status }
     }
@@ -616,6 +641,63 @@ impl Driver for CutDriver {
     }
 }
 
+/// How a driver discloses a freeing operation's disposition (`spec/04` TM21c). `Discloses` is
+/// conformant; `DropsUncontrolled` omits the disclosure (an uncontrolled drop); `FalseDisposition`
+/// reports the opposite disposition (e.g. releases a part that should have been retained).
+#[derive(Debug, Clone, Copy)]
+pub enum FreeingResponse {
+    /// Conformant: discloses the freed-part disposition (the nominal driver already does).
+    Discloses,
+    /// Adversarial: a freeing op with no disclosure — an uncontrolled drop.
+    DropsUncontrolled,
+    /// Adversarial: discloses the opposite disposition (released what should be retained).
+    FalseDisposition,
+}
+
+/// The freed-part bench: reuses the nominal `ReferenceDriver` (which discloses the disposition for
+/// a freeing op) and mutates that disclosure per `response`. Non-freeing actions have no
+/// disclosure, so the mutations are no-ops on them.
+#[derive(Debug)]
+pub struct FreeingDriver {
+    inner: ReferenceDriver,
+    response: FreeingResponse,
+}
+
+impl FreeingDriver {
+    /// A freeing driver with the given disclosure policy.
+    #[must_use]
+    pub fn new(response: FreeingResponse) -> Self {
+        FreeingDriver { inner: ReferenceDriver::default(), response }
+    }
+}
+
+impl Driver for FreeingDriver {
+    fn execute(&mut self, goal: &ExecuteGoal) -> DriverReport {
+        let mut report = self.inner.execute(goal);
+        match self.response {
+            FreeingResponse::Discloses => {} // nominal: the disclosure stands
+            FreeingResponse::DropsUncontrolled => {
+                report.status.safety_flags = None; // freeing with no disposition recorded
+            }
+            FreeingResponse::FalseDisposition => {
+                if let Some(d) = report
+                    .status
+                    .safety_flags
+                    .as_mut()
+                    .and_then(|sf| sf.freed_part_disposition.as_mut())
+                {
+                    d.disposition = if d.disposition == "retained" {
+                        "safe_zone_release".to_string()
+                    } else {
+                        "retained".to_string()
+                    };
+                }
+            }
+        }
+        report
+    }
+}
+
 /// How a driver reports an `in_hand.flip` sequence (`spec/05` AUD2). `Propagates` is conformant
 /// (the flip declares momentary_release and it propagates downstream); `SuppressesFlip` omits the
 /// flag on the flip; `DropsDownstream` keeps it on the flip but strips it from later actions.
@@ -1022,6 +1104,44 @@ pub fn check_settling(goal: &ExecuteGoal, report: &DriverReport) -> CheckOutcome
         Some(lat) if lat > bound => {
             CheckOutcome::Fail(format!("abort stop_latency {lat} s exceeds stop_time {bound} s"))
         }
+        Some(_) => CheckOutcome::Pass,
+    }
+}
+
+/// Verify the `spec/04` TM21c freed-part disposition contract: a freeing operation (an action
+/// whose `force_profile.on_disengagement` is present — `force.unscrew`) must disclose
+/// `status.safety_flags.freed_part_disposition` matching the authored intent (`retain` →
+/// `retained`, `drop_safe` → `safe_zone_release`). An undisclosed freeing is an uncontrolled
+/// drop (forbidden). Vacuous for any action without `on_disengagement`.
+#[must_use]
+pub fn check_freed_part_disposition(goal: &ExecuteGoal, report: &DriverReport) -> CheckOutcome {
+    let on_diseng = goal
+        .canonical_action
+        .safety_envelope
+        .force_profile
+        .as_ref()
+        .and_then(|fp| fp.get("on_disengagement"))
+        .and_then(serde_json::Value::as_str);
+    let Some(on_diseng) = on_diseng else {
+        return CheckOutcome::Pass; // not a freeing operation
+    };
+    let expected = match on_diseng {
+        "drop_safe" => "safe_zone_release",
+        _ => "retained", // retain (and the lowering default)
+    };
+    let disclosed = report
+        .status
+        .safety_flags
+        .as_ref()
+        .and_then(|sf| sf.freed_part_disposition.as_ref());
+    match disclosed {
+        None => CheckOutcome::Fail(
+            "uncontrolled drop: a freeing operation disclosed no freed_part_disposition".to_string(),
+        ),
+        Some(d) if d.disposition != expected => CheckOutcome::Fail(format!(
+            "freed_part_disposition {} does not match the authored intent {expected}",
+            d.disposition
+        )),
         Some(_) => CheckOutcome::Pass,
     }
 }
@@ -1484,6 +1604,51 @@ mod tests {
             check_settling(&goal, &report(Outcome::Failed, Some("blocked"), None)),
             CheckOutcome::Fail(_)
         ));
+    }
+
+    #[test]
+    fn check_freed_part_disposition_requires_a_disclosure_matching_intent() {
+        use rfl_core::driver::{FreedPartDisposition, Outcome, RealizedPose, SafetyFlags, Status, Verdict};
+        // a freeing action: force_profile.on_disengagement = "retain" -> expected "retained".
+        let mut action = sample_action();
+        action.safety_envelope.force_profile =
+            Some(serde_json::json!({ "on_disengagement": "retain" }));
+        let goal = ExecuteGoal::wrap("s/e/0005-unscrew".to_string(), action);
+        let report = |flags: Option<SafetyFlags>| {
+            let status = Status {
+                message: "status",
+                action_id: "s/e/0005-unscrew".to_string(),
+                outcome: Outcome::Succeeded,
+                verdict: Some(Verdict { value: true, confidence: 1.0, evidence: vec![] }),
+                fidelity_tier: None,
+                final_pose: Some(RealizedPose::placeholder()),
+                failure_class: None,
+                failure_detail: None,
+                stop_latency: None,
+                safety_flags: flags,
+            };
+            DriverReport { telemetry: vec![], status }
+        };
+        let disp = |d: &str| {
+            Some(SafetyFlags {
+                freed_part_disposition: Some(FreedPartDisposition {
+                    disposition: d.to_string(),
+                    zone: None,
+                }),
+            })
+        };
+        // discloses retained (matches retain) -> Pass.
+        assert_eq!(check_freed_part_disposition(&goal, &report(disp("retained"))), CheckOutcome::Pass);
+        // no disclosure on a freeing op -> uncontrolled drop -> Fail.
+        assert!(matches!(check_freed_part_disposition(&goal, &report(None)), CheckOutcome::Fail(_)));
+        // wrong disposition (released what should be retained) -> Fail.
+        assert!(matches!(
+            check_freed_part_disposition(&goal, &report(disp("safe_zone_release"))),
+            CheckOutcome::Fail(_)
+        ));
+        // non-freeing action (no on_disengagement) -> vacuous Pass.
+        let plain = ExecuteGoal::wrap("s/e/0001-align".to_string(), sample_action());
+        assert_eq!(check_freed_part_disposition(&plain, &report(None)), CheckOutcome::Pass);
     }
 
     #[test]
