@@ -1,0 +1,34 @@
+# Example 03 — Place (place.put_down variant, the base grasp-continuity placement)
+# Place a held object onto a surface and release it under a controlled, stability-confirmed
+# touchdown. The canonical GC1 base-continuity placement (spec/05): holding force is maintained
+# until the controlled release. The grasp-continuity envelope spans the held leg; break_contact
+# marks the release. The full place family (stack / insert_loose / orient / hand_to / discard) is
+# unit-tested in translation.rs, including the place.hand_to conjunctive human-safety gate (SAF2c).
+skill: object-put-down
+description: >
+  Locate a part, grasp it, place it on a surface with a controlled release, leaving the effector
+  free. Demonstrates the place grasp-continuity envelope (held floor + controlled break_contact).
+
+objects:
+  part: { ref: part, estimated_mass: 1.0 N }
+
+body:
+  sequence:
+
+    - let: part_t
+      from:
+        sense.locate:
+          target_ref: part
+          modality: auto
+
+    - grasp.pinch:
+        target: part_t
+        force_budget: 8 N
+        tactile_target: auto
+
+    - place.put_down:
+        target_surface: workbench
+
+    - reach.retract:
+        direction: -tool_axis
+        distance: 40 mm

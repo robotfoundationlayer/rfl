@@ -20,11 +20,12 @@ embodiment:
 
   # Capability manifest — 03 § Capability manifest.
   capabilities:
-    skills: [grasp.pinch, grasp.power, grasp.lateral, grasp.precision_tripod, grasp.hook, grasp.envelope, transport, force.insert_fit, force.screw, force.unscrew, force.press_button, force.wipe, force.snap_engage, force.cut, in_hand.flip, in_hand.regrasp, in_hand.pivot, in_hand.rotate, in_hand.translate, in_hand.roll, in_hand.slide, transport.handoff, sense.locate]
+    skills: [grasp.pinch, grasp.power, grasp.lateral, grasp.precision_tripod, grasp.hook, grasp.envelope, transport, force.insert_fit, force.screw, force.unscrew, force.press_button, force.wipe, force.snap_engage, force.cut, in_hand.flip, in_hand.regrasp, in_hand.pivot, in_hand.rotate, in_hand.translate, in_hand.roll, in_hand.slide, transport.handoff, place.put_down, place.stack, place.insert_loose, place.orient, place.hand_to, place.discard, sense.locate]
     aux:
       tactile_sensing: true        # distributed fingertip tactile → manifold-tier confirmation
       compliance: active
       tool_safety: { hazard_class: cut }   # hazardous-tool capability required by force.cut
+      human_collaboration_safety: { max_interaction_force: 30 N, weight_transfer_threshold: 0.5, standard: "ISO 10218" }   # required by place.hand_to (SAF2c)
 
   # Limits — flat embodiment.limits.* (03 § Limits). M2 limit-completeness: every limit an
   # asserted capability references is declared (03 § Capability manifest, M2).
