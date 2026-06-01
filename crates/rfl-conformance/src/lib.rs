@@ -183,6 +183,7 @@ impl Driver for ReferenceDriver {
             failure_class: None,
             failure_detail: None,
             stop_latency: None,
+            safety_flags: None,
         };
         DriverReport { telemetry, status }
     }
@@ -1369,6 +1370,7 @@ mod tests {
             failure_class: None,
             failure_detail: None,
             stop_latency: None,
+            safety_flags: None,
         };
         let ok = DriverReport {
             telemetry: vec![sample(Some(RealizedPose::placeholder())); 3],
@@ -1402,6 +1404,7 @@ mod tests {
                 failure_class: detail.map(|_| "blocked".to_string()),
                 failure_detail: detail.map(str::to_string),
                 stop_latency: None,
+                safety_flags: None,
             };
             DriverReport {
                 telemetry: vec![Telemetry {
@@ -1453,6 +1456,7 @@ mod tests {
             failure_class: detail.map(|_| "blocked".to_string()),
             failure_detail: detail.map(str::to_string),
             stop_latency: lat.map(|s| Quantity(s.to_string())),
+            safety_flags: None,
         };
         let report = |o, d, l| DriverReport { telemetry: vec![], status: status(o, d, l) };
         // abort within stop_time -> Pass.
@@ -1531,6 +1535,7 @@ mod tests {
             failure_class: None,
             failure_detail: None,
             stop_latency: None,
+            safety_flags: None,
         };
         // Succeeded + detent -> Pass.
         let ok = DriverReport {
@@ -1600,6 +1605,7 @@ mod tests {
                     failure_class: None,
                     failure_detail: None,
                     stop_latency: None,
+                    safety_flags: None,
                 },
             }
         };
@@ -1656,6 +1662,7 @@ mod tests {
                 failure_class: None,
                 failure_detail: None,
                 stop_latency: None,
+                safety_flags: None,
             },
         };
         // Succeeded + held_confirmed -> Pass.
@@ -1714,6 +1721,7 @@ mod tests {
                 failure_class: None,
                 failure_detail: None,
                 stop_latency: None,
+                safety_flags: None,
             },
         };
         // Succeeded -> vacuously Pass (completed; nothing partial).
@@ -1769,6 +1777,7 @@ mod tests {
                 failure_class: None,
                 failure_detail: None,
                 stop_latency: None,
+                safety_flags: None,
             },
         };
         let proxy_goal = ExecuteGoal::wrap(
@@ -1809,6 +1818,7 @@ mod tests {
                     failure_class: None,
                     failure_detail: None,
                     stop_latency: None,
+                    safety_flags: None,
                 },
             };
             (goal, report)

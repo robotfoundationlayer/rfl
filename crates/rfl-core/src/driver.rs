@@ -141,6 +141,31 @@ pub struct Status {
     /// aborted action (the bench measures it); a nominal success omits it.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub stop_latency: Option<Quantity>,
+    /// Safety-critical facts the audit record propagates (`spec/05` AUD2 / AUD3, `spec/04`
+    /// freed-part handling). Present only when a safety-relevant fact must be disclosed.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub safety_flags: Option<SafetyFlags>,
+}
+
+/// The `safety_flags` audit object (`driver-interface` schema `StatusResult.safety_flags`).
+/// v0 carries the freed-part disposition; `momentary_release` (schema-declared) is currently
+/// disclosed via `verdict.evidence` (increment 21) — reconciling the two is deferred.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct SafetyFlags {
+    /// The freed-part disposition disclosed by a freeing operation (`spec/04` TM21c).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub freed_part_disposition: Option<FreedPartDisposition>,
+}
+
+/// A freeing operation's disposition (`spec/04` TM21c): `retained` or `safe_zone_release(zone)`,
+/// never an uncontrolled drop.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct FreedPartDisposition {
+    /// `retained` or `safe_zone_release`.
+    pub disposition: String,
+    /// The declared safe zone (present for `safe_zone_release`; owned by `04`, floored).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub zone: Option<serde_json::Value>,
 }
 
 /// One action's driver report: the telemetry samples plus the terminal status.
@@ -199,9 +224,35 @@ mod tests {
             failure_class: None,
             failure_detail: None,
             stop_latency: None,
+            safety_flags: None,
         };
         let j = serde_json::to_string(&s).unwrap();
         assert!(j.contains("\"outcome\":\"succeeded\""));
         assert!(!j.contains("failure_class")); // skipped when None
+    }
+
+    #[test]
+    fn status_safety_flags_serializes_freed_part_disposition() {
+        let s = Status {
+            message: "status",
+            action_id: "a/b/0005-unscrew".into(),
+            outcome: Outcome::Succeeded,
+            verdict: None,
+            fidelity_tier: None,
+            final_pose: None,
+            failure_class: None,
+            failure_detail: None,
+            stop_latency: None,
+            safety_flags: Some(SafetyFlags {
+                freed_part_disposition: Some(FreedPartDisposition {
+                    disposition: "retained".into(),
+                    zone: None,
+                }),
+            }),
+        };
+        let j = serde_json::to_string(&s).unwrap();
+        assert!(j.contains("\"freed_part_disposition\""));
+        assert!(j.contains("\"disposition\":\"retained\""));
+        assert!(!j.contains("\"zone\"")); // skipped when None
     }
 }
