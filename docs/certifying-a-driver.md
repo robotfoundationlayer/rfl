@@ -186,24 +186,50 @@ VERIFIED: content_hash sha256:4c9ff53d… matches
 
 ### Re-verifying without the `rfl` binary
 
-The `content_hash` is sha256 over the certificate body with `content_hash` removed, every object's
-keys sorted recursively, compact-serialized with **no trailing newline**, prefixed `sha256:`. Any
-JSON library reproduces it. The result must equal the certificate's declared `content_hash`.
+The `content_hash` is sha256 over the certificate body with `content_hash` **and `signature`**
+removed, every object's keys sorted recursively, compact-serialized with **no trailing newline**,
+prefixed `sha256:`. (An unsigned certificate has no `signature` key, so dropping it is a harmless
+no-op; a signed certificate's `content_hash` is over the body excluding both fields.) Any JSON
+library reproduces it. The result must equal the certificate's declared `content_hash`.
 
 ```bash
 # jq — the printf strips the trailing newline jq -c would otherwise add (which would change the hash)
-printf '%s' "$(jq -S -c 'del(.content_hash)' certificate.json)" | shasum -a 256
+printf '%s' "$(jq -S -c 'del(.content_hash, .signature)' certificate.json)" | shasum -a 256
 ```
 
 ```python
 import json, hashlib
-d = json.load(open("certificate.json")); d.pop("content_hash")
+d = json.load(open("certificate.json")); d.pop("content_hash", None); d.pop("signature", None)
 print("sha256:" + hashlib.sha256(json.dumps(d, sort_keys=True, separators=(",", ":")).encode()).hexdigest())
 ```
 
 Both print `4c9ff53d12b4acb7bd9a053200b984bb69be7a3d3d160b0fb6f213f8d6400453` for the worked-example
 certificate — equal to its `content_hash` minus the `sha256:` prefix. The trailing-newline caveat is
 real: the bare `jq -S -c … | shasum` form hashes a different byte string and will not match.
+
+----
+
+## Signing a certificate (optional)
+
+A self-certified certificate carries integrity but no signer. To attach a signer identity, sign it
+with an ed25519 key:
+
+```bash
+rfl keygen signer.key                 # writes the secret key to signer.key, prints the public key
+rfl sign --key signer.key certificate.json > certificate-signed.json
+```
+
+`rfl sign` adds a top-level `signature` object — `{ "alg": "ed25519", "public_key": "<hex>",
+"sig": "<hex>" }` — over the certificate's `content_hash`. `rfl verify` then reports the signer:
+
+```text
+VERIFIED: content_hash sha256:… matches; signed by <public_key> (ed25519)
+```
+
+`rfl verify` confirms the signature is **valid** and reports **which key** signed. It does **not**
+decide whether that key is **trusted** — mapping a public key to an authorized steward is a
+governance question (the Tier-2 / Tier-3 regime in
+[spec/05-conformance.md](../spec/05-conformance.md)), out of scope for the tool.
 
 ----
 
@@ -218,7 +244,9 @@ A Class 3 certificate covers the driver protocol on a nominal run. It explicitly
 - **The physical *truth* of a fidelity-tier claim** — `audit_honesty` checks only that the reported
   tier is not over-claimed relative to the lowering decision, not that the tier is physically
   achieved.
-- **Signer identity** — there is no signature. `content_hash` is tamper-*evidence*, not
-  authentication. "Who vouched for this certificate" is the steward / notified-body question
-  answered by the higher tiers in [spec/05-conformance.md](../spec/05-conformance.md) §
-  Three-tier conformance regime — `rfl certify` self-certification is Tier 1.
+- **Signer *trust*** — `rfl sign` / `rfl verify` (above) attest *which key* signed a certificate,
+  but the tool does not establish whether that key is *authorized*. Mapping a public key to a
+  trusted steward — the Tier-2 / Tier-3 regime in
+  [spec/05-conformance.md](../spec/05-conformance.md) § Three-tier conformance regime — is a
+  governance question, out of scope for the tool. An unsigned `rfl certify` certificate is Tier-1
+  self-certification.
