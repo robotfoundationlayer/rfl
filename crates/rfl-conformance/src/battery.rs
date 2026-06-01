@@ -14,7 +14,8 @@ use crate::{
     CheckOutcome, EnvelopeClass, check_actuation, check_audit_honesty, check_audit_record,
     check_controlled_under_actuation, check_engagement, check_envelope, check_flip_bounded_window,
     check_freed_part_disposition, check_hold_test, check_irreversible, check_make_before_break,
-    check_momentary_release, check_support_safe_state, envelope_class_for, suffix_of,
+    check_momentary_release, check_support_safe_state, check_two_party_handoff, envelope_class_for,
+    suffix_of,
 };
 
 /// A named check outcome.
@@ -97,6 +98,10 @@ pub fn verify_action(goal: &ExecuteGoal, report: &DriverReport) -> ActionVerdict
     checks.push(NamedCheck {
         name: "controlled_under_actuation",
         outcome: check_controlled_under_actuation(goal, report),
+    });
+    checks.push(NamedCheck {
+        name: "two_party_handoff",
+        outcome: check_two_party_handoff(goal, report),
     });
     let passed = checks
         .iter()
@@ -312,6 +317,42 @@ mod tests {
             .find(|c| c.name == "controlled_under_actuation")
             .unwrap();
         assert!(matches!(cua.outcome, CheckOutcome::Fail(_)));
+    }
+
+    #[test]
+    fn nominal_handoff_passes_two_party_but_cograsp_overforce_fails() {
+        let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples/03-screw-fasten");
+        let skill = dir.join("skill-handoff.yaml");
+        let emb = dir.join("embodiments/allegro.yaml");
+        // nominal: at least one party secures + combined force within budget -> GC6 pass.
+        let nominal = drive(ReferenceDriver::default(), &skill, &emb).unwrap();
+        let (g, r) = &nominal[2]; // locate(0), pinch(1), handoff(2), release(3)
+        assert_eq!(g.action_id.rsplit('-').next(), Some("handoff"));
+        let v = verify_action(g, r);
+        let tph = v
+            .checks
+            .iter()
+            .find(|c| c.name == "two_party_handoff")
+            .unwrap();
+        assert!(
+            matches!(tph.outcome, CheckOutcome::Pass),
+            "checks: {:?}",
+            v.checks
+                .iter()
+                .map(|c| (c.name, &c.outcome))
+                .collect::<Vec<_>>()
+        );
+        // adversarial: the two effectors crushed / fought the object past the budget -> GC6 fails.
+        let bad = drive(FaultyDriver::new(Fault::CograspOverforce), &skill, &emb).unwrap();
+        let (g, r) = &bad[2];
+        let v = verify_action(g, r);
+        assert!(!v.passed);
+        let tph = v
+            .checks
+            .iter()
+            .find(|c| c.name == "two_party_handoff")
+            .unwrap();
+        assert!(matches!(tph.outcome, CheckOutcome::Fail(_)));
     }
 
     #[test]

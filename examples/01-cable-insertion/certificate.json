@@ -69,6 +69,10 @@
         {
           "name": "controlled_under_actuation",
           "result": "pass"
+        },
+        {
+          "name": "two_party_handoff",
+          "result": "pass"
         }
       ],
       "passed": true
@@ -126,6 +130,10 @@
         {
           "name": "controlled_under_actuation",
           "result": "pass"
+        },
+        {
+          "name": "two_party_handoff",
+          "result": "pass"
         }
       ],
       "passed": true
@@ -182,6 +190,10 @@
         {
           "name": "controlled_under_actuation",
           "result": "pass"
+        },
+        {
+          "name": "two_party_handoff",
+          "result": "pass"
         }
       ],
       "passed": true
@@ -232,6 +244,10 @@
         },
         {
           "name": "controlled_under_actuation",
+          "result": "pass"
+        },
+        {
+          "name": "two_party_handoff",
           "result": "pass"
         }
       ],
@@ -289,6 +305,10 @@
         {
           "name": "controlled_under_actuation",
           "result": "pass"
+        },
+        {
+          "name": "two_party_handoff",
+          "result": "pass"
         }
       ],
       "passed": true
@@ -344,6 +364,10 @@
         },
         {
           "name": "controlled_under_actuation",
+          "result": "pass"
+        },
+        {
+          "name": "two_party_handoff",
           "result": "pass"
         }
       ],
@@ -401,6 +425,10 @@
         {
           "name": "controlled_under_actuation",
           "result": "pass"
+        },
+        {
+          "name": "two_party_handoff",
+          "result": "pass"
         }
       ],
       "passed": true
@@ -457,6 +485,10 @@
         {
           "name": "controlled_under_actuation",
           "result": "pass"
+        },
+        {
+          "name": "two_party_handoff",
+          "result": "pass"
         }
       ],
       "passed": true
@@ -468,5 +500,5 @@
       "result": "pass"
     }
   ],
-  "content_hash": "sha256:2cce68dfbbf1789a61797e2f0bafc45e8bb89d007d6917cd889a30dc9d4c563d"
+  "content_hash": "sha256:47673b587d431ea009422d6c09774a62c1c480137a720b07fcd8f648d3d4c531"
 }

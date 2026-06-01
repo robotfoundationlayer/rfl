@@ -249,6 +249,27 @@ impl Driver for ReferenceDriver {
                 evidence.push("dof_resecured".to_string());
             }
         }
+        // GC6 (two-party co-grasp, spec/05): for a handoff the nominal driver keeps at least one
+        // party securing the object at every instant and bounds the combined dual-grasp force.
+        if let Some(fp) = ca.safety_envelope.force_profile.as_ref() {
+            if fp.get("transition").and_then(serde_json::Value::as_str) == Some("two_party_handoff")
+            {
+                evidence.push("at_least_one_secures".to_string());
+                // v0 models the dual-grasp combined-force peak as 80% of the declared ceiling.
+                if let Some((budget, unit)) = fp
+                    .get("cograsp_force_budget")
+                    .and_then(serde_json::Value::as_str)
+                    .and_then(|s| {
+                        rfl_core::quantity::Quantity(s.to_string())
+                            .parse()
+                            .map(|(v, u)| (v, u.to_string()))
+                    })
+                {
+                    let measured = rfl_core::quantity::Quantity::from_si(budget * 0.8, &unit);
+                    evidence.push(format!("combined_force:{}", measured.0));
+                }
+            }
+        }
         // Freed-part disposition (spec/04 TM21c): a freeing operation (force.unscrew, carrying
         // force_profile.on_disengagement) discloses where the freed part went — retained, or
         // released into a declared safe zone. Absent for every non-freeing action.
@@ -336,6 +357,9 @@ pub enum Fault {
     /// A pivot's released DOF left un-resecured at completion (the object stays under-actuated —
     /// violates GC4 controlled under-actuation).
     DofNotResecured,
+    /// A handoff's combined dual-grasp force driven over `cograsp_force_budget` (the two effectors
+    /// crush the object / fight each other — violates GC6 two-party co-grasp).
+    CograspOverforce,
 }
 
 /// Wraps the nominal `ReferenceDriver` and injects one `Fault` into every report it
@@ -452,6 +476,29 @@ impl Driver for FaultyDriver {
                 // Drop the re-secure attestation: the released DOF is left under-actuated (GC4).
                 if let Some(v) = report.status.verdict.as_mut() {
                     v.evidence.retain(|e| e != "dof_resecured");
+                }
+            }
+            Fault::CograspOverforce => {
+                // Drive the combined dual-grasp force over the budget (crush / tug-of-war), GC6.
+                let budget = goal
+                    .canonical_action
+                    .safety_envelope
+                    .force_profile
+                    .as_ref()
+                    .and_then(|fp| fp.get("cograsp_force_budget"))
+                    .and_then(serde_json::Value::as_str)
+                    .and_then(|s| {
+                        rfl_core::quantity::Quantity(s.to_string())
+                            .parse()
+                            .map(|(v, u)| (v, u.to_string()))
+                    });
+                if let (Some((budget, unit)), Some(v)) = (budget, report.status.verdict.as_mut()) {
+                    let over = rfl_core::quantity::Quantity::from_si(budget * 1.5, &unit);
+                    for e in &mut v.evidence {
+                        if e.starts_with("combined_force:") {
+                            *e = format!("combined_force:{}", over.0);
+                        }
+                    }
                 }
             }
         }
@@ -1022,7 +1069,7 @@ pub enum EnvelopeClass {
 pub fn envelope_class_for(suffix: &str) -> Option<EnvelopeClass> {
     match suffix {
         "align" | "retract" | "scan" => Some(EnvelopeClass::TerminalPostcondition),
-        "pinch" | "release" | "transport" | "flip" | "regrasp" | "pivot" => {
+        "pinch" | "release" | "transport" | "flip" | "regrasp" | "pivot" | "handoff" => {
             Some(EnvelopeClass::GraspContinuity)
         }
         "insert_fit" | "screw" | "unscrew" | "press_button" | "wipe" | "snap_engage" | "cut" => {
@@ -1768,6 +1815,66 @@ pub fn check_controlled_under_actuation(goal: &ExecuteGoal, report: &DriverRepor
     CheckOutcome::Pass
 }
 
+/// Verify the GC6 two-party co-grasp obligation (`spec/05` § Two-party co-grasp): in a
+/// `transport.handoff`, at every instant **at least one party** secures the object at ≥
+/// `min_holding_force` (two-party make-before-break), and during the dual-grasp window the
+/// **combined** force stays ≤ `cograsp_force_budget` (no crushing, no tug-of-war). Verifies both
+/// from the driver's attestation: `at_least_one_secures` (continuity) and the measured
+/// `combined_force` ≤ the declared `cograsp_force_budget` (the ceiling — only when a budget is
+/// declared). Keyed on the `two_party_handoff` marker, so vacuous for every other action. A
+/// non-`Succeeded` handoff is the giver-retains failure path, verified elsewhere. The per-party
+/// securing floor itself is checked by the grasp-continuity envelope (GC1).
+#[must_use]
+pub fn check_two_party_handoff(goal: &ExecuteGoal, report: &DriverReport) -> CheckOutcome {
+    let Some(fp) = goal.canonical_action.safety_envelope.force_profile.as_ref() else {
+        return CheckOutcome::Pass;
+    };
+    if fp.get("transition").and_then(serde_json::Value::as_str) != Some("two_party_handoff") {
+        return CheckOutcome::Pass; // not a two-party handoff
+    }
+    if report.status.outcome != rfl_core::driver::Outcome::Succeeded {
+        return CheckOutcome::Pass; // giver-retains (object retained) is its own path
+    }
+    let evidence = report.status.verdict.as_ref().map(|v| &v.evidence);
+    if !evidence.is_some_and(|ev| ev.iter().any(|e| e == "at_least_one_secures")) {
+        return CheckOutcome::Fail(
+            "the object was unsecured by both parties at some instant (handoff continuity broken)"
+                .to_string(),
+        );
+    }
+    // the combined-force ceiling — only when a budget is declared on the wire.
+    if let Some((budget, _)) = fp
+        .get("cograsp_force_budget")
+        .and_then(serde_json::Value::as_str)
+        .and_then(|s| {
+            rfl_core::quantity::Quantity(s.to_string())
+                .parse()
+                .map(|(v, u)| (v, u.to_string()))
+        })
+    {
+        let measured = evidence.and_then(|ev| {
+            ev.iter()
+                .find_map(|e| e.strip_prefix("combined_force:"))
+                .and_then(|s| {
+                    rfl_core::quantity::Quantity(s.to_string())
+                        .parse()
+                        .map(|(v, _)| v)
+                })
+        });
+        let Some(measured) = measured else {
+            return CheckOutcome::Fail(
+                "a budgeted handoff must report its combined co-grasp force".to_string(),
+            );
+        };
+        if measured > budget {
+            return CheckOutcome::Fail(format!(
+                "combined co-grasp force {measured} exceeds cograsp_force_budget {budget}"
+            ));
+        }
+    }
+    CheckOutcome::Pass
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -2419,6 +2526,114 @@ mod tests {
         );
         assert_eq!(
             check_controlled_under_actuation(&goal(true), &report(Outcome::Failed, &[])),
+            CheckOutcome::Pass
+        );
+    }
+
+    #[test]
+    fn two_party_handoff_requires_continuity_and_combined_force_within_budget() {
+        use rfl_core::canonical::{
+            CanonicalAction, Envelope, MotionBounds, PoseExpr, TimingHints, TimingMode,
+        };
+        use rfl_core::driver::{Outcome, RealizedPose, Status, Verdict};
+        let goal = |handoff: bool| {
+            let force_profile = handoff.then(|| {
+                serde_json::json!({
+                    "transition": "two_party_handoff",
+                    "cograsp_force_budget": "12 N",
+                    "min_holding_force": "2 N",
+                    "receiver": "tcp_index"
+                })
+            });
+            let ca = CanonicalAction {
+                target_frame: "grip".into(),
+                target_pose: PoseExpr::Ref {
+                    r#ref: "held".into(),
+                },
+                force_budget: None,
+                timing: TimingHints {
+                    nominal_duration: None,
+                    timing_mode: TimingMode::Strict,
+                    stop_at_goal: true,
+                },
+                tactile_target: None,
+                monitors: vec![],
+                safety_envelope: Envelope {
+                    motion_bounds: MotionBounds::default(),
+                    force_profile,
+                    station_keeping: None,
+                    clearance: None,
+                    compliance: None,
+                    stop_time: None,
+                },
+                grasp_stability: None,
+            };
+            ExecuteGoal::wrap("s/e/0003-handoff".to_string(), ca)
+        };
+        let report = |outcome: Outcome, evidence: &[&str]| DriverReport {
+            telemetry: vec![],
+            status: Status {
+                message: "status",
+                action_id: "s/e/0003-handoff".to_string(),
+                outcome,
+                verdict: Some(Verdict {
+                    value: true,
+                    confidence: 1.0,
+                    evidence: evidence.iter().map(|s| (*s).to_string()).collect(),
+                }),
+                fidelity_tier: None,
+                final_pose: Some(RealizedPose::placeholder()),
+                failure_class: None,
+                failure_detail: None,
+                stop_latency: None,
+                safety_flags: None,
+            },
+        };
+        // continuity + combined force within the 12 N budget -> pass.
+        assert_eq!(
+            check_two_party_handoff(
+                &goal(true),
+                &report(
+                    Outcome::Succeeded,
+                    &["at_least_one_secures", "combined_force:9.6 N"]
+                )
+            ),
+            CheckOutcome::Pass
+        );
+        // combined force over budget (crush / tug-of-war) -> fail (the bite).
+        assert!(matches!(
+            check_two_party_handoff(
+                &goal(true),
+                &report(
+                    Outcome::Succeeded,
+                    &["at_least_one_secures", "combined_force:18 N"]
+                )
+            ),
+            CheckOutcome::Fail(_)
+        ));
+        // the object unsecured by both parties at some instant -> fail.
+        assert!(matches!(
+            check_two_party_handoff(
+                &goal(true),
+                &report(Outcome::Succeeded, &["combined_force:9.6 N"])
+            ),
+            CheckOutcome::Fail(_)
+        ));
+        // a budgeted handoff with no combined-force evidence -> fail.
+        assert!(matches!(
+            check_two_party_handoff(
+                &goal(true),
+                &report(Outcome::Succeeded, &["at_least_one_secures"])
+            ),
+            CheckOutcome::Fail(_)
+        ));
+        // a non-handoff action, and a non-Succeeded handoff (giver-retains), are vacuous.
+        assert_eq!(
+            check_two_party_handoff(&goal(false), &report(Outcome::Succeeded, &[])),
+            CheckOutcome::Pass
+        );
+        assert_eq!(
+            check_two_party_handoff(&goal(true), &report(Outcome::Failed, &[])),
             CheckOutcome::Pass
         );
     }
