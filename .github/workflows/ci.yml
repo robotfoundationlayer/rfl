@@ -76,14 +76,12 @@ jobs:
       - uses: EmbarkStudios/cargo-deny-action@v2.0.20
 
   msrv:
-    name: MSRV (Rust ${{ env.RFL_MSRV }})
+    name: MSRV (Rust 1.86)
     runs-on: ubuntu-latest
-    env:
-      RFL_MSRV: "1.86"
     steps:
       - uses: actions/checkout@v5
-      - uses: dtolnay/rust-toolchain@master
+      - uses: dtolnay/rust-toolchain@stable
         with:
-          toolchain: ${{ env.RFL_MSRV }}
+          toolchain: "1.86"
       - uses: Swatinem/rust-cache@v2
       - run: cargo check --workspace --all-targets
