@@ -1454,6 +1454,34 @@ pub fn check_audit_record(report: &DriverReport) -> CheckOutcome {
     }
 }
 
+/// Verify the STB2 support-safe-state obligation (`spec/05` § Closure/stability): a
+/// support-closure grasp (`grasp.platform`) must declare a controlled-lowering safe state,
+/// never an open-release — opening drops a balanced object. Decidable from the goal alone
+/// (static). Vacuous-pass for non-grasp actions and for force/form-closure grasps, whose
+/// open-and-withdraw safe state is correct.
+#[must_use]
+pub fn check_support_safe_state(goal: &ExecuteGoal) -> CheckOutcome {
+    let ca = &goal.canonical_action;
+    let Some(st) = &ca.grasp_stability else {
+        return CheckOutcome::Pass; // non-grasp action
+    };
+    if st.closure != rfl_core::stability::Closure::Support {
+        return CheckOutcome::Pass; // force / form closure: open-withdraw safe state is fine
+    }
+    let safe_state = ca
+        .safety_envelope
+        .force_profile
+        .as_ref()
+        .and_then(|fp| fp.get("safe_state"))
+        .and_then(serde_json::Value::as_str);
+    match safe_state {
+        Some("controlled_lowering") => CheckOutcome::Pass,
+        other => CheckOutcome::Fail(format!(
+            "a support grasp must declare a controlled-lowering safe state, not {other:?}"
+        )),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1664,6 +1692,69 @@ mod tests {
             },
             grasp_stability: None,
         }
+    }
+
+    #[test]
+    fn support_safe_state_requires_controlled_lowering() {
+        use rfl_core::canonical::{
+            CanonicalAction, Envelope, MotionBounds, PoseExpr, TimingHints, TimingMode,
+        };
+        use rfl_core::grasp_force::GraspMode;
+        use rfl_core::stability::StabilityMetadata;
+        let goal = |mode: Option<GraspMode>, safe: Option<&str>| {
+            let force_profile = safe.map(|s| serde_json::json!({ "safe_state": s }));
+            let ca = CanonicalAction {
+                target_frame: "support".into(),
+                target_pose: PoseExpr::Ref {
+                    r#ref: "tray".into(),
+                },
+                force_budget: None,
+                timing: TimingHints {
+                    nominal_duration: None,
+                    timing_mode: TimingMode::Strict,
+                    stop_at_goal: true,
+                },
+                tactile_target: None,
+                monitors: vec![],
+                safety_envelope: Envelope {
+                    motion_bounds: MotionBounds::default(),
+                    force_profile,
+                    station_keeping: None,
+                    clearance: None,
+                    compliance: None,
+                    stop_time: None,
+                },
+                grasp_stability: mode.map(StabilityMetadata::for_mode),
+            };
+            ExecuteGoal::wrap("s/e/0001-platform".to_string(), ca)
+        };
+        // a real support grasp declares controlled lowering -> pass.
+        assert_eq!(
+            check_support_safe_state(&goal(
+                Some(GraspMode::Platform),
+                Some("controlled_lowering")
+            )),
+            CheckOutcome::Pass
+        );
+        // a support grasp that would open-release a balanced object -> fail (the bite).
+        assert!(matches!(
+            check_support_safe_state(&goal(Some(GraspMode::Platform), Some("open_withdraw"))),
+            CheckOutcome::Fail(_)
+        ));
+        // a support grasp with no declared safe state -> fail.
+        assert!(matches!(
+            check_support_safe_state(&goal(Some(GraspMode::Platform), None)),
+            CheckOutcome::Fail(_)
+        ));
+        // force-closure (pinch) and non-grasp actions are vacuous-pass.
+        assert_eq!(
+            check_support_safe_state(&goal(Some(GraspMode::Pinch), None)),
+            CheckOutcome::Pass
+        );
+        assert_eq!(
+            check_support_safe_state(&goal(None, None)),
+            CheckOutcome::Pass
+        );
     }
 
     #[test]

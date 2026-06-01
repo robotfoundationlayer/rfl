@@ -49,6 +49,10 @@
         {
           "name": "audit_record",
           "result": "pass"
+        },
+        {
+          "name": "support_safe_state",
+          "result": "pass"
         }
       ],
       "passed": true
@@ -86,6 +90,10 @@
         {
           "name": "audit_record",
           "result": "pass"
+        },
+        {
+          "name": "support_safe_state",
+          "result": "pass"
         }
       ],
       "passed": true
@@ -122,6 +130,10 @@
         {
           "name": "audit_record",
           "result": "pass"
+        },
+        {
+          "name": "support_safe_state",
+          "result": "pass"
         }
       ],
       "passed": true
@@ -152,6 +164,10 @@
         },
         {
           "name": "audit_record",
+          "result": "pass"
+        },
+        {
+          "name": "support_safe_state",
           "result": "pass"
         }
       ],
@@ -189,6 +205,10 @@
         {
           "name": "audit_record",
           "result": "pass"
+        },
+        {
+          "name": "support_safe_state",
+          "result": "pass"
         }
       ],
       "passed": true
@@ -224,6 +244,10 @@
         },
         {
           "name": "audit_record",
+          "result": "pass"
+        },
+        {
+          "name": "support_safe_state",
           "result": "pass"
         }
       ],
@@ -261,6 +285,10 @@
         {
           "name": "audit_record",
           "result": "pass"
+        },
+        {
+          "name": "support_safe_state",
+          "result": "pass"
         }
       ],
       "passed": true
@@ -297,6 +325,10 @@
         {
           "name": "audit_record",
           "result": "pass"
+        },
+        {
+          "name": "support_safe_state",
+          "result": "pass"
         }
       ],
       "passed": true
@@ -308,5 +340,5 @@
       "result": "pass"
     }
   ],
-  "content_hash": "sha256:7b868f5f926dce6e35a1e4a04ae43fe8f01c1ae3ba4696947a57df123f94ff84"
+  "content_hash": "sha256:fa92566b5ec23b195a2b030f77a0c3509f0b28de96a1a022e5b06e631aa33de7"
 }

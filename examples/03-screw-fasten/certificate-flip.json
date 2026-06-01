@@ -49,6 +49,10 @@
         {
           "name": "audit_record",
           "result": "pass"
+        },
+        {
+          "name": "support_safe_state",
+          "result": "pass"
         }
       ],
       "passed": true
@@ -86,6 +90,10 @@
         {
           "name": "audit_record",
           "result": "pass"
+        },
+        {
+          "name": "support_safe_state",
+          "result": "pass"
         }
       ],
       "passed": true
@@ -121,6 +129,10 @@
         },
         {
           "name": "audit_record",
+          "result": "pass"
+        },
+        {
+          "name": "support_safe_state",
           "result": "pass"
         }
       ],
@@ -158,6 +170,10 @@
         {
           "name": "audit_record",
           "result": "pass"
+        },
+        {
+          "name": "support_safe_state",
+          "result": "pass"
         }
       ],
       "passed": true
@@ -169,5 +185,5 @@
       "result": "pass"
     }
   ],
-  "content_hash": "sha256:040d304be790cce6f710ffccedb4acbcdec9c0062c708eb37e8720526113c26a"
+  "content_hash": "sha256:2f2b648fae116780c896cf331a85d8a76ccef0642ea4b45b7bef400335c14e80"
 }

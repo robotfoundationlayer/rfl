@@ -49,6 +49,10 @@
         {
           "name": "audit_record",
           "result": "pass"
+        },
+        {
+          "name": "support_safe_state",
+          "result": "pass"
         }
       ],
       "passed": true
@@ -86,6 +90,10 @@
         {
           "name": "audit_record",
           "result": "pass"
+        },
+        {
+          "name": "support_safe_state",
+          "result": "pass"
         }
       ],
       "passed": true
@@ -122,6 +130,10 @@
         {
           "name": "audit_record",
           "result": "pass"
+        },
+        {
+          "name": "support_safe_state",
+          "result": "pass"
         }
       ],
       "passed": true
@@ -152,6 +164,10 @@
         },
         {
           "name": "audit_record",
+          "result": "pass"
+        },
+        {
+          "name": "support_safe_state",
           "result": "pass"
         }
       ],
@@ -189,6 +205,10 @@
         {
           "name": "audit_record",
           "result": "pass"
+        },
+        {
+          "name": "support_safe_state",
+          "result": "pass"
         }
       ],
       "passed": true
@@ -224,6 +244,10 @@
         },
         {
           "name": "audit_record",
+          "result": "pass"
+        },
+        {
+          "name": "support_safe_state",
           "result": "pass"
         }
       ],
@@ -261,6 +285,10 @@
         {
           "name": "audit_record",
           "result": "pass"
+        },
+        {
+          "name": "support_safe_state",
+          "result": "pass"
         }
       ],
       "passed": true
@@ -297,6 +325,10 @@
         {
           "name": "audit_record",
           "result": "pass"
+        },
+        {
+          "name": "support_safe_state",
+          "result": "pass"
         }
       ],
       "passed": true
@@ -308,5 +340,5 @@
       "result": "pass"
     }
   ],
-  "content_hash": "sha256:50ad949b2312488bd42d2a8a12274fb96276d2a3323a62529035db1672dab975"
+  "content_hash": "sha256:734066b606b758af8108bfb1216452b99956f6f2bfecfd36874cd7894230f4a6"
 }

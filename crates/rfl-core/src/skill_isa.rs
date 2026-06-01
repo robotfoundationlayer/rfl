@@ -37,7 +37,7 @@ pub struct PrimitiveId(pub String);
 
 use crate::grasp_force::GraspMode;
 use crate::quantity::Quantity;
-use crate::stability::StabilityMetadata;
+use crate::stability::{Closure, StabilityMetadata};
 use std::collections::BTreeMap;
 
 /// A reference to a let-bound value (`$defs/Ref`): a bare identifier naming a value
@@ -725,12 +725,14 @@ impl Skill {
                     }
                 }
                 Statement::Primitive(p) => {
-                    // STB3: a surface_bound grasp cannot be freely transported.
+                    // STB3: a surface_bound grasp (pin) or a support-closure grasp (platform)
+                    // cannot be freely transported — both lose the object if moved freely.
                     if p.is_free_transport() {
                         if let Some(mode) = active {
-                            if StabilityMetadata::for_mode(mode).flags.surface_bound {
+                            let m = StabilityMetadata::for_mode(mode);
+                            if m.flags.surface_bound || m.closure == Closure::Support {
                                 return Err(crate::Error::SkillIsa(format!(
-                                    "transport_inadmissible: a surface_bound grasp ({mode:?}) \
+                                    "transport_inadmissible: a non-transportable grasp ({mode:?}) \
                                      cannot be freely transported (spec/05 STB3)"
                                 )));
                             }
@@ -850,6 +852,42 @@ body:
         target_pose: { ref: dest }
 ";
         assert!(Skill::parse_yaml(pinch).expect("parses").validate().is_ok());
+    }
+
+    #[test]
+    fn stb3_rejects_free_transport_of_a_support_grasp() {
+        // grasp.platform (support closure) -> transport: a balanced object is not
+        // freely transportable (spec/05 STB3 row 4).
+        let bad = "\
+skill: support-then-move
+body:
+  sequence:
+    - grasp.platform:
+        target: tray
+        load_budget: 10 N
+    - transport.move_to_pose:
+        target_pose: { ref: dest }
+";
+        let err = Skill::parse_yaml(bad)
+            .expect("parses")
+            .validate()
+            .unwrap_err()
+            .to_string();
+        assert!(err.contains("transport_inadmissible"), "got: {err}");
+        assert!(err.contains("Platform"), "names the support mode: {err}");
+        // released first -> legal.
+        let ok = "\
+skill: support-release-move
+body:
+  sequence:
+    - grasp.platform:
+        target: tray
+        load_budget: 10 N
+    - grasp.release: {}
+    - transport.move_to_pose:
+        target_pose: { ref: dest }
+";
+        assert!(Skill::parse_yaml(ok).expect("parses").validate().is_ok());
     }
 
     #[test]
