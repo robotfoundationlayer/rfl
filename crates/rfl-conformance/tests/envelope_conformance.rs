@@ -258,6 +258,49 @@ fn unscrew_false_disposition_fails() {
 }
 
 #[test]
+fn nominal_cut_discloses_disposition() {
+    let dir = screw_dir();
+    let pairs = drive(
+        FreeingDriver::new(FreeingResponse::Discloses),
+        &dir.join("skill-cut.yaml"),
+        &dir.join("embodiments/allegro.yaml"),
+    )
+    .expect("drive");
+    let (goal, report) = &pairs[0];
+    assert_eq!(suffix_of(&goal.action_id), "cut");
+    assert_eq!(check_freed_part_disposition(goal, report), CheckOutcome::Pass);
+}
+
+#[test]
+fn cut_uncontrolled_drop_fails_disposition() {
+    let dir = screw_dir();
+    let pairs = drive(
+        FreeingDriver::new(FreeingResponse::DropsUncontrolled),
+        &dir.join("skill-cut.yaml"),
+        &dir.join("embodiments/allegro.yaml"),
+    )
+    .expect("drive");
+    let (goal, report) = &pairs[0];
+    assert_eq!(suffix_of(&goal.action_id), "cut");
+    assert!(matches!(check_freed_part_disposition(goal, report), CheckOutcome::Fail(_)));
+}
+
+#[test]
+fn cut_accepts_either_disposition_presence_only() {
+    // force.cut has no authored intent -> presence-only: either valid disposition passes
+    // (contrast force.unscrew's expected-match, where the same flip fails).
+    let dir = screw_dir();
+    let pairs = drive(
+        FreeingDriver::new(FreeingResponse::FalseDisposition),
+        &dir.join("skill-cut.yaml"),
+        &dir.join("embodiments/allegro.yaml"),
+    )
+    .expect("drive");
+    let (goal, report) = &pairs[0];
+    assert_eq!(check_freed_part_disposition(goal, report), CheckOutcome::Pass);
+}
+
+#[test]
 fn nominal_hover_passes_interval_invariant() {
     let dir = surface_dir();
     let pairs = drive(

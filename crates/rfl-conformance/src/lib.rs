@@ -175,25 +175,31 @@ impl Driver for ReferenceDriver {
         // Freed-part disposition (spec/04 TM21c): a freeing operation (force.unscrew, carrying
         // force_profile.on_disengagement) discloses where the freed part went — retained, or
         // released into a declared safe zone. Absent for every non-freeing action.
-        let safety_flags = ca
-            .safety_envelope
-            .force_profile
-            .as_ref()
-            .and_then(|fp| fp.get("on_disengagement"))
-            .and_then(serde_json::Value::as_str)
-            .map(|od| {
+        let safety_flags = ca.safety_envelope.force_profile.as_ref().and_then(|fp| {
+            if let Some(od) = fp.get("on_disengagement").and_then(serde_json::Value::as_str) {
                 let (disposition, zone) = if od == "drop_safe" {
                     ("safe_zone_release", Some(serde_json::json!({ "zone": "discard_bin" })))
                 } else {
                     ("retained", None)
                 };
-                SafetyFlags {
+                Some(SafetyFlags {
                     freed_part_disposition: Some(FreedPartDisposition {
                         disposition: disposition.to_string(),
                         zone,
                     }),
-                }
-            });
+                })
+            } else if fp.get("irreversible").and_then(serde_json::Value::as_bool) == Some(true) {
+                // force.cut: the cut-off piece is retained (v0 conservative default).
+                Some(SafetyFlags {
+                    freed_part_disposition: Some(FreedPartDisposition {
+                        disposition: "retained".to_string(),
+                        zone: None,
+                    }),
+                })
+            } else {
+                None
+            }
+        });
         let status = Status {
             message: "status",
             action_id: goal.action_id.clone(),
@@ -1115,34 +1121,45 @@ pub fn check_settling(goal: &ExecuteGoal, report: &DriverReport) -> CheckOutcome
 /// drop (forbidden). Vacuous for any action without `on_disengagement`.
 #[must_use]
 pub fn check_freed_part_disposition(goal: &ExecuteGoal, report: &DriverReport) -> CheckOutcome {
-    let on_diseng = goal
-        .canonical_action
-        .safety_envelope
-        .force_profile
-        .as_ref()
+    // A freeing completes only on success; an interrupted op froze nothing.
+    if !matches!(report.status.outcome, Outcome::Succeeded) {
+        return CheckOutcome::Pass;
+    }
+    let fp = goal.canonical_action.safety_envelope.force_profile.as_ref();
+    let on_diseng = fp
         .and_then(|fp| fp.get("on_disengagement"))
         .and_then(serde_json::Value::as_str);
-    let Some(on_diseng) = on_diseng else {
-        return CheckOutcome::Pass; // not a freeing operation
-    };
-    let expected = match on_diseng {
-        "drop_safe" => "safe_zone_release",
-        _ => "retained", // retain (and the lowering default)
+    let irreversible = fp
+        .and_then(|fp| fp.get("irreversible"))
+        .and_then(serde_json::Value::as_bool)
+        == Some(true);
+    // Expected disposition: Some for an authored on_disengagement (force.unscrew, expected-match),
+    // None for a presence-only freeing (force.cut, no authored intent). Not a freeing op -> Pass.
+    let expected: Option<&str> = match on_diseng {
+        Some("drop_safe") => Some("safe_zone_release"),
+        Some(_) => Some("retained"),
+        None if irreversible => None,
+        None => return CheckOutcome::Pass,
     };
     let disclosed = report
         .status
         .safety_flags
         .as_ref()
         .and_then(|sf| sf.freed_part_disposition.as_ref());
-    match disclosed {
-        None => CheckOutcome::Fail(
+    match (disclosed, expected) {
+        (None, _) => CheckOutcome::Fail(
             "uncontrolled drop: a freeing operation disclosed no freed_part_disposition".to_string(),
         ),
-        Some(d) if d.disposition != expected => CheckOutcome::Fail(format!(
-            "freed_part_disposition {} does not match the authored intent {expected}",
+        (Some(d), Some(e)) if d.disposition != e => CheckOutcome::Fail(format!(
+            "freed_part_disposition {} does not match the authored intent {e}",
             d.disposition
         )),
-        Some(_) => CheckOutcome::Pass,
+        (Some(d), None)
+            if d.disposition != "retained" && d.disposition != "safe_zone_release" =>
+        {
+            CheckOutcome::Fail(format!("unknown freed_part_disposition {}", d.disposition))
+        }
+        (Some(_), _) => CheckOutcome::Pass,
     }
 }
 
@@ -1649,6 +1666,44 @@ mod tests {
         // non-freeing action (no on_disengagement) -> vacuous Pass.
         let plain = ExecuteGoal::wrap("s/e/0001-align".to_string(), sample_action());
         assert_eq!(check_freed_part_disposition(&plain, &report(None)), CheckOutcome::Pass);
+    }
+
+    #[test]
+    fn check_freed_part_disposition_cut_is_presence_only_and_succeeded_gated() {
+        use rfl_core::driver::{FreedPartDisposition, Outcome, RealizedPose, SafetyFlags, Status, Verdict};
+        let mut action = sample_action();
+        action.safety_envelope.force_profile = Some(serde_json::json!({ "irreversible": true }));
+        let goal = ExecuteGoal::wrap("s/e/0001-cut".to_string(), action);
+        let report = |outcome: Outcome, flags: Option<SafetyFlags>| {
+            let status = Status {
+                message: "status",
+                action_id: "s/e/0001-cut".to_string(),
+                outcome,
+                verdict: Some(Verdict { value: true, confidence: 1.0, evidence: vec![] }),
+                fidelity_tier: None,
+                final_pose: Some(RealizedPose::placeholder()),
+                failure_class: None,
+                failure_detail: None,
+                stop_latency: None,
+                safety_flags: flags,
+            };
+            DriverReport { telemetry: vec![], status }
+        };
+        let disp = |d: &str| {
+            Some(SafetyFlags {
+                freed_part_disposition: Some(FreedPartDisposition {
+                    disposition: d.to_string(),
+                    zone: None,
+                }),
+            })
+        };
+        // presence-only: either valid disposition on a succeeded cut -> Pass.
+        assert_eq!(check_freed_part_disposition(&goal, &report(Outcome::Succeeded, disp("retained"))), CheckOutcome::Pass);
+        assert_eq!(check_freed_part_disposition(&goal, &report(Outcome::Succeeded, disp("safe_zone_release"))), CheckOutcome::Pass);
+        // succeeded cut with no disclosure -> uncontrolled drop -> Fail.
+        assert!(matches!(check_freed_part_disposition(&goal, &report(Outcome::Succeeded, None)), CheckOutcome::Fail(_)));
+        // interrupted (Failed) cut froze nothing -> vacuous Pass even with no disclosure.
+        assert_eq!(check_freed_part_disposition(&goal, &report(Outcome::Failed, None)), CheckOutcome::Pass);
     }
 
     #[test]
