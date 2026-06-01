@@ -20,9 +20,9 @@ use crate::quantity::Quantity;
 use crate::skill_isa::{
     Axes, Axis, Compliance, DisturbanceArg, ForceCut, ForceInsertFit, ForcePressButton, ForceScrew,
     ForceSnapEngage, ForceUnscrew, ForceWipe, GraspPin, GraspPinch, GraspPlatform, GraspRelease,
-    InHandFlip, Primitive, ReachAlign, ReachHover, ReachRetract, ReachScan, ScanPattern,
-    SenseInspect, Skill, StabilityMarginArg, Statement, TactileTargetArg, TransportCarry,
-    TransportMoveToPose,
+    InHandFlip, InHandRegrasp, Primitive, ReachAlign, ReachHover, ReachRetract, ReachScan,
+    ScanPattern, SenseInspect, Skill, StabilityMarginArg, Statement, TactileTargetArg,
+    TransportCarry, TransportMoveToPose,
 };
 use crate::stability::StabilityMetadata;
 use std::collections::BTreeMap;
@@ -131,6 +131,7 @@ fn check_capability(prim: &Primitive, e: &Embodiment) -> crate::Result<()> {
         Primitive::GraspPinch(_) => "grasp.pinch",
         Primitive::GraspPin(_) => "grasp.pin",
         Primitive::GraspPlatform(_) => "grasp.platform",
+        Primitive::InHandRegrasp(_) => "in_hand.regrasp",
         // A category key implies the base primitive: `transport` = transport.move_to_pose.
         Primitive::TransportMoveToPose(_) => "transport",
         // transport.carry is a DISTINCT capability beyond the base transport gate
@@ -183,6 +184,7 @@ fn lower(
         Primitive::GraspPinch(p) => (lower_grasp_pinch(p, e, ctx, weights), "pinch"),
         Primitive::GraspPin(p) => (lower_grasp_pin(p, e), "pin"),
         Primitive::GraspPlatform(p) => (lower_grasp_platform(p, e), "platform"),
+        Primitive::InHandRegrasp(p) => (lower_in_hand_regrasp(p, e, ctx), "regrasp"),
         Primitive::TransportMoveToPose(p) => (lower_transport_move_to_pose(p, e, ctx), "transport"),
         Primitive::TransportCarry(p) => (lower_transport_carry(p, e, ctx), "carry"),
         Primitive::ReachAlign(p) => (lower_reach_align(p, e), "align"),
@@ -850,6 +852,48 @@ fn lower_in_hand_flip(p: &InHandFlip, e: &Embodiment) -> CanonicalAction {
         monitors: vec![],
         safety_envelope: env,
         grasp_stability: None,
+    }
+}
+
+/// Lower `in_hand.regrasp` (`spec/01` § 3.3): transition a held object to a different stable
+/// grasp without releasing it, using make-before-break. Emits the new grasp's stability class
+/// (so the GC2 hold test confirms the *new* grasp) and a `force_profile` carrying both the
+/// continuity floor (`min_holding_force`, read by GC1) and the `transition: make_before_break`
+/// marker (the GC3 contract — the new grasp is confirmed before the old is released). The held
+/// object's floor is read from `ctx.held` (mirroring the held-transport floor); absent if no
+/// held mass is known. `ctx` is read-only in v0 — the worked example's `target_mode` equals the
+/// current mode, so the held mode is unchanged (a differing target_mode's ctx update is deferred).
+fn lower_in_hand_regrasp(p: &InHandRegrasp, e: &Embodiment, ctx: &GraspContext) -> CanonicalAction {
+    let mut profile = serde_json::Map::new();
+    if let Some(held) = &ctx.held {
+        let mhf = grasp_force::min_holding_force(held.weight_n, held.mode);
+        profile.insert(
+            "min_holding_force".to_string(),
+            serde_json::Value::String(Quantity::from_si(mhf, "N").0),
+        );
+    }
+    profile.insert(
+        "transition".to_string(),
+        serde_json::Value::String("make_before_break".to_string()),
+    );
+    let mut env = base_envelope(e);
+    env.force_profile = Some(serde_json::Value::Object(profile));
+    CanonicalAction {
+        target_frame: e.grasp_frame().to_string(),
+        // the regrasp preserves the held object's pose (symbolic in v0).
+        target_pose: PoseExpr::Ref {
+            r#ref: "held".to_string(),
+        },
+        force_budget: None,
+        timing: TimingHints {
+            nominal_duration: None,
+            timing_mode: TimingMode::Strict,
+            stop_at_goal: true,
+        },
+        tactile_target: None,
+        monitors: vec![],
+        safety_envelope: env,
+        grasp_stability: Some(StabilityMetadata::for_mode(p.target_grasp_mode())),
     }
 }
 
@@ -1722,6 +1766,41 @@ mod tests {
         );
         assert!(fp.get("safe_drop_zone").is_some());
         assert!(fp.get("min_holding_force").is_none());
+    }
+
+    #[test]
+    fn regrasp_lowers_make_before_break_contract_and_floor() {
+        use crate::stability::Closure;
+        let dir =
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples/03-screw-fasten");
+        let skill =
+            Skill::parse_yaml(&std::fs::read_to_string(dir.join("skill-regrasp.yaml")).unwrap())
+                .unwrap();
+        let emb = crate::embodiment::Embodiment::parse_yaml(
+            &std::fs::read_to_string(dir.join("embodiments/allegro.yaml")).unwrap(),
+        )
+        .unwrap();
+        let out = retarget(&skill, &emb).expect("retarget");
+        // locate(0), pinch(1), regrasp(2), release(3).
+        assert_eq!(out.suffixes[2], "regrasp");
+        let a = &out.actions[2];
+        let fp = a
+            .safety_envelope
+            .force_profile
+            .as_ref()
+            .expect("regrasp carries the make-before-break contract");
+        // the make-before-break transition marker (the GC3 contract on the wire).
+        assert_eq!(
+            fp.get("transition").and_then(|v| v.as_str()),
+            Some("make_before_break")
+        );
+        // the continuity floor read by GC1 (1.0 N part -> 2.0 N pinch floor).
+        assert_eq!(
+            fp.get("min_holding_force").and_then(|v| v.as_str()),
+            Some("2 N")
+        );
+        // the new grasp's stability class (so GC2's hold test confirms the new grasp).
+        assert_eq!(a.grasp_stability.as_ref().unwrap().closure, Closure::Force);
     }
 
     #[test]

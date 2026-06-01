@@ -169,6 +169,9 @@ pub enum Primitive {
     /// `grasp.platform`.
     #[serde(rename = "grasp.platform")]
     GraspPlatform(GraspPlatform),
+    /// `in_hand.regrasp`.
+    #[serde(rename = "in_hand.regrasp")]
+    InHandRegrasp(InHandRegrasp),
 }
 
 impl Primitive {
@@ -181,6 +184,8 @@ impl Primitive {
             Primitive::GraspPinch(_) => Some(GraspMode::Pinch),
             Primitive::GraspPin(_) => Some(GraspMode::Pin),
             Primitive::GraspPlatform(_) => Some(GraspMode::Platform),
+            // a regrasp supersedes the active grasp with its target mode (spec/01 § 3.3).
+            Primitive::InHandRegrasp(r) => Some(r.target_grasp_mode()),
             _ => None,
         }
     }
@@ -314,6 +319,35 @@ pub struct GraspPlatform {
     /// Contact-confirmation criterion (default auto = distributed load + CoM in polygon).
     #[serde(default = "tactile_auto")]
     pub tactile_target: TactileTargetArg,
+}
+
+/// `in_hand.regrasp` parameters (v0 subset of `$defs/InHandRegraspParams`, § 3.3). Requires
+/// `target_mode` (the grasp mode to transition to). Transitions a held object to a different
+/// stable grasp without releasing it, using make-before-break (the new grasp is confirmed
+/// before the old is released). The remaining params (contacts / force budget / preserve_pose /
+/// tolerances) carry their spec defaults and are not lowered in v0 (serde ignores them).
+#[derive(Debug, Clone, serde::Deserialize)]
+pub struct InHandRegrasp {
+    /// The grasp mode to transition to (v0: a mode name; may equal the current mode with
+    /// different contacts).
+    pub target_mode: String,
+    /// The current grasp to transition from (default active).
+    #[serde(default)]
+    pub grasp_handle: Option<GraspHandle>,
+}
+
+impl InHandRegrasp {
+    /// Map the `target_mode` name to a known v0 `GraspMode` (`pin` / `platform` / else `pinch`).
+    /// The unknown-mode fallback to `pinch` keeps a force-closure contact swap (the common
+    /// regrasp); the richer mode vocabulary lands with those modes.
+    #[must_use]
+    pub fn target_grasp_mode(&self) -> GraspMode {
+        match self.target_mode.as_str() {
+            "pin" => GraspMode::Pin,
+            "platform" => GraspMode::Platform,
+            _ => GraspMode::Pinch,
+        }
+    }
 }
 
 /// `transport.move_to_pose` parameters (v0 subset of `$defs/TransportMoveToPoseParams`).
