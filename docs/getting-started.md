@@ -2,6 +2,25 @@
 
 > **Status**: pre-release skeleton. Full documentation site (with examples, tutorials, and API reference) targeted for v0.1 (2027 Q1).
 
+## Quickstart — the whole pipeline, no hardware
+
+One script runs the entire loop on the committed cable-insertion example —
+validate → retarget → certify (live, against a mock driver) → verify → sign →
+verify-signed:
+
+```bash
+scripts/demo.sh
+```
+
+The "mock driver" drains the canonical execute goals and replays a recorded,
+conforming telemetry session; the certificate it produces is byte-identical to
+the `--report` replay path, so the live and replay certify paths demonstrably
+agree. Every command it uses is documented in the [CLI reference](cli-reference.md).
+
+To write your own skill or embodiment instead of running the example, see
+[Authoring a Skill ISA composition](authoring-skills.md) and
+[Authoring an embodiment descriptor](authoring-embodiments.md).
+
 ## Audience
 
 This page is for engineers who want to understand what RFL is and how it would fit into their existing robot-AI stack.
