@@ -93,6 +93,8 @@ All four machine-readable schemas (`skill-isa`, `embodiment-descriptor`, `driver
 | **2026 Q4 – 2027 Q1** | Existence proofs: **(supply side)** a real-hardware embodiment retarget proof on a 4-DOF arm, demonstrating the retargeting contract is constructible end-to-end; **(demand side)** a VLA → Skill ISA adapter reference, demonstrating a foundation model can target RFL; measured integration cost published |
 | **2027 Q2–Q3** | v1.0 stabilization — full reference implementation (`crates/rfl-core` — Rust + Python/C bindings) and conformance test suite (`crates/rfl-conformance`) packaged as a third-party self-certification tool |
 
+**Reference implementations.** Demand side: [`masterleopold/cobel`](https://github.com/masterleopold/cobel) is a planner-adapter reference and demand-side existence proof — a real foundation model (`claude-opus-4-8`) emits valid, schema-conformant, retargetable Skill ISA across novel tasks, validated through the published `rfl.retarget` binding. A supply-side real-hardware embodiment proof is in progress.
+
 Watch this repository to follow development. Comments and design feedback welcome via [Issues](https://github.com/robotfoundationlayer/rfl/issues).
 
 ## License
