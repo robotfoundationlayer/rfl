@@ -20,7 +20,7 @@ The whitepaper states the retargeting contract as five binding invariants (I1–
 | **I1 — Determinism** | `RD1c` (generation byte-determinism, unconditional) + `RD2c` (the Class 2-loose realized-execution boundary for contact dynamics) |
 | **I2 — Embodiment-respect** | `CA1c` (pose reachability decidable) + `CA4c` (envelope clamped to the embodiment's declared limits) + the `03` `capability_absent` gate |
 | **I3 — Composability (rest-stable)** | the `01` compositional algebra's rest-stable composition validity — not a `02` obligation; recorded here so the invariant is traceable |
-| **I4 — Failure-mode preservation** | `CA4c` (an action exceeding a declared limit is malformed, never silently relaxed) + the binary `capability_absent` gate + `RD4c` (uncertainty-robust routing rather than degraded emission) |
+| **I4 — Failure-mode preservation** | `CA4c` (an action exceeding a declared limit is malformed, never silently relaxed) + the binary `capability_absent` gate (an explicit refusal rather than a degraded sequence). `RD4c` uncertainty-robust routing is the embodiment-respect complement (I2), not a failure-mode obligation |
 | **I5 — Extension-namespace isolation** | the `06` extension registry pass-through + unknown-tag rejection (`03`) |
 
 I1–I5 is the authoritative public statement of the contract; `CA*c` / `RD*c` are the same contract at the granularity a conformance test reads. The two label systems are not competing claims.
