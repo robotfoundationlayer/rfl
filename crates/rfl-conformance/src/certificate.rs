@@ -102,11 +102,20 @@ pub fn envelope_class_str(class: EnvelopeClass) -> &'static str {
     }
 }
 
-/// Seal a body: attach `content_hash` over its compact serialization.
+/// The content hash of a certificate body Value: sha256 over its sorted-key canonical JSON
+/// (`serde_json::Value` is a `BTreeMap` without `preserve_order`, so keys serialize sorted,
+/// recursively). A third party re-verifies by: parse the certificate, drop `content_hash`, sort
+/// every object's keys recursively, compact-serialize, sha256.
+fn content_hash_of(body: &serde_json::Value) -> String {
+    let bytes = serde_json::to_vec(body).expect("serialize canonical certificate body");
+    format!("sha256:{}", sha256_hex(&bytes))
+}
+
+/// Seal a body: attach `content_hash` over its sorted-key canonical serialization.
 #[must_use]
 pub fn seal(body: CertificateBody) -> Certificate {
-    let compact = serde_json::to_vec(&body).expect("serialize certificate body");
-    let content_hash = format!("sha256:{}", sha256_hex(&compact));
+    let value = serde_json::to_value(&body).expect("certificate body to value");
+    let content_hash = content_hash_of(&value);
     Certificate { body, content_hash }
 }
 
@@ -152,10 +161,10 @@ mod tests {
         let b = to_json(&seal(sample_body("pass")));
         assert_eq!(a, b, "certificate must be byte-identical across runs");
 
-        // recompute the hash over the compact body and confirm it matches content_hash.
+        // recompute the hash over the sorted-key canonical body and confirm it matches.
         let cert = seal(sample_body("pass"));
-        let compact = serde_json::to_vec(&cert.body).unwrap();
-        assert_eq!(cert.content_hash, format!("sha256:{}", sha256_hex(&compact)));
+        let canonical = serde_json::to_vec(&serde_json::to_value(&cert.body).unwrap()).unwrap();
+        assert_eq!(cert.content_hash, format!("sha256:{}", sha256_hex(&canonical)));
         assert!(cert.content_hash.starts_with("sha256:"));
     }
 
