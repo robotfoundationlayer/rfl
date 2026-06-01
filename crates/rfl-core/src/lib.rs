@@ -41,6 +41,7 @@ pub mod quantity;
 pub mod region;
 pub mod sigma;
 pub mod skill_isa;
+pub mod stability;
 pub mod translation;
 
 /// RFL specification version this crate implements.

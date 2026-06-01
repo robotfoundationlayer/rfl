@@ -1662,6 +1662,7 @@ mod tests {
                 compliance: None,
                 stop_time: None,
             },
+            grasp_stability: None,
         }
     }
 
@@ -1992,6 +1993,7 @@ mod tests {
                 compliance: None,
                 stop_time: None,
             },
+            grasp_stability: None,
         };
         let goal = ExecuteGoal::wrap("s/e/0001-press_button".to_string(), action);
         let sample = |events: Vec<serde_json::Value>| Telemetry {
@@ -2074,6 +2076,7 @@ mod tests {
                 compliance: None,
                 stop_time: None,
             },
+            grasp_stability: None,
         };
         let goal = ExecuteGoal::wrap("s/e/0001-wipe".to_string(), action);
         let report = |fz: f64| {
@@ -2158,6 +2161,7 @@ mod tests {
                 compliance: None,
                 stop_time: None,
             },
+            grasp_stability: None,
         };
         let goal = ExecuteGoal::wrap("s/e/0001-snap_engage".to_string(), action);
         let report = |outcome: Outcome, evidence: Vec<String>| DriverReport {
@@ -2226,6 +2230,7 @@ mod tests {
                 compliance: None,
                 stop_time: None,
             },
+            grasp_stability: None,
         };
         let goal = ExecuteGoal::wrap("s/e/0001-cut".to_string(), action);
         let report = |outcome: Outcome, evidence: Vec<String>| DriverReport {
@@ -2295,6 +2300,7 @@ mod tests {
                 compliance: None,
                 stop_time: None,
             },
+            grasp_stability: None,
         };
         let report = |tier: &str| DriverReport {
             telemetry: vec![],

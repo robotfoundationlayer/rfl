@@ -23,6 +23,7 @@ use crate::skill_isa::{
     ReachAlign, ReachHover, ReachRetract, ReachScan, ScanPattern, SenseInspect, Skill,
     StabilityMarginArg, Statement, TactileTargetArg, TransportCarry, TransportMoveToPose,
 };
+use crate::stability::StabilityMetadata;
 use std::collections::BTreeMap;
 
 /// The retargeting result: the canonical action stream plus the per-action
@@ -221,6 +222,7 @@ fn lower_sense_locate(p: &crate::skill_isa::SenseLocate, e: &Embodiment) -> Cano
             compliance: None,
             stop_time: None,
         },
+        grasp_stability: None,
     }
 }
 
@@ -282,8 +284,12 @@ fn lower_grasp_pinch(
         }
     });
     let mut env = base_envelope(e);
+    // The grasp's static stability class is mode-determined (spec/01 grasp-mode table);
+    // the weight-dependent min_holding_force is grafted in when the object mass is known.
+    let mut stability = StabilityMetadata::for_mode(GraspMode::Pinch);
     if let Some((weight_n, _)) = weights.get(&p.target).and_then(|q| q.parse()) {
         let mhf = grasp_force::min_holding_force(weight_n, GraspMode::Pinch);
+        stability.min_holding_force = Some(Quantity::from_si(mhf, "N"));
         env.force_profile =
             Some(serde_json::json!({ "min_holding_force": Quantity::from_si(mhf, "N").0 }));
         if let Some((fb, unit)) = force_budget.parse() {
@@ -311,6 +317,7 @@ fn lower_grasp_pinch(
         tactile_target,
         monitors: vec![],
         safety_envelope: env,
+        grasp_stability: Some(stability),
     }
 }
 
@@ -373,6 +380,7 @@ fn lower_transport_move_to_pose(
         tactile_target: None,
         monitors: vec![],
         safety_envelope: env,
+        grasp_stability: None,
     }
 }
 
@@ -447,6 +455,7 @@ fn lower_transport_carry(
         tactile_target: None,
         monitors: vec![],
         safety_envelope: env,
+        grasp_stability: None,
     }
 }
 
@@ -485,6 +494,7 @@ fn lower_reach_align(p: &ReachAlign, e: &Embodiment) -> CanonicalAction {
         tactile_target: None,
         monitors: vec![],
         safety_envelope: base_envelope(e),
+        grasp_stability: None,
     }
 }
 
@@ -528,6 +538,7 @@ fn lower_reach_hover(p: &ReachHover, e: &Embodiment) -> CanonicalAction {
         tactile_target: None,
         monitors: vec![],
         safety_envelope: env,
+        grasp_stability: None,
     }
 }
 
@@ -568,6 +579,7 @@ fn lower_force_press_button(p: &ForcePressButton, e: &Embodiment) -> CanonicalAc
         tactile_target: None,
         monitors,
         safety_envelope: env,
+        grasp_stability: None,
     }
 }
 
@@ -612,6 +624,7 @@ fn lower_force_wipe(p: &ForceWipe, e: &Embodiment) -> CanonicalAction {
         tactile_target: None,
         monitors: vec![],
         safety_envelope: env,
+        grasp_stability: None,
     }
 }
 
@@ -666,6 +679,7 @@ fn lower_force_snap_engage(p: &ForceSnapEngage, e: &Embodiment) -> CanonicalActi
         tactile_target: None,
         monitors,
         safety_envelope: env,
+        grasp_stability: None,
     }
 }
 
@@ -704,6 +718,7 @@ fn lower_force_cut(p: &ForceCut, e: &Embodiment) -> CanonicalAction {
         tactile_target: None,
         monitors,
         safety_envelope: env,
+        grasp_stability: None,
     }
 }
 
@@ -730,6 +745,7 @@ fn lower_in_hand_flip(p: &InHandFlip, e: &Embodiment) -> CanonicalAction {
         tactile_target: None,
         monitors: vec![],
         safety_envelope: base_envelope(e),
+        grasp_stability: None,
     }
 }
 
@@ -792,6 +808,7 @@ fn lower_force_insert_fit(
         tactile_target: None,
         monitors,
         safety_envelope: env,
+        grasp_stability: None,
     }
 }
 
@@ -855,6 +872,7 @@ fn lower_force_screw(p: &ForceScrew, e: &Embodiment, ctx: &GraspContext) -> Cano
         tactile_target: None,
         monitors,
         safety_envelope: env,
+        grasp_stability: None,
     }
 }
 
@@ -921,6 +939,7 @@ fn lower_force_unscrew(p: &ForceUnscrew, e: &Embodiment, ctx: &GraspContext) -> 
         tactile_target: None,
         monitors,
         safety_envelope: env,
+        grasp_stability: None,
     }
 }
 
@@ -948,6 +967,7 @@ fn lower_grasp_release(
         tactile_target: None,
         monitors: vec![],
         safety_envelope: base_envelope(e),
+        grasp_stability: None,
     }
 }
 
@@ -969,6 +989,7 @@ fn lower_reach_retract(p: &ReachRetract, e: &Embodiment) -> CanonicalAction {
         tactile_target: None,
         monitors: vec![],
         safety_envelope: base_envelope(e),
+        grasp_stability: None,
     }
 }
 
@@ -1047,6 +1068,7 @@ fn lower_reach_scan(p: &ReachScan, e: &Embodiment) -> CanonicalAction {
         tactile_target: None,
         monitors: vec![],
         safety_envelope: base_envelope(e),
+        grasp_stability: None,
     }
 }
 
@@ -1066,6 +1088,7 @@ fn lower_sense_inspect(p: &SenseInspect, e: &Embodiment) -> CanonicalAction {
         tactile_target: None,
         monitors: vec![],
         safety_envelope: base_envelope(e),
+        grasp_stability: None,
     }
 }
 
@@ -1289,6 +1312,51 @@ mod tests {
         assert!(fp.contains("\"min_holding_force\":\"2.9 N\""), "got {fp}");
         // 8 N task budget exceeds the 2.9 N floor and is under the 20 N ceiling -> unchanged.
         assert_eq!(out.force_budget.as_ref().unwrap().0, "8 N");
+    }
+
+    #[test]
+    fn pinch_emits_force_closure_grasp_stability() {
+        use crate::stability::{Closure, DofSecuring};
+        let (skill, emb) = load("allegro");
+        let out = retarget_pinch_only(&skill, &emb);
+        let st = out
+            .grasp_stability
+            .as_ref()
+            .expect("a grasp action carries grasp_stability");
+        assert_eq!(st.closure, Closure::Force);
+        assert_eq!(
+            st.secured_dof.get("all_axes"),
+            Some(&DofSecuring::FrictionHeld)
+        );
+        // the cable's known mass populates the weight-dependent floor, matching the
+        // force_profile's min_holding_force.
+        assert_eq!(st.min_holding_force.as_ref().unwrap().0, "2.9 N");
+        // wire: the grasp action carries the key with force closure and no (empty) flags.
+        let json = serde_json::to_string(&out).unwrap();
+        assert!(
+            json.contains("\"grasp_stability\":{\"closure\":\"force\""),
+            "got {json}"
+        );
+        assert!(
+            !json.contains("\"flags\""),
+            "empty flags must be omitted: {json}"
+        );
+    }
+
+    #[test]
+    fn non_grasp_action_omits_grasp_stability() {
+        let (skill, emb) = load("allegro");
+        // reach.align (index 4) establishes no grasp.
+        let Statement::Primitive(Primitive::ReachAlign(p)) = &skill.body.sequence[4] else {
+            panic!("expected reach.align at index 4");
+        };
+        let a = super::lower_reach_align(p, &emb);
+        assert!(a.grasp_stability.is_none());
+        let json = serde_json::to_string(&a).unwrap();
+        assert!(
+            !json.contains("grasp_stability"),
+            "a non-grasp action must omit the key on the wire: {json}"
+        );
     }
 
     #[test]

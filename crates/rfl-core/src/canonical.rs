@@ -71,6 +71,11 @@ pub struct CanonicalAction {
     pub monitors: Vec<Monitor>,
     /// The safety constraints in force throughout.
     pub safety_envelope: Envelope,
+    /// The grasp stability class this action establishes (grasp primitives only;
+    /// `spec/01` § Grasp state model). Absent for non-grasp actions — skipped on the
+    /// wire so their serialization is unchanged.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub grasp_stability: Option<crate::stability::StabilityMetadata>,
 }
 
 /// A target-pose expression. v0 carries runtime-deferred poses symbolically; the
@@ -343,6 +348,7 @@ mod tests {
                 compliance: Some("active".into()),
                 stop_time: Some(Quantity("0.2 s".into())),
             },
+            grasp_stability: None,
         }
     }
 
