@@ -37,7 +37,7 @@ pub struct PrimitiveId(pub String);
 
 use crate::grasp_force::GraspMode;
 use crate::quantity::Quantity;
-use crate::stability::{Closure, StabilityMetadata};
+use crate::stability::{Closure, DofSecuring, StabilityMetadata};
 use std::collections::BTreeMap;
 
 /// A reference to a let-bound value (`$defs/Ref`): a bare identifier naming a value
@@ -281,6 +281,17 @@ impl Primitive {
         }
     }
 
+    /// True if this primitive supersedes the active grasp — produces a new GraspState that
+    /// invalidates the originating `GraspRef` (`spec/01` § 387): `in_hand.regrasp` and
+    /// `transport.handoff`.
+    #[must_use]
+    pub fn supersedes_grasp(&self) -> bool {
+        matches!(
+            self,
+            Primitive::InHandRegrasp(_) | Primitive::TransportHandoff(_)
+        )
+    }
+
     /// True if this primitive releases the active grasp (clears the active-grasp state). The
     /// `place.*` family all end with a controlled release, so they clear the held state too.
     #[must_use]
@@ -305,6 +316,73 @@ impl Primitive {
             self,
             Primitive::TransportMoveToPose(_) | Primitive::TransportCarry(_)
         )
+    }
+
+    /// True if this primitive unambiguously requires a held object (a `held` input frame) — using
+    /// it with no active grasp is `no_active_grasp` (`spec/01` § Lifecycle transitions). Covers the
+    /// operations that act ON a held object: `in_hand.*`, `place.*`, `transport.handoff`,
+    /// `grasp.release`, `force.pull`, and `sense.weigh`. The base/vertical transports
+    /// (`move_to_pose` / `lift` / `lower` / `carry` / `follow_trajectory`) are deliberately excluded
+    /// — a free move of the empty effector is a degenerate-but-legal use.
+    #[must_use]
+    pub fn requires_held_grasp(&self) -> bool {
+        matches!(
+            self,
+            Primitive::InHandFlip(_)
+                | Primitive::InHandRegrasp(_)
+                | Primitive::InHandPivot(_)
+                | Primitive::InHandRotate(_)
+                | Primitive::InHandTranslate(_)
+                | Primitive::InHandRoll(_)
+                | Primitive::InHandSlide(_)
+                | Primitive::TransportHandoff(_)
+                | Primitive::PlacePutDown(_)
+                | Primitive::PlaceStack(_)
+                | Primitive::PlaceInsertLoose(_)
+                | Primitive::PlaceOrient(_)
+                | Primitive::PlaceHandTo(_)
+                | Primitive::PlaceDiscard(_)
+                | Primitive::GraspRelease(_)
+                | Primitive::ForcePull(_)
+                | Primitive::SenseWeigh(_)
+        )
+    }
+
+    /// If this is an `in_hand` DOF-moving op, its `*_inadmissible` failure name and whether the
+    /// moved DOF is rotational (`spec/01` § DOF-admissibility). `None` for non-`in_hand` primitives.
+    #[must_use]
+    pub fn in_hand_move_kind(&self) -> Option<(&'static str, bool)> {
+        match self {
+            Primitive::InHandRotate(_) => Some(("rotation_inadmissible", true)),
+            Primitive::InHandRoll(_) => Some(("roll_inadmissible", true)),
+            Primitive::InHandPivot(_) => Some(("pivot_inadmissible", true)),
+            Primitive::InHandTranslate(_) => Some(("translation_inadmissible", false)),
+            Primitive::InHandSlide(_) => Some(("slide_inadmissible", false)),
+            _ => None,
+        }
+    }
+
+    /// The let-bound grasp handle this primitive references, if its `grasp_handle` is a let-ref
+    /// (not `active`). Read by the GraspRef-supersession check (`spec/01` § 387).
+    #[must_use]
+    pub fn grasp_handle_ref(&self) -> Option<&str> {
+        let handle = match self {
+            Primitive::GraspRelease(p) => p.grasp_handle.as_ref(),
+            Primitive::InHandRegrasp(p) => p.grasp_handle.as_ref(),
+            Primitive::InHandPivot(p) => p.grasp_handle.as_ref(),
+            Primitive::InHandRotate(p) => p.grasp_handle.as_ref(),
+            Primitive::InHandTranslate(p) => p.grasp_handle.as_ref(),
+            Primitive::InHandRoll(p) => p.grasp_handle.as_ref(),
+            Primitive::InHandSlide(p) => p.grasp_handle.as_ref(),
+            Primitive::TransportHandoff(p) => p.grasp_handle.as_ref(),
+            Primitive::ForcePull(p) => p.grasp_handle.as_ref(),
+            Primitive::SenseWeigh(p) => p.grasp_handle.as_ref(),
+            _ => None,
+        };
+        match handle {
+            Some(GraspHandle::Ref(name)) => Some(name.as_str()),
+            _ => None,
+        }
     }
 }
 
@@ -1291,22 +1369,32 @@ impl Skill {
         serde_yaml::from_str(text).map_err(|e| crate::Error::SkillIsa(e.to_string()))
     }
 
-    /// Validate the composition beyond parsing (conformance Test Class 1, embodiment-independent).
-    /// Enforces (1) unique let-binding names and (2) the STB3 stability-class composition rule
-    /// (`spec/05` § Composition validity by stability class): a `surface_bound` grasp forbids a
-    /// free-transport successor. The rule reads each grasp's `StabilityMetadata::for_mode`, so it
-    /// cannot drift from the wire metadata. The other STB3 rows (`form_held` / `rotation_constrained`
-    /// → `in_hand`; `support` → transport + open-release) land with their grasp modes.
+    /// Validate the composition beyond parsing (conformance Test Class 1, embodiment-independent;
+    /// the `rfl validate` CLI). Walks the AST tracking the active grasp's mode + binding name and
+    /// the set of superseded grasp handles, enforcing the `spec/01` § Composition-validity rules
+    /// (all decidable from `StabilityMetadata::for_mode`, no time trace):
+    /// 1. unique `let`-binding names;
+    /// 2. **DOF-admissibility** (§ 379): an `in_hand` DOF move is rejected if the active grasp has a
+    ///    `form_held` DOF (any in-hand move) or the `rotation_constrained` flag (the rotational
+    ///    moves: rotate / roll / pivot) — `*_inadmissible`. Conservative (no per-axis geometry);
+    /// 3. **lifecycle `no_active_grasp`** (§ 383): a held-requiring primitive with no active grasp;
+    /// 4. **STB3** (§ Composition validity by stability class): a `surface_bound` / `support` grasp
+    ///    forbids a free-transport successor (`transport_inadmissible`);
+    /// 5. **GraspRef-supersession** (§ 387): a `grasp_handle` naming a let-binding that a prior
+    ///    `regrasp` / `handoff` superseded (`grasp_ref_superseded`).
     ///
     /// # Errors
-    /// Returns `Error::SkillIsa` if a `let` name is bound more than once, or if a `surface_bound`
-    /// grasp is freely transported (`transport_inadmissible`).
+    /// Returns `Error::SkillIsa` on any of the violations above.
     pub fn validate(&self) -> crate::Result<()> {
         let mut seen = std::collections::BTreeSet::new();
-        // The active grasp's mode (None when no grasp is held).
+        // The active grasp's mode (None when no grasp is held) and the let-name it is bound to.
         let mut active: Option<GraspMode> = None;
+        let mut active_handle: Option<String> = None;
+        // Let-bound grasp handles invalidated by a regrasp / handoff (spec/01 § 387).
+        let mut stale: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
         for stmt in &self.body.sequence {
-            match stmt {
+            // The operating primitive, and the let-name it binds (Some for a LetBind).
+            let (prim, bind_name): (&Primitive, Option<&str>) = match stmt {
                 Statement::LetBind(lb) => {
                     if !seen.insert(lb.r#let.as_str()) {
                         return Err(crate::Error::SkillIsa(format!(
@@ -1314,27 +1402,79 @@ impl Skill {
                             lb.r#let
                         )));
                     }
+                    (lb.from.as_ref(), Some(lb.r#let.as_str()))
                 }
-                Statement::Primitive(p) => {
-                    // STB3: a surface_bound grasp (pin) or a support-closure grasp (platform)
-                    // cannot be freely transported — both lose the object if moved freely.
-                    if p.is_free_transport() {
-                        if let Some(mode) = active {
-                            let m = StabilityMetadata::for_mode(mode);
-                            if m.flags.surface_bound || m.closure == Closure::Support {
-                                return Err(crate::Error::SkillIsa(format!(
-                                    "transport_inadmissible: a non-transportable grasp ({mode:?}) \
-                                     cannot be freely transported (spec/05 STB3)"
-                                )));
-                            }
-                        }
+                Statement::Primitive(p) => (p, None),
+            };
+
+            // 2. DOF-admissibility: an in-hand DOF move on a form_held / rotation_constrained grasp.
+            if let Some((failure, rotational)) = prim.in_hand_move_kind() {
+                if let Some(mode) = active {
+                    let m = StabilityMetadata::for_mode(mode);
+                    let form_held = m
+                        .secured_dof
+                        .values()
+                        .any(|d| matches!(d, DofSecuring::FormHeld));
+                    if form_held {
+                        return Err(crate::Error::SkillIsa(format!(
+                            "{failure}: a form_held grasp ({mode:?}) is not movable in-hand \
+                             (spec/01 § DOF-admissibility)"
+                        )));
                     }
-                    if let Some(mode) = p.establishes_grasp() {
-                        active = Some(mode);
-                    } else if p.releases_grasp() {
-                        active = None;
+                    if rotational && m.flags.rotation_constrained {
+                        return Err(crate::Error::SkillIsa(format!(
+                            "{failure}: a rotation_constrained grasp ({mode:?}) resists in-hand \
+                             rotation (spec/01 § DOF-admissibility)"
+                        )));
                     }
                 }
+            }
+
+            // 3. Lifecycle: a held-requiring primitive with no active grasp.
+            if prim.requires_held_grasp() && active.is_none() {
+                return Err(crate::Error::SkillIsa(
+                    "no_active_grasp: a held-requiring primitive has no active grasp \
+                     (spec/01 § Lifecycle transitions)"
+                        .to_string(),
+                ));
+            }
+
+            // 4. STB3: a surface_bound (pin) or support-closure (platform) grasp cannot be freely
+            // transported — both lose the object if moved freely.
+            if prim.is_free_transport() {
+                if let Some(mode) = active {
+                    let m = StabilityMetadata::for_mode(mode);
+                    if m.flags.surface_bound || m.closure == Closure::Support {
+                        return Err(crate::Error::SkillIsa(format!(
+                            "transport_inadmissible: a non-transportable grasp ({mode:?}) cannot \
+                             be freely transported (spec/05 STB3)"
+                        )));
+                    }
+                }
+            }
+
+            // 5. GraspRef-supersession: a grasp_handle naming a superseded let-binding.
+            if let Some(handle) = prim.grasp_handle_ref() {
+                if stale.contains(handle) {
+                    return Err(crate::Error::SkillIsa(format!(
+                        "grasp_ref_superseded: grasp handle '{handle}' was invalidated by a prior \
+                         regrasp / handoff (spec/01 § GraspRef supersession)"
+                    )));
+                }
+            }
+
+            // State update. A regrasp / handoff supersedes the prior active grasp's handle.
+            if prim.supersedes_grasp() {
+                if let Some(old) = active_handle.take() {
+                    stale.insert(old);
+                }
+            }
+            if let Some(mode) = prim.establishes_grasp() {
+                active = Some(mode);
+                active_handle = bind_name.map(str::to_string);
+            } else if prim.releases_grasp() {
+                active = None;
+                active_handle = None;
             }
         }
         Ok(())
@@ -1479,6 +1619,143 @@ body:
         target_pose: { ref: dest }
 ";
         assert!(Skill::parse_yaml(ok).expect("parses").validate().is_ok());
+    }
+
+    #[test]
+    fn dof_admissibility_rejects_in_hand_on_form_held_and_rotation_constrained() {
+        // hook (form_held) -> ANY in-hand move is inadmissible.
+        let hook_rotate = "\
+skill: hook-rotate
+body:
+  sequence:
+    - grasp.hook: { target: part, load_budget: 12 N }
+    - in_hand.rotate: { axis: +z, angle: 90 deg }
+";
+        let err = Skill::parse_yaml(hook_rotate)
+            .unwrap()
+            .validate()
+            .unwrap_err()
+            .to_string();
+        assert!(err.contains("rotation_inadmissible"), "got: {err}");
+        assert!(err.contains("form_held"), "names the reason: {err}");
+        // hook (form_held) also rejects a translation.
+        let hook_translate = "\
+skill: hook-translate
+body:
+  sequence:
+    - grasp.hook: { target: part, load_budget: 12 N }
+    - in_hand.translate: { direction: +x, distance: 10 mm }
+";
+        assert!(
+            Skill::parse_yaml(hook_translate)
+                .unwrap()
+                .validate()
+                .unwrap_err()
+                .to_string()
+                .contains("translation_inadmissible")
+        );
+        // tripod (rotation_constrained) -> rotational moves inadmissible.
+        let tripod_rotate = "\
+skill: tripod-rotate
+body:
+  sequence:
+    - grasp.precision_tripod: { target: part, force_budget: 5 N }
+    - in_hand.roll: { roll_axis: +y, angle: 180 deg }
+";
+        let err = Skill::parse_yaml(tripod_rotate)
+            .unwrap()
+            .validate()
+            .unwrap_err()
+            .to_string();
+        assert!(err.contains("roll_inadmissible"), "got: {err}");
+        assert!(
+            err.contains("rotation_constrained"),
+            "names the reason: {err}"
+        );
+    }
+
+    #[test]
+    fn dof_admissibility_accepts_friction_held_and_tripod_translation() {
+        // pinch (friction_held, no flags) -> in-hand rotation is admissible.
+        let pinch_rotate = "\
+skill: pinch-rotate
+body:
+  sequence:
+    - grasp.pinch: { target: part, force_budget: 8 N }
+    - in_hand.rotate: { axis: +z, angle: 90 deg }
+";
+        assert!(Skill::parse_yaml(pinch_rotate).unwrap().validate().is_ok());
+        // tripod permits TRANSLATION in-hand (only rotation is constrained).
+        let tripod_translate = "\
+skill: tripod-translate
+body:
+  sequence:
+    - grasp.precision_tripod: { target: part, force_budget: 5 N }
+    - in_hand.translate: { direction: +x, distance: 10 mm }
+";
+        assert!(
+            Skill::parse_yaml(tripod_translate)
+                .unwrap()
+                .validate()
+                .is_ok()
+        );
+    }
+
+    #[test]
+    fn lifecycle_rejects_held_op_with_no_active_grasp() {
+        let no_grasp = "\
+skill: rotate-nothing
+body:
+  sequence:
+    - in_hand.rotate: { axis: +z, angle: 90 deg }
+";
+        let err = Skill::parse_yaml(no_grasp)
+            .unwrap()
+            .validate()
+            .unwrap_err()
+            .to_string();
+        assert!(err.contains("no_active_grasp"), "got: {err}");
+        // a free move of the empty effector (transport.move_to_pose) is NOT held-requiring.
+        let free_move = "\
+skill: free-move
+body:
+  sequence:
+    - transport.move_to_pose: { target_pose: { ref: dest } }
+";
+        assert!(Skill::parse_yaml(free_move).unwrap().validate().is_ok());
+    }
+
+    #[test]
+    fn grasp_ref_supersession_rejects_a_stale_handle() {
+        // a let-bound grasp, superseded by a regrasp, then referenced -> grasp_ref_superseded.
+        let stale = "\
+skill: stale-handle
+body:
+  sequence:
+    - let: g
+      from:
+        grasp.pinch: { target: part, force_budget: 8 N }
+    - in_hand.regrasp: { target_mode: pinch }
+    - in_hand.rotate: { axis: +z, angle: 90 deg, grasp_handle: g }
+";
+        let err = Skill::parse_yaml(stale)
+            .unwrap()
+            .validate()
+            .unwrap_err()
+            .to_string();
+        assert!(err.contains("grasp_ref_superseded"), "got: {err}");
+        assert!(err.contains("'g'"), "names the handle: {err}");
+        // the active handle (no supersession) is fine.
+        let live = "\
+skill: live-handle
+body:
+  sequence:
+    - let: g
+      from:
+        grasp.pinch: { target: part, force_budget: 8 N }
+    - in_hand.rotate: { axis: +z, angle: 90 deg, grasp_handle: g }
+";
+        assert!(Skill::parse_yaml(live).unwrap().validate().is_ok());
     }
 
     #[test]
