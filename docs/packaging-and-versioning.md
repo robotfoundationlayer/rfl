@@ -16,8 +16,11 @@ verified-working publish path so the eventual release is mechanical.
   The crate `1.0.0` line is tied to **spec v1.0** (2027 Q2–Q3): from there,
   Principle 5 (forward-compatible) binds — no breaking change in a `1.x` release,
   new capability enters the extension registry (`spec/06`) instead.
-- **MSRV.** `rust-version = "1.85"` (edition 2024), declared once in
-  `[workspace.package]` and inherited by every crate.
+- **MSRV.** `rust-version = "1.86"` (edition 2024), declared once in
+  `[workspace.package]` and inherited by every crate, and enforced by the `msrv`
+  CI job (`cargo check` on the pinned toolchain). The floor is set by transitive
+  deps (the `icu_*` crates via `boon` → `url` → `idna` require 1.86), not by the
+  RFL code itself.
 
 ## Crate graph and publish order
 

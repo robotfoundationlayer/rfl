@@ -14,7 +14,7 @@ exclude = ["bindings/python"]
 [workspace.package]
 version = "0.0.1"
 edition = "2024"
-rust-version = "1.85"
+rust-version = "1.86"
 license = "Apache-2.0"
 repository = "https://github.com/robotfoundationlayer/rfl"
 homepage = "https://github.com/robotfoundationlayer"
