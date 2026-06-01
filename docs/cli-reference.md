@@ -235,11 +235,15 @@ certification, point `--driver` at a *vendor's* driver binary instead.)
 
 Measure a **provisional** ε-tolerance table from N captured driver-report traces
 of one skill+embodiment. The tool retargets the skill to recover the `action_id
--> primitive` map, schema-parses each trace, and for each terminal quantity
-(`final_position` / `final_orientation` / `wrench_force` / `wrench_torque` /
-`securing_force` / `station_error`) computes the run-to-run deviation versus the
-first (reference) run, then a candidate ε = percentile × safety factor. Samples
-pool across actions sharing a primitive.
+-> primitive` map, then — **keyed by the committed `epsilon-tolerances.yaml`** so
+the result aligns key-for-key with the normative table — fills each contact-dynamics
+primitive's quantities from the run-to-run deviation versus the first (reference)
+run (candidate ε = percentile × safety factor; samples pool across actions sharing
+a primitive). Wire-derivable quantities (`realized_position` / `realized_orientation`
+/ `realized_wrench` / `final_orientation` / `securing_force`) get a measured
+candidate; domain quantities that are not first-class wire fields (`seating_depth`,
+`completion_torque`, `turns`, …) come back `tolerance: null` with
+`reason: not_wire_derivable`.
 
 ```bash
 rfl measure --skill examples/01-cable-insertion/skill.yaml \

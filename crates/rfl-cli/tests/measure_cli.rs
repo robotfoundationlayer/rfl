@@ -50,7 +50,8 @@ fn measure_emits_a_provisional_table_and_never_touches_the_committed_one() {
     assert!(stdout.contains("provisional: true"));
     assert!(stdout.contains("source: measured"));
     assert!(stdout.contains("force.insert_fit"), "stdout: {stdout}");
-    assert!(stdout.contains("final_position"));
+    // The output speaks the committed table's vocabulary, so it is promotable.
+    assert!(stdout.contains("realized_position"), "stdout: {stdout}");
     assert!(stdout.contains("tolerance: 0")); // identical runs -> zero, never fabricated
 
     // The committed normative table is untouched.

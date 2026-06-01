@@ -23,6 +23,7 @@ use std::collections::BTreeMap;
 use nalgebra::{Quaternion, UnitQuaternion};
 use rfl_core::driver::DriverReport;
 use rfl_core::pose::{Pose6D, theta_orient};
+use rfl_core::quantity::Quantity;
 
 /// The comparison metric for a measured quantity (mirrors the ε-table schema's
 /// `metric` enum).
@@ -150,17 +151,17 @@ fn unit_quat(q: &[f64; 4]) -> UnitQuaternion<f64> {
     UnitQuaternion::from_quaternion(Quaternion::new(q[3], q[0], q[1], q[2]))
 }
 
-/// One measured quantity: how to pull its representative value out of a run's
-/// terminal report, and the ε-table metric / unit it records under.
-struct QuantitySpec {
-    /// The ε-table quantity key.
-    key: &'static str,
-    /// The deviation metric.
-    metric: Metric,
-    /// The SI unit of the tolerance.
-    unit: &'static str,
-    /// Extractor: the terminal representative value, if the action reports it.
-    extract: fn(&DriverReport) -> Option<Repr>,
+impl Metric {
+    /// Parse the ε-table schema's `metric` token; `None` for an unknown token.
+    fn from_token(s: &str) -> Option<Metric> {
+        match s {
+            "geodesic_se3" => Some(Metric::GeodesicSe3),
+            "geodesic_so3" => Some(Metric::GeodesicSo3),
+            "l2_norm" => Some(Metric::L2Norm),
+            "abs" => Some(Metric::Abs),
+            _ => None,
+        }
+    }
 }
 
 /// The last telemetry sample carrying a wrench (the terminal contact reading).
@@ -168,75 +169,95 @@ fn last_wrench(r: &DriverReport) -> Option<&rfl_core::driver::Wrench> {
     r.telemetry.iter().rev().find_map(|t| t.wrench.as_ref())
 }
 
-/// The terminal-value quantity set (v0): one representative per action per run,
-/// taken from `status.final_pose` and the last telemetry sample — no time-series
-/// alignment (which would need a cross-run sample-matching rule).
-const QUANTITIES: &[QuantitySpec] = &[
-    QuantitySpec {
-        key: "final_position",
-        metric: Metric::L2Norm,
-        unit: "m",
-        extract: |r| r.status.final_pose.as_ref().map(|p| Repr::Vec3(p.position)),
-    },
-    QuantitySpec {
-        key: "final_orientation",
-        metric: Metric::GeodesicSo3,
-        unit: "rad",
-        extract: |r| {
+/// The last telemetry value of a scalar `Quantity` field, parsed to its magnitude.
+fn last_scalar(
+    r: &DriverReport,
+    f: fn(&rfl_core::driver::Telemetry) -> Option<&Quantity>,
+) -> Option<f64> {
+    r.telemetry
+        .iter()
+        .rev()
+        .find_map(f)
+        .and_then(|q| q.parse().map(|(v, _)| v))
+}
+
+/// The terminal-value extractor for a committed ε-table quantity *name*, or `None`
+/// for a domain quantity that is not a first-class field of the driver-report wire
+/// (`seating_depth`, `completion_torque`, `turns`, …) — those are category C:
+/// not measurable from today's wire, reported `null` + `not_wire_derivable`.
+fn wire_extractor(quantity: &str) -> Option<fn(&DriverReport) -> Option<Repr>> {
+    match quantity {
+        "realized_position" => {
+            Some(|r| r.status.final_pose.as_ref().map(|p| Repr::Vec3(p.position)))
+        }
+        // `final_orientation` (in_hand.pivot) and `realized_orientation` (the split
+        // force-pose) both read the terminal orientation.
+        "realized_orientation" | "final_orientation" => Some(|r| {
             r.status
                 .final_pose
                 .as_ref()
                 .map(|p| Repr::Quat(p.orientation))
-        },
-    },
-    QuantitySpec {
-        key: "wrench_force",
-        metric: Metric::L2Norm,
-        unit: "N",
-        extract: |r| last_wrench(r).map(|w| Repr::Vec3(w.force)),
-    },
-    QuantitySpec {
-        key: "wrench_torque",
-        metric: Metric::L2Norm,
-        unit: "N*m",
-        extract: |r| last_wrench(r).map(|w| Repr::Vec3(w.torque)),
-    },
-    QuantitySpec {
-        key: "securing_force",
-        metric: Metric::Abs,
-        unit: "N",
-        extract: |r| {
-            r.telemetry
-                .iter()
-                .rev()
-                .find_map(|t| t.securing_force.as_ref())
-                .and_then(|q| q.parse().map(|(v, _)| Repr::Scalar(v)))
-        },
-    },
-    QuantitySpec {
-        key: "station_error",
-        metric: Metric::Abs,
-        unit: "m",
-        extract: |r| {
-            r.telemetry
-                .iter()
-                .rev()
-                .find_map(|t| t.station_error.as_ref())
-                .and_then(|q| q.parse().map(|(v, _)| Repr::Scalar(v)))
-        },
-    },
-];
+        }),
+        // `realized_wrench` is the contact-force magnitude (unit N) — the last
+        // telemetry wrench's force vector under the l2_norm metric.
+        "realized_wrench" => Some(|r| last_wrench(r).map(|w| Repr::Vec3(w.force))),
+        "securing_force" => {
+            Some(|r| last_scalar(r, |t| t.securing_force.as_ref()).map(Repr::Scalar))
+        }
+        _ => None,
+    }
+}
+
+/// The committed ε-table structure (`schemas/epsilon-tolerances.yaml`), embedded so
+/// the tool is self-contained. The tolerances there are all `null`; this is read
+/// only for the *structure* — which `(primitive, quantity, metric, unit)` exist —
+/// so the measured table aligns key-for-key with the normative one.
+const EPSILON_TABLE_YAML: &str = include_str!("../../../schemas/epsilon-tolerances.yaml");
+
+/// `primitive -> quantity -> (metric, unit)` parsed from the committed table.
+type CommittedTable = BTreeMap<String, BTreeMap<String, (Metric, Option<String>)>>;
+
+/// Parse the embedded committed table's structure (panics only on a corrupt
+/// embedded asset, which CI's schema-validate would already have caught).
+fn committed_table() -> CommittedTable {
+    #[derive(serde::Deserialize)]
+    struct Raw {
+        epsilon_tolerances: BTreeMap<String, BTreeMap<String, RawEntry>>,
+    }
+    #[derive(serde::Deserialize)]
+    struct RawEntry {
+        metric: String,
+        #[serde(default)]
+        unit: Option<String>,
+    }
+    let raw: Raw = serde_yaml::from_str(EPSILON_TABLE_YAML).expect("embedded ε-table parses");
+    raw.epsilon_tolerances
+        .into_iter()
+        .map(|(prim, quantities)| {
+            let q = quantities
+                .into_iter()
+                .filter_map(|(name, e)| Metric::from_token(&e.metric).map(|m| (name, (m, e.unit))))
+                .collect();
+            (prim, q)
+        })
+        .collect()
+}
 
 /// One `(primitive, quantity)` provisional tolerance.
 #[derive(Debug, Clone)]
 pub struct ProvisionalEntry {
-    /// The deviation metric.
+    /// The deviation metric (from the committed table).
     pub metric: Metric,
-    /// The candidate ε (percentile × safety); `None` when fewer than one
-    /// run-to-run sample was observed (not yet gradeable — never a fabricated 0).
+    /// The candidate ε (percentile × safety); `None` when not gradeable — either
+    /// the quantity is not wire-derivable or no run-to-run sample was observed.
+    /// Never a fabricated 0.
     pub tolerance: Option<f64>,
-    /// The SI unit.
-    pub unit: &'static str,
+    /// The unit (from the committed table), if any.
+    pub unit: Option<String>,
+    /// Why `tolerance` is `null`, when it is: `not_wire_derivable` (a category-C
+    /// domain quantity absent from the wire) or `not_reported` (wire-derivable but
+    /// no run reported it). `None` when a candidate was measured.
+    pub reason: Option<&'static str>,
     /// The number of runs supplied.
     pub n_runs: usize,
     /// The number of run-to-run deviation samples observed for this quantity.
@@ -256,15 +277,17 @@ pub struct ProvisionalTable {
     pub tolerances: BTreeMap<String, BTreeMap<String, ProvisionalEntry>>,
 }
 
-/// Aggregate run-to-run deviations into a provisional ε table.
+/// Aggregate run-to-run deviations into a provisional ε table, **keyed by the
+/// committed table** so the result aligns key-for-key with the normative one.
 ///
-/// `action_primitives` maps each `action_id` to its primitive name (an unmapped
-/// id falls under `__unmapped__`, never dropped). `runs` are the per-run
-/// `replay_report` outputs; `runs[0]` is the reference each later run is compared
-/// to. For each action's primitive, every terminal quantity present in the
-/// reference yields a `(primitive, quantity)` entry; its samples pool across all
-/// actions sharing the primitive. A quantity present in the reference but in no
-/// later run gets an entry with `tolerance: None` (honest "not yet gradeable").
+/// `action_primitives` maps each `action_id` to its primitive name; `runs` are the
+/// per-run `replay_report` outputs with `runs[0]` the reference. For each action
+/// whose primitive the committed table covers (the contact-dynamics set), every
+/// committed quantity is emitted: a wire-derivable one reported by the reference
+/// yields run-to-run deviation samples (pooled across actions sharing the
+/// primitive) → an `epsilon_candidate`; a wire-derivable one no run reports →
+/// `null` + `not_reported`; a category-C domain quantity → `null` +
+/// `not_wire_derivable`. Primitives outside the committed table get no ε row.
 #[must_use]
 pub fn aggregate_epsilon(
     action_primitives: &BTreeMap<String, String>,
@@ -272,16 +295,15 @@ pub fn aggregate_epsilon(
     percentile: f64,
     safety: f64,
 ) -> ProvisionalTable {
-    // The accumulating deviation samples for one (primitive, quantity); created
-    // when the reference reports the quantity, so its mere presence == applicable.
     struct Bucket {
         metric: Metric,
-        unit: &'static str,
+        unit: Option<String>,
+        wire_derivable: bool,
         samples: Vec<f64>,
     }
-    // (primitive, quantity-key) -> bucket.
-    let mut buckets: BTreeMap<(String, &'static str), Bucket> = BTreeMap::new();
+    let committed = committed_table();
     let n_runs = runs.len();
+    let mut buckets: BTreeMap<(String, String), Bucket> = BTreeMap::new();
     let Some(reference) = runs.first() else {
         return ProvisionalTable {
             percentile,
@@ -291,25 +313,32 @@ pub fn aggregate_epsilon(
     };
 
     for (action_id, ref_report) in reference {
-        let primitive = action_primitives
-            .get(action_id)
-            .map_or("__unmapped__", String::as_str);
-        for spec in QUANTITIES {
-            let Some(ref_val) = (spec.extract)(ref_report) else {
-                continue;
-            };
-            let entry = buckets
-                .entry((primitive.to_string(), spec.key))
+        let Some(primitive) = action_primitives.get(action_id) else {
+            continue;
+        };
+        // ε applies only to contact-dynamics primitives — the committed table set.
+        let Some(quantities) = committed.get(primitive) else {
+            continue;
+        };
+        for (quantity, (metric, unit)) in quantities {
+            let extractor = wire_extractor(quantity);
+            let bucket = buckets
+                .entry((primitive.clone(), quantity.clone()))
                 .or_insert(Bucket {
-                    metric: spec.metric,
-                    unit: spec.unit,
+                    metric: *metric,
+                    unit: unit.clone(),
+                    wire_derivable: extractor.is_some(),
                     samples: Vec::new(),
                 });
-            for run in &runs[1..] {
-                if let Some(run_report) = run.get(action_id) {
-                    if let Some(run_val) = (spec.extract)(run_report) {
-                        if let Some(d) = deviation(spec.metric, &ref_val, &run_val) {
-                            entry.samples.push(d);
+            if let Some(extract) = extractor {
+                if let Some(ref_val) = extract(ref_report) {
+                    for run in &runs[1..] {
+                        if let Some(run_report) = run.get(action_id) {
+                            if let Some(run_val) = extract(run_report) {
+                                if let Some(d) = deviation(*metric, &ref_val, &run_val) {
+                                    bucket.samples.push(d);
+                                }
+                            }
                         }
                     }
                 }
@@ -320,12 +349,20 @@ pub fn aggregate_epsilon(
     let mut tolerances: BTreeMap<String, BTreeMap<String, ProvisionalEntry>> = BTreeMap::new();
     for ((primitive, quantity), bucket) in buckets {
         let tolerance = epsilon_candidate(&bucket.samples, percentile, safety);
+        let reason = if !bucket.wire_derivable {
+            Some("not_wire_derivable")
+        } else if bucket.samples.is_empty() {
+            Some("not_reported")
+        } else {
+            None
+        };
         tolerances.entry(primitive).or_default().insert(
-            quantity.to_string(),
+            quantity,
             ProvisionalEntry {
                 metric: bucket.metric,
                 tolerance,
                 unit: bucket.unit,
+                reason,
                 n_runs,
                 n_samples: bucket.samples.len(),
             },
@@ -418,7 +455,12 @@ impl ProvisionalTable {
                     Some(t) => s.push_str(&format!("      tolerance: {t}\n")),
                     None => s.push_str("      tolerance: null\n"),
                 }
-                s.push_str(&format!("      unit: {}\n", e.unit));
+                if let Some(reason) = e.reason {
+                    s.push_str(&format!("      reason: {reason}\n"));
+                }
+                if let Some(unit) = &e.unit {
+                    s.push_str(&format!("      unit: {unit}\n"));
+                }
                 s.push_str(&format!("      n_runs: {}\n", e.n_runs));
                 s.push_str(&format!("      n_samples: {}\n", e.n_samples));
             }
@@ -479,9 +521,19 @@ mod tests {
         assert_eq!(epsilon_candidate(&[], 0.95, 1.0), None);
     }
 
-    // ---- aggregation ----
+    // ---- aggregation (keyed by the committed table) ----
 
     use rfl_core::driver::{DriverReport, Outcome, RealizedPose, Status, Telemetry, Wrench};
+    use rfl_core::quantity::Quantity;
+
+    const IDENTITY: [f64; 4] = [0.0, 0.0, 0.0, 1.0];
+    // A 90-degree rotation about z as [x, y, z, w] (geodesic distance pi/2 from identity).
+    const QUARTER_TURN_Z: [f64; 4] = [
+        0.0,
+        0.0,
+        std::f64::consts::FRAC_1_SQRT_2,
+        std::f64::consts::FRAC_1_SQRT_2,
+    ];
 
     fn status_with_pose(position: [f64; 3], orientation: [f64; 4]) -> Status {
         Status {
@@ -501,22 +553,36 @@ mod tests {
         }
     }
 
-    fn telemetry_force(force: [f64; 3]) -> Telemetry {
+    fn blank_telemetry() -> Telemetry {
         Telemetry {
             message: "telemetry",
             action_id: String::new(),
             t: 0.0,
             realized_pose: None,
-            wrench: Some(Wrench {
-                force,
-                torque: [0.0, 0.0, 0.0],
-            }),
+            wrench: None,
             securing_force: None,
             station_error: None,
             tactile: vec![],
             events: vec![],
             fidelity_tier: None,
             contact_geometry: None,
+        }
+    }
+
+    fn telemetry_force(force: [f64; 3]) -> Telemetry {
+        Telemetry {
+            wrench: Some(Wrench {
+                force,
+                torque: [0.0, 0.0, 0.0],
+            }),
+            ..blank_telemetry()
+        }
+    }
+
+    fn telemetry_securing(newtons: f64) -> Telemetry {
+        Telemetry {
+            securing_force: Some(Quantity::from_si(newtons, "N")),
+            ..blank_telemetry()
         }
     }
 
@@ -537,134 +603,123 @@ mod tests {
     }
 
     #[test]
-    fn identical_runs_yield_zero_tolerance() {
-        let pose = || {
-            report(
-                vec![],
-                status_with_pose([1.0, 2.0, 3.0], [0.0, 0.0, 0.0, 1.0]),
-            )
-        };
-        let runs = vec![run("a/b/0001-x", pose()), run("a/b/0001-x", pose())];
-        let table = aggregate_epsilon(&prim_map("a/b/0001-x", "force.screw"), &runs, 0.95, 1.2);
-        let entry = &table.tolerances["force.screw"]["final_position"];
-        assert_eq!(entry.tolerance, Some(0.0));
-        assert_eq!(entry.n_runs, 2);
-        assert_eq!(entry.n_samples, 1);
+    fn committed_table_covers_the_contact_dynamics_set() {
+        let t = committed_table();
+        assert_eq!(t.len(), 11); // 10 force.* + in_hand.pivot
+        let insert = &t["force.insert_fit"];
+        assert!(insert.contains_key("realized_position"));
+        assert!(insert.contains_key("realized_orientation"));
+        assert!(insert.contains_key("realized_wrench"));
+        assert!(insert.contains_key("seating_depth"));
+        assert!(t.contains_key("in_hand.pivot"));
     }
 
     #[test]
-    fn known_deviation_is_the_scaled_percentile() {
-        // Reference position at origin; the run is 0.5 m away in z.
+    fn in_hand_pivot_is_fully_wire_measurable() {
+        // Orientation turns a quarter turn (pi/2) and securing force shifts 8 -> 8.5 N.
         let r0 = report(
-            vec![],
-            status_with_pose([0.0, 0.0, 0.0], [0.0, 0.0, 0.0, 1.0]),
+            vec![telemetry_securing(8.0)],
+            status_with_pose([0.0; 3], IDENTITY),
         );
         let r1 = report(
-            vec![],
-            status_with_pose([0.0, 0.0, 0.5], [0.0, 0.0, 0.0, 1.0]),
+            vec![telemetry_securing(8.5)],
+            status_with_pose([0.0; 3], QUARTER_TURN_Z),
         );
-        let runs = vec![run("a/b/0001-x", r0), run("a/b/0001-x", r1)];
-        let table = aggregate_epsilon(&prim_map("a/b/0001-x", "force.screw"), &runs, 0.95, 1.2);
-        let eps = table.tolerances["force.screw"]["final_position"]
-            .tolerance
-            .unwrap();
-        assert!((eps - 0.5 * 1.2).abs() < 1e-12);
+        let runs = vec![run("p/e/0001-pivot", r0), run("p/e/0001-pivot", r1)];
+        let table = aggregate_epsilon(
+            &prim_map("p/e/0001-pivot", "in_hand.pivot"),
+            &runs,
+            0.95,
+            1.0,
+        );
+        let pivot = &table.tolerances["in_hand.pivot"];
+        // Both committed quantities are wire-derivable and reported -> non-null, reason None.
+        assert!(
+            (pivot["final_orientation"].tolerance.unwrap() - std::f64::consts::FRAC_PI_2).abs()
+                < 1e-9
+        );
+        assert!(pivot["final_orientation"].reason.is_none());
+        assert!((pivot["securing_force"].tolerance.unwrap() - 0.5).abs() < 1e-12);
+        assert!(pivot["securing_force"].reason.is_none());
     }
 
     #[test]
-    fn quantity_present_in_one_run_only_is_not_gradeable() {
-        // Reference has a wrench; the second run does not -> no deviation sample.
+    fn insert_fit_fills_pose_and_wrench_and_nulls_seating_depth() {
+        // Reference vs a run deviating 0.2 m in z and 1 N in force; orientation steady.
         let r0 = report(
             vec![telemetry_force([10.0, 0.0, 0.0])],
-            status_with_pose([0.0, 0.0, 0.0], [0.0, 0.0, 0.0, 1.0]),
+            status_with_pose([0.0; 3], IDENTITY),
         );
         let r1 = report(
-            vec![],
-            status_with_pose([0.0, 0.0, 0.0], [0.0, 0.0, 0.0, 1.0]),
+            vec![telemetry_force([11.0, 0.0, 0.0])],
+            status_with_pose([0.0, 0.0, 0.2], IDENTITY),
         );
-        let runs = vec![run("a/b/0001-x", r0), run("a/b/0001-x", r1)];
-        let table = aggregate_epsilon(&prim_map("a/b/0001-x", "force.screw"), &runs, 0.95, 1.2);
-        let force = &table.tolerances["force.screw"]["wrench_force"];
-        assert_eq!(force.tolerance, None);
-        assert_eq!(force.n_samples, 0);
+        let runs = vec![run("c/e/0001-insert", r0), run("c/e/0001-insert", r1)];
+        let table = aggregate_epsilon(
+            &prim_map("c/e/0001-insert", "force.insert_fit"),
+            &runs,
+            0.95,
+            1.0,
+        );
+        let f = &table.tolerances["force.insert_fit"];
+        assert!((f["realized_position"].tolerance.unwrap() - 0.2).abs() < 1e-12);
+        assert_eq!(f["realized_orientation"].tolerance, Some(0.0)); // steady orientation
+        assert!((f["realized_wrench"].tolerance.unwrap() - 1.0).abs() < 1e-12);
+        // seating_depth is not a wire field -> null + reason, never a fabricated value.
+        assert_eq!(f["seating_depth"].tolerance, None);
+        assert_eq!(f["seating_depth"].reason, Some("not_wire_derivable"));
     }
 
     #[test]
-    fn two_actions_sharing_a_primitive_pool_samples() {
-        // Two force.screw actions, each deviating in position; samples pool.
-        let mut reference = BTreeMap::new();
-        reference.insert(
-            "a/b/0001-screw".to_string(),
-            report(vec![], status_with_pose([0.0; 3], [0.0, 0.0, 0.0, 1.0])),
-        );
-        reference.insert(
-            "a/b/0002-screw".to_string(),
-            report(vec![], status_with_pose([0.0; 3], [0.0, 0.0, 0.0, 1.0])),
-        );
-        let mut run1 = BTreeMap::new();
-        run1.insert(
-            "a/b/0001-screw".to_string(),
-            report(
-                vec![],
-                status_with_pose([0.0, 0.0, 0.2], [0.0, 0.0, 0.0, 1.0]),
-            ),
-        );
-        run1.insert(
-            "a/b/0002-screw".to_string(),
-            report(
-                vec![],
-                status_with_pose([0.0, 0.0, 0.4], [0.0, 0.0, 0.0, 1.0]),
-            ),
-        );
-        let mut prims = BTreeMap::new();
-        prims.insert("a/b/0001-screw".to_string(), "force.screw".to_string());
-        prims.insert("a/b/0002-screw".to_string(), "force.screw".to_string());
-        let table = aggregate_epsilon(&prims, &[reference, run1], 0.95, 1.0);
-        let entry = &table.tolerances["force.screw"]["final_position"];
-        assert_eq!(entry.n_samples, 2); // both actions pooled
-        // p95 nearest-rank over {0.2, 0.4} = 0.4; safety 1.0.
-        assert!((entry.tolerance.unwrap() - 0.4).abs() < 1e-12);
+    fn screw_domain_quantities_are_not_wire_derivable() {
+        let r = || report(vec![], status_with_pose([0.0; 3], IDENTITY));
+        let runs = vec![run("s/e/0001-screw", r()), run("s/e/0001-screw", r())];
+        let table = aggregate_epsilon(&prim_map("s/e/0001-screw", "force.screw"), &runs, 0.95, 1.0);
+        let screw = &table.tolerances["force.screw"];
+        // completion_torque and turns are not on the generic wire.
+        for q in ["completion_torque", "turns"] {
+            assert_eq!(screw[q].tolerance, None);
+            assert_eq!(screw[q].reason, Some("not_wire_derivable"));
+        }
+    }
+
+    #[test]
+    fn non_contact_primitive_gets_no_epsilon_row() {
+        // grasp.pinch is not in the committed (contact-dynamics) table -> no ε.
+        let r = || report(vec![], status_with_pose([0.0; 3], IDENTITY));
+        let runs = vec![run("g/e/0001-pinch", r()), run("g/e/0001-pinch", r())];
+        let table = aggregate_epsilon(&prim_map("g/e/0001-pinch", "grasp.pinch"), &runs, 0.95, 1.0);
+        assert!(table.tolerances.is_empty());
     }
 
     #[test]
     fn provisional_yaml_carries_the_honesty_firewall() {
-        // r0 reports a wrench; r1 does not -> wrench_force is applicable but
-        // ungradeable (null). Position deviates 0.5 m -> 0.6 candidate.
+        // Position deviates 0.5 m -> 0.6 candidate; wrench steady -> 0; seating_depth null.
         let r0 = report(
-            vec![telemetry_force([5.0, 0.0, 0.0])],
-            status_with_pose([0.0; 3], [0.0, 0.0, 0.0, 1.0]),
+            vec![telemetry_force([10.0, 0.0, 0.0])],
+            status_with_pose([0.0; 3], IDENTITY),
         );
         let r1 = report(
-            vec![],
-            status_with_pose([0.0, 0.0, 0.5], [0.0, 0.0, 0.0, 1.0]),
+            vec![telemetry_force([10.0, 0.0, 0.0])],
+            status_with_pose([0.0, 0.0, 0.5], IDENTITY),
         );
-        let runs = vec![run("a/b/0001-x", r0), run("a/b/0001-x", r1)];
-        let table = aggregate_epsilon(&prim_map("a/b/0001-x", "force.screw"), &runs, 0.95, 1.2);
+        let runs = vec![run("c/e/0001-insert", r0), run("c/e/0001-insert", r1)];
+        let table = aggregate_epsilon(
+            &prim_map("c/e/0001-insert", "force.insert_fit"),
+            &runs,
+            0.95,
+            1.2,
+        );
         let yaml = table.to_provisional_yaml();
         assert!(yaml.starts_with("# PROVISIONAL"));
         assert!(yaml.contains("provisional: true"));
         assert!(yaml.contains("source: measured"));
-        assert!(yaml.contains("force.screw"));
-        assert!(yaml.contains("final_position"));
-        assert!(yaml.contains("metric: l2_norm"));
-        assert!(yaml.contains("n_samples: 1"));
-        // A measured candidate renders as a number, an ungradeable one as null.
-        assert!(yaml.contains("tolerance: 0.6"));
-        assert!(yaml.contains("tolerance: null")); // final_orientation: identical -> 0; wrench absent -> null
-    }
-
-    #[test]
-    fn unmapped_action_id_falls_under_the_unmapped_bucket() {
-        let pose = || {
-            report(
-                vec![],
-                status_with_pose([1.0, 0.0, 0.0], [0.0, 0.0, 0.0, 1.0]),
-            )
-        };
-        let runs = vec![run("a/b/0001-x", pose()), run("a/b/0001-x", pose())];
-        // Empty primitive map -> the action is unmapped, not dropped.
-        let table = aggregate_epsilon(&BTreeMap::new(), &runs, 0.95, 1.2);
-        assert!(table.tolerances.contains_key("__unmapped__"));
+        assert!(yaml.contains("force.insert_fit"));
+        assert!(yaml.contains("realized_position"));
+        assert!(yaml.contains("tolerance: 0.6")); // 0.5 * 1.2
+        // The category-C quantity renders null with its reason.
+        assert!(yaml.contains("tolerance: null"));
+        assert!(yaml.contains("reason: not_wire_derivable"));
     }
 
     #[test]
