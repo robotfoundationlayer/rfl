@@ -17,6 +17,7 @@
 
 use std::path::Path;
 
+pub mod badge;
 pub mod battery;
 pub mod certificate;
 pub mod certify;

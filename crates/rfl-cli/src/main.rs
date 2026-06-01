@@ -14,6 +14,7 @@
 //!   content hash (tamper detection)
 //! - `rfl keygen <out>` — generate an ed25519 keypair (secret to `<out>`, public to stdout)
 //! - `rfl sign --key <secret> <certificate.json>` — attach an ed25519 signature to a certificate
+//! - `rfl badge <certificate.json>` — derive a conformance badge (regime + fidelity tier + trademark gate)
 
 use anyhow::Result;
 use clap::{Parser, Subcommand};
@@ -77,6 +78,11 @@ enum Command {
         /// Path to the secret-key hex file.
         #[arg(long)]
         key: std::path::PathBuf,
+        /// Path to the certificate JSON file.
+        certificate: std::path::PathBuf,
+    },
+    /// Derive a conformance badge from a certificate (regime + fidelity tier + trademark gate).
+    Badge {
         /// Path to the certificate JSON file.
         certificate: std::path::PathBuf,
     },
@@ -293,6 +299,50 @@ fn main() -> Result<()> {
                     std::process::exit(2);
                 }
             }
+        }
+        Command::Badge { certificate } => {
+            let text = match std::fs::read_to_string(&certificate) {
+                Ok(t) => t,
+                Err(e) => {
+                    eprintln!("badge: read {certificate:?}: {e}");
+                    std::process::exit(2);
+                }
+            };
+            let badge = match rfl_conformance::badge::derive_badge(&text) {
+                Ok(b) => b,
+                Err(e) => {
+                    eprintln!("badge: malformed certificate: {e:#}");
+                    std::process::exit(2);
+                }
+            };
+            println!(
+                "RFL conformance badge — {} on {}",
+                badge.skill, badge.embodiment
+            );
+            println!("  result: {}", badge.result.to_uppercase());
+            println!(
+                "  regime tier: Tier {} (self-certification)",
+                badge.regime_tier
+            );
+            println!(
+                "  achieved fidelity: {}",
+                badge.achieved_fidelity.as_deref().unwrap_or("n/a")
+            );
+            println!(
+                "  RFL(TM) trademark: {}",
+                if badge.trademark_permitted {
+                    "permitted"
+                } else {
+                    "not permitted (Tier 1 self-certification)"
+                }
+            );
+            for a in &badge.actions {
+                let mark = if a.passed { "PASS" } else { "FAIL" };
+                let class = a.envelope_class.as_deref().unwrap_or("perception");
+                let tier = a.fidelity_tier.as_deref().unwrap_or("-");
+                println!("  [{mark}] {} ({class}) — fidelity {tier}", a.action_id);
+            }
+            std::process::exit(0);
         }
         Command::SpecVersion => {
             println!("{}", rfl_core::SPEC_VERSION);

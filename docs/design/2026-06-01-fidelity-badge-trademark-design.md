@@ -1,6 +1,14 @@
 # Recursive-simulator conformance / fidelity-tier badge / trademark gate — design
 
-Status: design-complete; **badge generator is the clean implementable slice** (the other two are spec-fixed or design-only)
+Status: **BADGE GENERATOR IMPLEMENTED 2026-06-02** (`rfl-conformance::badge` +
+`rfl badge <cert.json>`: per-action envelope/fidelity + the embodiment-level
+rollup — regime Tier 1 for self-cert, achieved fidelity = weakest confirmed
+action's tier, trademark gated to Tier 2/3; pure read of the cert JSON, no
+golden churn). Trademark gate was already spec-fixed (now surfaced by the badge).
+Recursive-simulator conformance remains **design-open** (needs a
+simulator-provenance model). The badge derives per-**action** fidelity (the
+granularity the cert carries); a true per-**capability** breakdown awaits the
+cert carrying capability keys.
 
 ## The three sub-items (`spec/05` § Conformance regime)
 

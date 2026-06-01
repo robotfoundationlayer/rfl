@@ -22,6 +22,7 @@ rfl certify  --skill <skill.yaml> --embodiment <descriptor.yaml>
 rfl verify   <certificate.json>
 rfl keygen   <secret-key-out>
 rfl sign     --key <secret-key> <certificate.json>
+rfl badge    <certificate.json>
 rfl spec-version
 ```
 
@@ -164,6 +165,35 @@ rfl verify certificate.signed.json
 |---|---|
 | `0` | Signed certificate written to stdout. |
 | `2` | Unreadable certificate / key, or a signing error. |
+
+## `rfl badge`
+
+Derive a conformance **badge** from a certificate (`spec/05` § Fidelity tier and
+the badge): the regime tier (who verified), the achieved fidelity tier (the
+weakest confirmed action's tier, so the badge never over-claims), and the `RFL™`
+trademark gate. A read-only derivation — it changes nothing the `content_hash`
+covers.
+
+```bash
+rfl badge certificate.json
+# RFL conformance badge — cable-insertion on wonik-allegro-v4
+#   result: PASS
+#   regime tier: Tier 1 (self-certification)
+#   achieved fidelity: manifold
+#   RFL(TM) trademark: not permitted (Tier 1 self-certification)
+#   [PASS] …/0002-pinch (grasp_continuity) — fidelity manifold
+#   …
+```
+
+A certificate from `rfl certify` is **Tier 1** (self-certification), so its badge
+never permits the trademark (Tier 2 / Tier 3 are steward / independent
+verification). The achieved fidelity rolls up to the weakest tier: a no-tactile
+hand that degrades to the force/position proxy badges `proxy`, never `manifold`.
+
+| Exit | Meaning |
+|---|---|
+| `0` | Badge derived and printed. |
+| `2` | Unreadable or malformed certificate. |
 
 ## `rfl spec-version`
 
