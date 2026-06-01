@@ -87,6 +87,28 @@ The exit code carries the run's meaning:
 The distinction between `1` and `2` matters: `1` means "your driver is non-conformant, here is the
 proof"; `2` means "your report could not be read at all."
 
+### Live mode (`--driver`)
+
+Instead of capturing a report to a file, point `rfl certify` at your driver binary and it runs the
+exchange for you:
+
+```bash
+rfl certify \
+  --skill examples/01-cable-insertion/skill.yaml \
+  --embodiment examples/01-cable-insertion/embodiments/allegro.yaml \
+  --driver ./my_driver \
+  --out certificate.json
+```
+
+The tool writes the canonical **execute** goals — exactly the output of `rfl retarget` — to your
+driver's **stdin** (one JSON object per line, then EOF), and reads the `telemetry` + `status` lines
+your driver writes to its **stdout**. Your driver should read goals from stdin, execute them, emit
+its report on stdout, and exit `0`.
+
+`--report` and `--driver` are mutually exclusive; supply exactly one. `--timeout <secs>` (default
+`30`) bounds how long the driver may run; a driver that exits non-zero, overruns the timeout, or
+emits a malformed report is an invalid run (exit `2`).
+
 ----
 
 ## Reading the certificate
