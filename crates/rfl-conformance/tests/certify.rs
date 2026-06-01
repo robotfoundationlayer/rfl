@@ -112,6 +112,25 @@ fn certificate_records_per_action_fidelity_tier() {
 }
 
 #[test]
+fn certifies_proxy_fidelity_on_pneumatic() {
+    let dir = example_dir();
+    let skill = dir.join("skill.yaml");
+    let emb = dir.join("embodiments/pneumatic-6f.yaml");
+    let reports = run_reference_driver(&skill, &emb).unwrap();
+    let report = temp_report("pneumatic", &reports_to_jsonl(&reports));
+
+    let outcome = certify::run(&skill, &emb, &report).expect("valid run");
+    assert_eq!(outcome.result, CertResult::Pass, "honest proxy must still pass");
+    // pneumatic-6f has no tactile sensing -> grasp.pinch confirms at proxy tier.
+    let pinch = outcome.certificate.body.actions.iter().find(|a| a.suffix == "pinch").unwrap();
+    assert_eq!(pinch.fidelity_tier.as_deref(), Some("proxy"));
+    // and the audit-honesty check passed for it (a proxy claim against a proxy lowering).
+    let audit = pinch.checks.iter().find(|c| c.name == "audit_honesty").unwrap();
+    assert_eq!(audit.result, "pass");
+    std::fs::remove_file(report).ok();
+}
+
+#[test]
 fn certificate_is_deterministic() {
     let dir = example_dir();
     let skill = dir.join("skill.yaml");

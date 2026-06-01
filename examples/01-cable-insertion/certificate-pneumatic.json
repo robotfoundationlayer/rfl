@@ -1,0 +1,280 @@
+{
+  "certificate_schema_version": "0.1",
+  "spec_version": "v0.1-draft",
+  "tool_version": "0.0.1",
+  "skill": {
+    "id": "cable-insertion",
+    "sha256": "27e609a036ebbdd5033a4053cccfef5b86bf02eeb2c2874f636f4e0e2898b57a"
+  },
+  "embodiment": {
+    "id": "generic-pneumatic-6f",
+    "sha256": "6ddd64453bdd8a0cd763fe95ed53633392a856502479977938d47d277cb2a750"
+  },
+  "report_sha256": "06ce359e19c9ca0963b8e14cfc6c80f5e5ed90d13e99948baf2c4dec8e0c691a",
+  "result": "pass",
+  "covered": [
+    "class3_driver_protocol"
+  ],
+  "excluded": [
+    "class4_physical",
+    "class2_loose_epsilon",
+    "env3_disturbance",
+    "fidelity_tier_physical_truth"
+  ],
+  "actions": [
+    {
+      "action_id": "cable-insertion/generic-pneumatic-6f/0001-locate",
+      "suffix": "locate",
+      "checks": [
+        {
+          "name": "actuation",
+          "result": "pass"
+        },
+        {
+          "name": "engagement",
+          "result": "pass"
+        },
+        {
+          "name": "irreversible",
+          "result": "pass"
+        },
+        {
+          "name": "freed_part_disposition",
+          "result": "pass"
+        },
+        {
+          "name": "audit_honesty",
+          "result": "pass"
+        }
+      ],
+      "passed": true
+    },
+    {
+      "action_id": "cable-insertion/generic-pneumatic-6f/0002-pinch",
+      "suffix": "pinch",
+      "envelope_class": "grasp_continuity",
+      "fidelity_tier": "proxy",
+      "checks": [
+        {
+          "name": "envelope",
+          "result": "pass"
+        },
+        {
+          "name": "actuation",
+          "result": "pass"
+        },
+        {
+          "name": "engagement",
+          "result": "pass"
+        },
+        {
+          "name": "irreversible",
+          "result": "pass"
+        },
+        {
+          "name": "freed_part_disposition",
+          "result": "pass"
+        },
+        {
+          "name": "audit_honesty",
+          "result": "pass"
+        }
+      ],
+      "passed": true
+    },
+    {
+      "action_id": "cable-insertion/generic-pneumatic-6f/0003-transport",
+      "suffix": "transport",
+      "envelope_class": "grasp_continuity",
+      "checks": [
+        {
+          "name": "envelope",
+          "result": "pass"
+        },
+        {
+          "name": "actuation",
+          "result": "pass"
+        },
+        {
+          "name": "engagement",
+          "result": "pass"
+        },
+        {
+          "name": "irreversible",
+          "result": "pass"
+        },
+        {
+          "name": "freed_part_disposition",
+          "result": "pass"
+        },
+        {
+          "name": "audit_honesty",
+          "result": "pass"
+        }
+      ],
+      "passed": true
+    },
+    {
+      "action_id": "cable-insertion/generic-pneumatic-6f/0004-locate",
+      "suffix": "locate",
+      "checks": [
+        {
+          "name": "actuation",
+          "result": "pass"
+        },
+        {
+          "name": "engagement",
+          "result": "pass"
+        },
+        {
+          "name": "irreversible",
+          "result": "pass"
+        },
+        {
+          "name": "freed_part_disposition",
+          "result": "pass"
+        },
+        {
+          "name": "audit_honesty",
+          "result": "pass"
+        }
+      ],
+      "passed": true
+    },
+    {
+      "action_id": "cable-insertion/generic-pneumatic-6f/0005-align",
+      "suffix": "align",
+      "envelope_class": "terminal_postcondition",
+      "checks": [
+        {
+          "name": "envelope",
+          "result": "pass"
+        },
+        {
+          "name": "actuation",
+          "result": "pass"
+        },
+        {
+          "name": "engagement",
+          "result": "pass"
+        },
+        {
+          "name": "irreversible",
+          "result": "pass"
+        },
+        {
+          "name": "freed_part_disposition",
+          "result": "pass"
+        },
+        {
+          "name": "audit_honesty",
+          "result": "pass"
+        }
+      ],
+      "passed": true
+    },
+    {
+      "action_id": "cable-insertion/generic-pneumatic-6f/0006-insert_fit",
+      "suffix": "insert_fit",
+      "envelope_class": "force_trajectory",
+      "checks": [
+        {
+          "name": "envelope",
+          "result": "pass"
+        },
+        {
+          "name": "actuation",
+          "result": "pass"
+        },
+        {
+          "name": "engagement",
+          "result": "pass"
+        },
+        {
+          "name": "irreversible",
+          "result": "pass"
+        },
+        {
+          "name": "freed_part_disposition",
+          "result": "pass"
+        },
+        {
+          "name": "audit_honesty",
+          "result": "pass"
+        }
+      ],
+      "passed": true
+    },
+    {
+      "action_id": "cable-insertion/generic-pneumatic-6f/0007-release",
+      "suffix": "release",
+      "envelope_class": "grasp_continuity",
+      "checks": [
+        {
+          "name": "envelope",
+          "result": "pass"
+        },
+        {
+          "name": "actuation",
+          "result": "pass"
+        },
+        {
+          "name": "engagement",
+          "result": "pass"
+        },
+        {
+          "name": "irreversible",
+          "result": "pass"
+        },
+        {
+          "name": "freed_part_disposition",
+          "result": "pass"
+        },
+        {
+          "name": "audit_honesty",
+          "result": "pass"
+        }
+      ],
+      "passed": true
+    },
+    {
+      "action_id": "cable-insertion/generic-pneumatic-6f/0008-retract",
+      "suffix": "retract",
+      "envelope_class": "terminal_postcondition",
+      "checks": [
+        {
+          "name": "envelope",
+          "result": "pass"
+        },
+        {
+          "name": "actuation",
+          "result": "pass"
+        },
+        {
+          "name": "engagement",
+          "result": "pass"
+        },
+        {
+          "name": "irreversible",
+          "result": "pass"
+        },
+        {
+          "name": "freed_part_disposition",
+          "result": "pass"
+        },
+        {
+          "name": "audit_honesty",
+          "result": "pass"
+        }
+      ],
+      "passed": true
+    }
+  ],
+  "sequence_checks": [
+    {
+      "name": "momentary_release",
+      "result": "pass"
+    }
+  ],
+  "content_hash": "sha256:55ba42ab6424cabaa25290996d92d23a20d82c6edb51ac42121a1cb44143c228"
+}
