@@ -56,6 +56,8 @@ jobs:
           for f in 00-overview 01-skill-isa 02-translation-layer 03-driver-interface 04-tactile-manifold 05-conformance 06-extension-registry; do
             test -f "spec/${f}.md" || { echo "missing spec/${f}.md"; exit 1; }
           done
+      - name: Lint markdown (links, dividers, de-AI)
+        run: python3 scripts/md_lint.py
 
   schema-validate:
     name: schema validate (conformance class 1)
