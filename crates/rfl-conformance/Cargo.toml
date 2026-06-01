@@ -14,7 +14,7 @@ authors.workspace = true
 all-features = true
 
 [dependencies]
-rfl-core = { path = "../rfl-core" }
+rfl-core.workspace = true
 anyhow.workspace = true
 serde.workspace = true
 serde_json.workspace = true

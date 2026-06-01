@@ -18,8 +18,8 @@ name = "rfl"
 path = "src/main.rs"
 
 [dependencies]
-rfl-core = { path = "../rfl-core" }
-rfl-conformance = { path = "../rfl-conformance" }
+rfl-core.workspace = true
+rfl-conformance.workspace = true
 anyhow.workspace = true
 clap.workspace = true
 serde_json.workspace = true

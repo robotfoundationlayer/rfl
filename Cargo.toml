@@ -20,6 +20,10 @@ homepage = "https://github.com/robotfoundationlayer"
 authors = ["Yoichiro Hara <yo@vox.delivery>"]
 
 [workspace.dependencies]
+# Internal crates — path for local builds, version required for crates.io publish.
+rfl-core = { path = "crates/rfl-core", version = "0.0.1" }
+rfl-conformance = { path = "crates/rfl-conformance", version = "0.0.1" }
+
 # Core
 anyhow = "1"
 thiserror = "2"
