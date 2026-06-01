@@ -237,6 +237,18 @@ impl Driver for ReferenceDriver {
         {
             evidence.push("make_before_break:confirmed".to_string());
         }
+        // GC4 (controlled under-actuation, spec/05): for a pivot the nominal driver under-
+        // constrains EXACTLY the declared DOF (attested back) and re-secures it at completion.
+        if let Some(fp) = ca.safety_envelope.force_profile.as_ref() {
+            if fp.get("transition").and_then(serde_json::Value::as_str)
+                == Some("controlled_under_actuation")
+            {
+                if let Some(dof) = fp.get("released_dof").and_then(serde_json::Value::as_str) {
+                    evidence.push(format!("released_dof:{dof}"));
+                }
+                evidence.push("dof_resecured".to_string());
+            }
+        }
         // Freed-part disposition (spec/04 TM21c): a freeing operation (force.unscrew, carrying
         // force_profile.on_disengagement) discloses where the freed part went — retained, or
         // released into a declared safe zone. Absent for every non-freeing action.
@@ -321,6 +333,9 @@ pub enum Fault {
     /// A regrasp's make-before-break ordering broken — the old grasp released before the new is
     /// confirmed (a break-before-make gap, an unsecured instant — violates GC3).
     BreakBeforeMake,
+    /// A pivot's released DOF left un-resecured at completion (the object stays under-actuated —
+    /// violates GC4 controlled under-actuation).
+    DofNotResecured,
 }
 
 /// Wraps the nominal `ReferenceDriver` and injects one `Fault` into every report it
@@ -431,6 +446,12 @@ impl Driver for FaultyDriver {
                             *e = "make_before_break:gap".to_string();
                         }
                     }
+                }
+            }
+            Fault::DofNotResecured => {
+                // Drop the re-secure attestation: the released DOF is left under-actuated (GC4).
+                if let Some(v) = report.status.verdict.as_mut() {
+                    v.evidence.retain(|e| e != "dof_resecured");
                 }
             }
         }
@@ -1001,7 +1022,7 @@ pub enum EnvelopeClass {
 pub fn envelope_class_for(suffix: &str) -> Option<EnvelopeClass> {
     match suffix {
         "align" | "retract" | "scan" => Some(EnvelopeClass::TerminalPostcondition),
-        "pinch" | "release" | "transport" | "flip" | "regrasp" => {
+        "pinch" | "release" | "transport" | "flip" | "regrasp" | "pivot" => {
             Some(EnvelopeClass::GraspContinuity)
         }
         "insert_fit" | "screw" | "unscrew" | "press_button" | "wipe" | "snap_engage" | "cut" => {
@@ -1709,6 +1730,44 @@ pub fn check_make_before_break(goal: &ExecuteGoal, report: &DriverReport) -> Che
     }
 }
 
+/// Verify the GC4 controlled-under-actuation obligation (`spec/05` § Controlled under-actuation):
+/// `in_hand.pivot` releases **exactly** the named DOF while the others secure the object, and
+/// **re-secures** the released DOF at completion. Verifies both halves from the driver's
+/// attestation: the reported `released_dof` equals the declared one (exactly the named DOF, no
+/// other), and `dof_resecured` is present (the object returned to fully held). Keyed on the
+/// `controlled_under_actuation` marker, so vacuous for every other action. The all-others-secure
+/// floor itself is checked by the grasp-continuity envelope (GC1). A non-`Succeeded` pivot is the
+/// re-secure-and-revert failure path, verified elsewhere.
+#[must_use]
+pub fn check_controlled_under_actuation(goal: &ExecuteGoal, report: &DriverReport) -> CheckOutcome {
+    let Some(fp) = goal.canonical_action.safety_envelope.force_profile.as_ref() else {
+        return CheckOutcome::Pass;
+    };
+    if fp.get("transition").and_then(serde_json::Value::as_str)
+        != Some("controlled_under_actuation")
+    {
+        return CheckOutcome::Pass; // not a controlled-under-actuation transition
+    }
+    if report.status.outcome != rfl_core::driver::Outcome::Succeeded {
+        return CheckOutcome::Pass; // re-secure-and-revert (object retained) is its own path
+    }
+    let declared = fp.get("released_dof").and_then(serde_json::Value::as_str);
+    let evidence = report.status.verdict.as_ref().map(|v| &v.evidence);
+    let reported = evidence.and_then(|ev| ev.iter().find_map(|e| e.strip_prefix("released_dof:")));
+    if reported != declared {
+        return CheckOutcome::Fail(format!(
+            "pivot under-constrained DOF {reported:?}, not the declared {declared:?}"
+        ));
+    }
+    if !evidence.is_some_and(|ev| ev.iter().any(|e| e == "dof_resecured")) {
+        return CheckOutcome::Fail(
+            "the released DOF was not re-secured at completion (object left under-actuated)"
+                .to_string(),
+        );
+    }
+    CheckOutcome::Pass
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -2266,6 +2325,100 @@ mod tests {
         );
         assert_eq!(
             check_make_before_break(&goal(true), &report(Outcome::Failed, &[])),
+            CheckOutcome::Pass
+        );
+    }
+
+    #[test]
+    fn controlled_under_actuation_requires_exact_dof_released_and_resecured() {
+        use rfl_core::canonical::{
+            CanonicalAction, Envelope, MotionBounds, PoseExpr, TimingHints, TimingMode,
+        };
+        use rfl_core::driver::{Outcome, RealizedPose, Status, Verdict};
+        let goal = |under_actuation: bool| {
+            let force_profile = under_actuation.then(|| {
+                serde_json::json!({
+                    "transition": "controlled_under_actuation",
+                    "released_dof": "+x",
+                    "min_holding_force": "2 N"
+                })
+            });
+            let ca = CanonicalAction {
+                target_frame: "grip".into(),
+                target_pose: PoseExpr::AxisRelative {
+                    direction: serde_json::json!("+x"),
+                    distance: rfl_core::quantity::Quantity("0 mm".into()),
+                },
+                force_budget: None,
+                timing: TimingHints {
+                    nominal_duration: None,
+                    timing_mode: TimingMode::Strict,
+                    stop_at_goal: true,
+                },
+                tactile_target: None,
+                monitors: vec![],
+                safety_envelope: Envelope {
+                    motion_bounds: MotionBounds::default(),
+                    force_profile,
+                    station_keeping: None,
+                    clearance: None,
+                    compliance: None,
+                    stop_time: None,
+                },
+                grasp_stability: None,
+            };
+            ExecuteGoal::wrap("s/e/0003-pivot".to_string(), ca)
+        };
+        let report = |outcome: Outcome, evidence: &[&str]| DriverReport {
+            telemetry: vec![],
+            status: Status {
+                message: "status",
+                action_id: "s/e/0003-pivot".to_string(),
+                outcome,
+                verdict: Some(Verdict {
+                    value: true,
+                    confidence: 1.0,
+                    evidence: evidence.iter().map(|s| (*s).to_string()).collect(),
+                }),
+                fidelity_tier: None,
+                final_pose: Some(RealizedPose::placeholder()),
+                failure_class: None,
+                failure_detail: None,
+                stop_latency: None,
+                safety_flags: None,
+            },
+        };
+        // exactly the declared DOF released + re-secured -> pass.
+        assert_eq!(
+            check_controlled_under_actuation(
+                &goal(true),
+                &report(Outcome::Succeeded, &["released_dof:+x", "dof_resecured"])
+            ),
+            CheckOutcome::Pass
+        );
+        // a different DOF reported (released the wrong / an extra DOF) -> fail.
+        assert!(matches!(
+            check_controlled_under_actuation(
+                &goal(true),
+                &report(Outcome::Succeeded, &["released_dof:+z", "dof_resecured"])
+            ),
+            CheckOutcome::Fail(_)
+        ));
+        // the released DOF not re-secured at completion -> fail (the bite).
+        assert!(matches!(
+            check_controlled_under_actuation(
+                &goal(true),
+                &report(Outcome::Succeeded, &["released_dof:+x"])
+            ),
+            CheckOutcome::Fail(_)
+        ));
+        // a non-pivot action, and a non-Succeeded pivot (re-secure-and-revert), are vacuous.
+        assert_eq!(
+            check_controlled_under_actuation(&goal(false), &report(Outcome::Succeeded, &[])),
+            CheckOutcome::Pass
+        );
+        assert_eq!(
+            check_controlled_under_actuation(&goal(true), &report(Outcome::Failed, &[])),
             CheckOutcome::Pass
         );
     }

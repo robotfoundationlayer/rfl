@@ -65,6 +65,10 @@
         {
           "name": "make_before_break",
           "result": "pass"
+        },
+        {
+          "name": "controlled_under_actuation",
+          "result": "pass"
         }
       ],
       "passed": true
@@ -118,6 +122,10 @@
         {
           "name": "make_before_break",
           "result": "pass"
+        },
+        {
+          "name": "controlled_under_actuation",
+          "result": "pass"
         }
       ],
       "passed": true
@@ -170,6 +178,10 @@
         {
           "name": "make_before_break",
           "result": "pass"
+        },
+        {
+          "name": "controlled_under_actuation",
+          "result": "pass"
         }
       ],
       "passed": true
@@ -216,6 +228,10 @@
         },
         {
           "name": "make_before_break",
+          "result": "pass"
+        },
+        {
+          "name": "controlled_under_actuation",
           "result": "pass"
         }
       ],
@@ -269,6 +285,10 @@
         {
           "name": "make_before_break",
           "result": "pass"
+        },
+        {
+          "name": "controlled_under_actuation",
+          "result": "pass"
         }
       ],
       "passed": true
@@ -320,6 +340,10 @@
         },
         {
           "name": "make_before_break",
+          "result": "pass"
+        },
+        {
+          "name": "controlled_under_actuation",
           "result": "pass"
         }
       ],
@@ -373,6 +397,10 @@
         {
           "name": "make_before_break",
           "result": "pass"
+        },
+        {
+          "name": "controlled_under_actuation",
+          "result": "pass"
         }
       ],
       "passed": true
@@ -425,6 +453,10 @@
         {
           "name": "make_before_break",
           "result": "pass"
+        },
+        {
+          "name": "controlled_under_actuation",
+          "result": "pass"
         }
       ],
       "passed": true
@@ -436,5 +468,5 @@
       "result": "pass"
     }
   ],
-  "content_hash": "sha256:c409c8e425d868da6f094f9588f7cdb64f9d16db97e9c9ef3a42f985451ab595"
+  "content_hash": "sha256:1766191bbab780b18d27d499767381c34c5b47dbd8396011f0d87c131776855d"
 }

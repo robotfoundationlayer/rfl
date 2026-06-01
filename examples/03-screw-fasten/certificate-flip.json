@@ -65,6 +65,10 @@
         {
           "name": "make_before_break",
           "result": "pass"
+        },
+        {
+          "name": "controlled_under_actuation",
+          "result": "pass"
         }
       ],
       "passed": true
@@ -118,6 +122,10 @@
         {
           "name": "make_before_break",
           "result": "pass"
+        },
+        {
+          "name": "controlled_under_actuation",
+          "result": "pass"
         }
       ],
       "passed": true
@@ -169,6 +177,10 @@
         },
         {
           "name": "make_before_break",
+          "result": "pass"
+        },
+        {
+          "name": "controlled_under_actuation",
           "result": "pass"
         }
       ],
@@ -222,6 +234,10 @@
         {
           "name": "make_before_break",
           "result": "pass"
+        },
+        {
+          "name": "controlled_under_actuation",
+          "result": "pass"
         }
       ],
       "passed": true
@@ -233,5 +249,5 @@
       "result": "pass"
     }
   ],
-  "content_hash": "sha256:4ec2854365d5ca051a9d616d4676f37ee1ef207e0966eb83ce63f98aa022207b"
+  "content_hash": "sha256:dc902719d017a16b8f5720a107a8b8a6b2888beec43c83763731cad0ca7af8b2"
 }
