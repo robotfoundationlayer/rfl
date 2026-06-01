@@ -1,0 +1,46 @@
+# Example 03 — In-hand continuity manipulations (rotate / translate / roll / slide)
+# The four plain continuity-preserving in_hand operations: reposition a held object within the
+# grasp without releasing it, keeping grasp identity and stability class throughout. Each carries
+# only the GC1 securing floor (holding force never below min_holding_force) and no grasp_stability
+# (no new grasp to confirm). Exercised back-to-back on one held object. All three reference hands
+# declare the four in_hand capabilities.
+skill: object-in-hand-manipulation
+description: >
+  Grasp a part, then reorient and reposition it within the grasp (rotate, translate, roll, slide)
+  preserving continuity throughout, then release.
+
+objects:
+  part: { ref: part, estimated_mass: 1.0 N }
+
+body:
+  sequence:
+
+    - let: part_t
+      from:
+        sense.locate:
+          target_ref: part
+          modality: auto
+
+    - grasp.pinch:
+        target: part_t
+        force_budget: 8 N
+        tactile_target: auto
+
+    - in_hand.rotate:
+        axis: +z
+        angle: 90 deg
+
+    - in_hand.translate:
+        direction: +x
+        distance: 15 mm
+
+    - in_hand.roll:
+        roll_axis: +y
+        angle: 180 deg
+
+    - in_hand.slide:
+        slide_direction: +x
+        stop_condition: { reached: { distance: 10 mm } }
+
+    - grasp.release:
+        grasp_handle: active
