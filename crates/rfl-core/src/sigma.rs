@@ -203,6 +203,83 @@ pub fn arc(
     poses
 }
 
+/// Generate the `path` sweep set Σ (`spec/02` Appendix A, Region kinds beyond
+/// surface): stations spaced `s_u` along a caller-supplied polyline of surface
+/// points — a one-dimensional `raster`. Stations are placed at centred
+/// arc-length positions `(j + 0.5)·L/n` along the polyline; each pose sits a
+/// `standoff` above its point along `+z` with the flat-normal surface
+/// orientation (general per-point normals are deferred). `points` are in the
+/// region frame (metres); only `h_angle_rad` is used (single pass).
+#[must_use]
+pub fn path(
+    points: &[[f64; 3]],
+    standoff: f64,
+    coverage_overlap: f64,
+    h_angle_rad: f64,
+) -> Vec<Pose6D> {
+    let orientation = station_orientation();
+    if points.is_empty() {
+        return Vec::new();
+    }
+    let seg_len = |a: &[f64; 3], b: &[f64; 3]| {
+        let (dx, dy, dz) = (b[0] - a[0], b[1] - a[1], b[2] - a[2]);
+        (dx * dx + dy * dy + dz * dz).sqrt()
+    };
+    let total: f64 = points.windows(2).map(|w| seg_len(&w[0], &w[1])).sum();
+    let f_u = 2.0 * standoff * (h_angle_rad / 2.0).tan();
+    let s_u = f_u * (1.0 - coverage_overlap);
+
+    // Degenerate guard (mirrors arc/spiral): a flat FOV or a zero-length path
+    // gives no advance — emit a single station at the path midpoint.
+    let parametric = s_u > 0.0 && total > 0.0;
+    let n = if parametric {
+        (total / s_u).ceil().max(1.0) as usize
+    } else {
+        1
+    };
+
+    // The surface point at arc length `ell` along the polyline (clamped).
+    let point_at = |ell: f64| -> [f64; 3] {
+        if total <= 0.0 {
+            return points[0];
+        }
+        let mut acc = 0.0;
+        for w in points.windows(2) {
+            let l = seg_len(&w[0], &w[1]);
+            if l == 0.0 {
+                continue;
+            }
+            if acc + l >= ell {
+                let t = (ell - acc) / l;
+                return [
+                    w[0][0] + t * (w[1][0] - w[0][0]),
+                    w[0][1] + t * (w[1][1] - w[0][1]),
+                    w[0][2] + t * (w[1][2] - w[0][2]),
+                ];
+            }
+            acc += l;
+        }
+        // ell ≥ total (within rounding): clamp to the final point. `points` is
+        // non-empty (guarded above), so the index is in bounds.
+        points[points.len() - 1]
+    };
+
+    let mut poses = Vec::with_capacity(n);
+    for j in 0..n {
+        let ell = if parametric {
+            (j as f64 + 0.5) * total / n as f64
+        } else {
+            total / 2.0
+        };
+        let p = point_at(ell);
+        poses.push(Pose6D {
+            position: [p[0], p[1], p[2] + standoff],
+            orientation,
+        });
+    }
+    poses
+}
+
 #[cfg(test)]
 mod tests {
     // Deterministic retarget/geometry output: exact golden-value comparison is intended.
@@ -425,5 +502,66 @@ mod tests {
         // Smaller FOV -> smaller footprint -> smaller spacing -> more stations.
         assert_eq!((allegro.len(), leap.len(), pneu.len()), (12, 8, 10));
         assert_ne!(allegro.len(), 9); // differs from the raster count
+    }
+
+    #[test]
+    fn path_resamples_polyline_at_s_u_spacing() {
+        // L-shape: (0,0,0)->(0.2,0,0)->(0.2,0.15,0), total length L=0.35.
+        // allegro fov_h=60deg, standoff=0.10, overlap=0.2 => f_u=0.115470,
+        // s_u=0.092376; n=ceil(0.35/0.092376)=ceil(3.789)=4. Analytic.
+        let pts = [[0.0, 0.0, 0.0], [0.2, 0.0, 0.0], [0.2, 0.15, 0.0]];
+        let poses = path(&pts, 0.10, 0.2, 60_f64.to_radians());
+        assert_eq!(poses.len(), 4);
+        // First centred station at ell = 0.5*L/4 = 0.04375, on segment 1 (x-axis):
+        // position = point + standoff*z_hat.
+        assert_eq!(round6(poses[0].position[0]), 0.04375);
+        assert_eq!(round6(poses[0].position[1]), 0.0);
+        assert_eq!(round6(poses[0].position[2]), 0.10);
+        // Orientation is the flat-normal surface convention (bore anti-parallel +z).
+        let q = poses[0].orientation.coords;
+        assert!((round6(q[0]) - 1.0).abs() < 1e-9);
+        assert!(round6(q[3]).abs() < 1e-9);
+    }
+
+    #[test]
+    fn path_stations_lie_on_the_polyline_at_standoff() {
+        let pts = [[0.0, 0.0, 0.0], [0.2, 0.0, 0.0], [0.2, 0.15, 0.0]];
+        let poses = path(&pts, 0.10, 0.2, 60_f64.to_radians());
+        for p in &poses {
+            assert_eq!(round6(p.position[2]), 0.10); // every station standoff above z=0
+            // (x,y) is on the L: either y==0 with x in [0,0.2], or x==0.2 with y in [0,0.15].
+            let on_seg1 = round6(p.position[1]) == 0.0
+                && p.position[0] >= -1e-9
+                && p.position[0] <= 0.2 + 1e-9;
+            let on_seg2 = (round6(p.position[0]) - 0.2).abs() < 1e-9
+                && p.position[1] >= -1e-9
+                && p.position[1] <= 0.15 + 1e-9;
+            assert!(
+                on_seg1 || on_seg2,
+                "station off the polyline: {:?}",
+                p.position
+            );
+        }
+    }
+
+    #[test]
+    fn path_count_varies_per_fov_and_degenerates_safely() {
+        let pts = [[0.0, 0.0, 0.0], [0.5, 0.0, 0.0]]; // L=0.5
+        let mk = |h: f64| path(&pts, 0.10, 0.2, h.to_radians()).len();
+        // Smaller FOV -> smaller footprint -> finer spacing -> more stations.
+        assert!(mk(40.0) > mk(60.0));
+        // A flat (zero) FOV degenerates to a single midpoint station, never diverges.
+        assert_eq!(mk(0.0), 1);
+        let mid = path(&pts, 0.10, 0.2, 0.0_f64);
+        assert_eq!(round6(mid[0].position[0]), 0.25); // midpoint of the segment
+    }
+
+    #[test]
+    fn path_single_point_yields_one_station() {
+        let pts = [[0.1, 0.05, 0.0]];
+        let poses = path(&pts, 0.10, 0.2, 60_f64.to_radians());
+        assert_eq!(poses.len(), 1);
+        assert_eq!(round6(poses[0].position[0]), 0.1);
+        assert_eq!(round6(poses[0].position[2]), 0.10);
     }
 }

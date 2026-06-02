@@ -1,0 +1,28 @@
+# Example 02 — Surface scan (path variant)
+# Follow a caller-supplied polyline across the surface (e.g. a weld seam or an
+# L-shaped feature) rather than filling a rectangle. Demonstrates the path
+# generator (spec/02 Appendix A, Region kinds beyond surface): stations are
+# spaced s_u along the path — a one-dimensional raster — so the station count
+# follows each embodiment's sensor field of view (Principle 1).
+skill: surface-scan
+description: >
+  Path-scan an L-shaped surface feature by sweeping the sensor along a polyline
+  at a fixed standoff, then inspect the covered surface for defects.
+
+body:
+  sequence:
+    - reach.scan:
+        region:
+          kind: path
+          frame: panel
+          points:
+            - [0.0, 0.0, 0.0]
+            - [0.2, 0.0, 0.0]
+            - [0.2, 0.15, 0.0]
+        standoff: 100 mm
+        pattern: raster
+        coverage_overlap: 0.2
+
+    - sense.inspect:
+        target: panel
+        observe: [defect]

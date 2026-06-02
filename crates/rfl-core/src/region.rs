@@ -37,6 +37,16 @@ pub enum ScanRegion {
         /// The angular span of the sweep.
         arc_extent: Quantity,
     },
+    /// A polyline of surface points in `frame` swept as a one-dimensional raster:
+    /// stations spaced `s_u` along the path (`spec/02` Appendix A, Region kinds
+    /// beyond surface). Points are in the region frame (metres); v0 uses the
+    /// flat-normal surface orientation.
+    Path {
+        /// The region reference frame.
+        frame: FrameRef,
+        /// The ordered surface points of the polyline (metres).
+        points: Vec<[f64; 3]>,
+    },
     /// An explicit ordered list of sweep poses (the `waypoints` pattern source).
     Waypoints {
         /// The reference frame the poses are expressed in.
@@ -96,6 +106,18 @@ mod tests {
         assert_eq!(pivot, [0.0, 0.0, 0.0]);
         assert_eq!(arc_start.0, "0 deg");
         assert_eq!(arc_extent.0, "180 deg");
+    }
+
+    #[test]
+    fn parses_path_region() {
+        let yaml = "kind: path\nframe: panel\npoints:\n  - [0.0, 0.0, 0.0]\n  - [0.2, 0.0, 0.0]\n  - [0.2, 0.15, 0.0]\n";
+        let r: ScanRegion = serde_yaml::from_str(yaml).unwrap();
+        let ScanRegion::Path { frame, points } = r else {
+            panic!("expected path")
+        };
+        assert_eq!(frame, "panel");
+        assert_eq!(points.len(), 3);
+        assert_eq!(points[2], [0.2, 0.15, 0.0]);
     }
 
     #[test]

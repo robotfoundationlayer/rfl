@@ -2172,6 +2172,14 @@ fn lower_reach_scan(p: &ReachScan, e: &Embodiment) -> CanonicalAction {
                 v,
             )
         }
+        // Path region: stations spaced s_u along the caller's polyline, a 1-D
+        // raster (spec/02 Appendix A). FOV's h_angle sets the spacing.
+        crate::region::ScanRegion::Path { points, .. } => {
+            let (h, _v) = e.sensor_fov(&sensor_frame).map_or((0.0, 0.0), |f| {
+                (angle_rad(&f.h_angle), angle_rad(&f.v_angle))
+            });
+            crate::sigma::path(points, standoff, overlap, h)
+        }
     };
 
     let pattern_name = match pattern {
