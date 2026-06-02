@@ -22,3 +22,25 @@ reference_fixtures:
 tolerance_basis: class_2_loose
 conformance_status: pending
 declared: "2026-06-02"
+
+# DECLARED (illustrative, NOT physically measured) per-quantity run-to-run
+# variation of rfl-reference-sim. `rfl sim --seed --variation` perturbs each
+# realized value by N(nominal, sigma); `rfl measure` over N seeds then yields a
+# PROVISIONAL, sim-derived ε — never the committed normative table (which stays
+# null until a hardware-anchored measurement). For ε only sigma matters (the
+# nominal cancels out of the run-to-run deviation); nominal is for plausible
+# emitted values. These sigma are placeholders, not a fidelity claim.
+variation_model:
+  realized_position:     { nominal: 0.0,    sigma: 0.001,   unit: "m" }
+  realized_orientation:  { nominal: 0.0,    sigma: 0.01,    unit: "rad" }
+  realized_wrench:       { nominal: 5.0,    sigma: 0.2,     unit: "N" }
+  securing_force:        { nominal: 8.0,    sigma: 0.1,     unit: "N" }
+  final_orientation:     { nominal: 0.0,    sigma: 0.01,    unit: "rad" }
+  seating_depth:         { nominal: 0.012,  sigma: 0.0005,  unit: "m" }
+  completion_torque:     { nominal: 2.4,    sigma: 0.05,    unit: "N*m" }
+  turns:                 { nominal: 3.0,    sigma: 0.02,    unit: "turn" }
+  actuation_force:       { nominal: 6.0,    sigma: 0.3,     unit: "N" }
+  engagement_force:      { nominal: 10.0,   sigma: 0.4,     unit: "N" }
+  cut_depth:             { nominal: 0.005,  sigma: 0.0003,  unit: "m" }
+  oscillation_amplitude: { nominal: 0.003,  sigma: 0.0002,  unit: "m" }
+  contact_force:         { nominal: 4.0,    sigma: 0.15,    unit: "N" }

@@ -55,6 +55,20 @@
         "worst_margin": { "type": ["number", "null"] }
       }
     },
-    "declared": { "type": "string", "format": "date" }
+    "declared": { "type": "string", "format": "date" },
+    "variation_model": {
+      "description": "The simulator's DECLARED (illustrative, not physically measured) per-quantity run-to-run variation, keyed by the epsilon-table quantity name. `rfl sim --seed --variation` perturbs each realized value by N(nominal, sigma) so `rfl measure` yields a PROVISIONAL (sim-derived, never normative) epsilon. The committed epsilon-tolerances.yaml stays null until hardware-anchored.",
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "required": ["nominal", "sigma"],
+        "additionalProperties": false,
+        "properties": {
+          "nominal": { "description": "Declared nominal value (cancels out of the run-to-run deviation; for plausible emitted values).", "type": "number" },
+          "sigma": { "description": "Declared run-to-run standard deviation in the quantity's unit.", "type": "number", "minimum": 0 },
+          "unit": { "type": "string" }
+        }
+      }
+    }
   }
 }

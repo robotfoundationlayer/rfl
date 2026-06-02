@@ -221,11 +221,11 @@ fn extract_quantity(quantity: &str, r: &DriverReport) -> Option<Repr> {
 const EPSILON_TABLE_YAML: &str = include_str!("../../../schemas/epsilon-tolerances.yaml");
 
 /// `primitive -> quantity -> (metric, unit)` parsed from the committed table.
-type CommittedTable = BTreeMap<String, BTreeMap<String, (Metric, Option<String>)>>;
+pub(crate) type CommittedTable = BTreeMap<String, BTreeMap<String, (Metric, Option<String>)>>;
 
 /// Parse the embedded committed table's structure (panics only on a corrupt
 /// embedded asset, which CI's schema-validate would already have caught).
-fn committed_table() -> CommittedTable {
+pub(crate) fn committed_table() -> CommittedTable {
     #[derive(serde::Deserialize)]
     struct Raw {
         epsilon_tolerances: BTreeMap<String, BTreeMap<String, RawEntry>>,

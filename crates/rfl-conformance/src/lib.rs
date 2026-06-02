@@ -24,6 +24,7 @@ pub mod certify;
 pub mod measure;
 pub mod replay;
 pub mod ros2;
+pub mod stochastic;
 
 /// Retarget the example skill onto the named embodiment descriptor and return the
 /// JSONL stream (`execute` messages, one per line). The cable-insertion reference
