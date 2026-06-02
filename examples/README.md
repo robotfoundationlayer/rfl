@@ -7,7 +7,7 @@ Worked examples that exercise the full Skill ISA → Translation Layer → Drive
 | # | Example | Embodiments exercised | Status |
 |---|---|---|---|
 | 01 | `cable-insertion/` | Tendon-driven 4-finger (e.g., Allegro), direct-drive 4-finger (e.g., LEAP), pneumatic 6-finger | populated (skill + 3 descriptors + walkthrough) |
-| 02 | `surface-scan/` | Same three | populated (`reach.scan` raster + spiral sweep, `reach.hover`, `sense.inspect`; `skill.yaml` + `skill-spiral.yaml` + `skill-hover.yaml` + 3 descriptors) |
+| 02 | `surface-scan/` | Same three | populated (`reach.scan` raster + spiral + arc + path + volume sweeps, `reach.hover`, `sense.inspect`; `skill.yaml` + `skill-spiral.yaml` + `skill-arc.yaml` + `skill-path.yaml` + `skill-volume.yaml` + `skill-hover.yaml` + 3 descriptors) |
 | 03 | `screw-fasten/` | Same three | populated (grasp + transport + `force.screw` / `force.unscrew`; `skill.yaml` + `skill-unscrew.yaml` + 3 descriptors) |
 
 Each example contains:

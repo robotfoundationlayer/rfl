@@ -37,9 +37,10 @@ section accumulates what that release will contain.
 
 - `rfl-core` lowers the **full 50-primitive Skill ISA** across all seven
   categories onto three embodiment descriptors, deterministically — including
-  the Σ **arc** sweep generator. The canonical execute wire is now
-  **bidirectional** (`to_jsonl` / `from_jsonl`): a driver can parse the goals it
-  receives.
+  all normative Σ sweep generators and region kinds (raster / spiral / **arc**,
+  plus the **path** and **volume** region reductions per `spec/02` Appendix A).
+  The canonical execute wire is now **bidirectional** (`to_jsonl` / `from_jsonl`):
+  a driver can parse the goals it receives.
 - `rfl-conformance` implements all four normative envelope classes plus the
   grasp-continuity (GC1–6), stability (**STB1**/STB2/STB3, STB1 via the new
   `contact_geometry` telemetry field), audit (AUD1–3), reversibility (REV1–3),
