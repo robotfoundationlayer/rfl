@@ -47,6 +47,19 @@ pub enum ScanRegion {
         /// The ordered surface points of the polyline (metres).
         points: Vec<[f64; 3]>,
     },
+    /// An axis-aligned box `[0,size_u]×[0,size_v]×[0,size_w]` in `frame`, covered
+    /// as a stack of surface layers along the frame `+z` axis at depth intervals
+    /// `s_v` (`spec/02` Appendix A, Region kinds beyond surface).
+    Volume {
+        /// The region reference frame.
+        frame: FrameRef,
+        /// Extent along the frame x-axis (the u direction).
+        size_u: Quantity,
+        /// Extent along the frame y-axis (the v direction).
+        size_v: Quantity,
+        /// Extent along the frame z-axis (the stacking/depth direction).
+        size_w: Quantity,
+    },
     /// An explicit ordered list of sweep poses (the `waypoints` pattern source).
     Waypoints {
         /// The reference frame the poses are expressed in.
@@ -118,6 +131,25 @@ mod tests {
         assert_eq!(frame, "panel");
         assert_eq!(points.len(), 3);
         assert_eq!(points[2], [0.2, 0.15, 0.0]);
+    }
+
+    #[test]
+    fn parses_volume_region() {
+        let yaml = "kind: volume\nframe: panel\nsize_u: 200 mm\nsize_v: 150 mm\nsize_w: 200 mm\n";
+        let r: ScanRegion = serde_yaml::from_str(yaml).unwrap();
+        let ScanRegion::Volume {
+            frame,
+            size_u,
+            size_v,
+            size_w,
+        } = r
+        else {
+            panic!("expected volume")
+        };
+        assert_eq!(frame, "panel");
+        assert_eq!(size_u.0, "200 mm");
+        assert_eq!(size_v.0, "150 mm");
+        assert_eq!(size_w.0, "200 mm");
     }
 
     #[test]

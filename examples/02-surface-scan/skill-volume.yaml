@@ -1,0 +1,27 @@
+# Example 02 — Surface scan (volume variant)
+# Cover a volumetric region (e.g. a transparent or layered part) as a stack of
+# planar surface sweeps at successive depths. Demonstrates the volume generator
+# (spec/02 Appendix A, Region kinds beyond surface): layers along the frame +z
+# axis at depth intervals s_v, each an in-plane raster, so both the layer count
+# and the per-layer grid follow each embodiment's sensor field of view.
+skill: surface-scan
+description: >
+  Volume-scan a layered part by sweeping planar raster layers at successive
+  depths along the part axis, then inspect the covered region for defects.
+
+body:
+  sequence:
+    - reach.scan:
+        region:
+          kind: volume
+          frame: panel
+          size_u: 200 mm
+          size_v: 150 mm
+          size_w: 200 mm
+        standoff: 100 mm
+        pattern: raster
+        coverage_overlap: 0.2
+
+    - sense.inspect:
+        target: panel
+        observe: [defect]

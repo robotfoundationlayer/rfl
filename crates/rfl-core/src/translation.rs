@@ -2180,6 +2180,21 @@ fn lower_reach_scan(p: &ReachScan, e: &Embodiment) -> CanonicalAction {
             });
             crate::sigma::path(points, standoff, overlap, h)
         }
+        // Volume region: a boustrophedon stack of surface-raster layers at depth
+        // intervals s_v along frame +z (spec/02 Appendix A). FOV sets both the
+        // in-plane grid and the layer spacing.
+        crate::region::ScanRegion::Volume {
+            size_u,
+            size_v,
+            size_w,
+            ..
+        } => {
+            let (h, v) = e.sensor_fov(&sensor_frame).map_or((0.0, 0.0), |f| {
+                (angle_rad(&f.h_angle), angle_rad(&f.v_angle))
+            });
+            let (u, vv, ww) = (length_m(size_u), length_m(size_v), length_m(size_w));
+            crate::sigma::volume(u, vv, ww, standoff, overlap, h, v)
+        }
     };
 
     let pattern_name = match pattern {

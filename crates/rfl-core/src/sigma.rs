@@ -280,6 +280,54 @@ pub fn path(
     poses
 }
 
+/// Generate the `volume` sweep set Σ (`spec/02` Appendix A, Region kinds beyond
+/// surface): an axis-aligned box `[0,U]×[0,V]×[0,W]` covered as a deterministic
+/// stack of surface layers at depth intervals `s_v` along the region frame `+z`
+/// (the v0 principal axis). Each layer is a `raster` over `[0,U]×[0,V]` shifted
+/// to its depth; odd layers are reversed so Σ stays a continuous path
+/// (boustrophedon stacking). Same units / FOV inputs as `raster`.
+#[must_use]
+pub fn volume(
+    size_u: f64,
+    size_v: f64,
+    size_w: f64,
+    standoff: f64,
+    coverage_overlap: f64,
+    h_angle_rad: f64,
+    v_angle_rad: f64,
+) -> Vec<Pose6D> {
+    let f_v = 2.0 * standoff * (v_angle_rad / 2.0).tan();
+    let s_v = f_v * (1.0 - coverage_overlap);
+    // Guard the layer count: a non-positive depth spacing collapses to one layer
+    // (the in-plane `raster` still requires a valid v-FOV, as elsewhere).
+    let n_w = if s_v > 0.0 {
+        (size_w / s_v).ceil().max(1.0) as usize
+    } else {
+        1
+    };
+
+    let mut poses = Vec::new();
+    for k in 0..n_w {
+        let w_k = (k as f64 + 0.5) * size_w / n_w as f64;
+        let mut layer = raster(
+            size_u,
+            size_v,
+            standoff,
+            coverage_overlap,
+            h_angle_rad,
+            v_angle_rad,
+        );
+        for p in &mut layer {
+            p.position[2] += w_k; // surface at depth w_k, sensor standoff above it
+        }
+        if k % 2 == 1 {
+            layer.reverse(); // boustrophedon: continuous Σ across layers
+        }
+        poses.extend(layer);
+    }
+    poses
+}
+
 #[cfg(test)]
 mod tests {
     // Deterministic retarget/geometry output: exact golden-value comparison is intended.
@@ -563,5 +611,80 @@ mod tests {
         assert_eq!(poses.len(), 1);
         assert_eq!(round6(poses[0].position[0]), 0.1);
         assert_eq!(round6(poses[0].position[2]), 0.10);
+    }
+
+    #[test]
+    fn volume_stacks_surface_layers_along_z() {
+        // U=0.20, V=0.15, W=0.20, standoff=0.10, overlap=0.2, allegro fov 60x45.
+        // In-plane raster: n_u=ceil(0.2/0.092376)=3, n_v=ceil(0.15/0.066274)=3 => 9/layer.
+        // Layers: s_v=0.066274, n_w=ceil(0.20/0.066274)=ceil(3.018)=4 => 4 layers.
+        // Total = 4*9 = 36. Analytic.
+        let poses = volume(
+            0.20,
+            0.15,
+            0.20,
+            0.10,
+            0.2,
+            60_f64.to_radians(),
+            45_f64.to_radians(),
+        );
+        assert_eq!(poses.len(), 36);
+        // Every pose's (x,y) is inside the box footprint and z = w_k + standoff
+        // for one of the 4 centred layer depths.
+        let depths: Vec<f64> = (0..4_usize)
+            .map(|k| (k as f64 + 0.5) * 0.20 / 4.0 + 0.10)
+            .collect();
+        for p in &poses {
+            assert!(p.position[0] >= 0.0 && p.position[0] <= 0.20 + 1e-9);
+            assert!(p.position[1] >= 0.0 && p.position[1] <= 0.15 + 1e-9);
+            assert!(
+                depths.iter().any(|d| (p.position[2] - d).abs() < 1e-9),
+                "z {} not a layer depth",
+                p.position[2]
+            );
+        }
+    }
+
+    #[test]
+    fn volume_layers_are_boustrophedon_continuous() {
+        // 9 poses per layer; the last pose of layer 0 and the first pose of the
+        // reversed layer 1 share (x,y) (vertical step only) => a continuous Σ.
+        let poses = volume(
+            0.20,
+            0.15,
+            0.20,
+            0.10,
+            0.2,
+            60_f64.to_radians(),
+            45_f64.to_radians(),
+        );
+        let per_layer = 9;
+        let last0 = &poses[per_layer - 1];
+        let first1 = &poses[per_layer];
+        assert_eq!(round6(last0.position[0]), round6(first1.position[0]));
+        assert_eq!(round6(last0.position[1]), round6(first1.position[1]));
+        assert!(first1.position[2] > last0.position[2]); // next layer is deeper
+    }
+
+    #[test]
+    fn volume_count_varies_per_fov_and_degenerates_safely() {
+        let mk = |h: f64, v: f64| {
+            volume(0.20, 0.15, 0.20, 0.10, 0.2, h.to_radians(), v.to_radians()).len()
+        };
+        // leap (70x55) and pneumatic (65x50) cover with different layer/grid counts.
+        assert_eq!(mk(70.0, 55.0), 12); // n_w=3, 2x2 per layer
+        assert_eq!(mk(65.0, 50.0), 18); // n_w=3, 2x3 per layer
+        // A volume thinner than the depth spacing (W=0.01 < s_v=0.066) collapses
+        // to a single layer via the n_w guard — one surface sweep (9 for allegro).
+        let one = volume(
+            0.20,
+            0.15,
+            0.01,
+            0.10,
+            0.2,
+            60_f64.to_radians(),
+            45_f64.to_radians(),
+        );
+        assert_eq!(one.len(), 9); // 1 layer * 9
     }
 }
