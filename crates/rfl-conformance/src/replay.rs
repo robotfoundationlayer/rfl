@@ -11,8 +11,9 @@
 //! The embedded `driver-interface.schema.json` is the authoritative `additionalProperties:false`
 //! gate (validated per line *before* deserialization), so the mirror structs need no
 //! `deny_unknown_fields`: they model only the fields certify consumes and let serde ignore the
-//! rest (already schema-validated). Floored sub-objects: `realized_pose` / `final_pose` are
-//! presence-only (no v0 check reads their contents); `wrench` / `verdict` are concretely typed
+//! rest (already schema-validated). `realized_pose` / `final_pose` carry their position /
+//! orientation (no `check_*` reads them, but `rfl measure` grades pose deviation from them);
+//! `wrench` / `verdict` are concretely typed
 //! (the force / audit checks read them); `tactile` and `safety_flags.momentary_release` are
 //! schema-validated but not carried (no v0 check consumes them — the continuity-break signal is
 //! `verdict.evidence`).
@@ -85,7 +86,7 @@ struct TelemetryIn {
     action_id: String,
     t: f64,
     #[serde(default)]
-    realized_pose: Option<serde_json::Value>, // presence-only (contents floored + unread)
+    realized_pose: Option<RealizedPoseIn>,
     #[serde(default)]
     wrench: Option<WrenchIn>,
     #[serde(default)]
@@ -109,6 +110,31 @@ struct ContactGeometryIn {
     object_com: Option<[f64; 3]>,
 }
 
+/// A realized pose (`Pose6DFloor`). Its *contents* are now carried (not floored to a
+/// placeholder): no `check_*` reads them, but `rfl measure` reads the position /
+/// orientation to grade `realized_position` / `realized_orientation` deviation. Lenient
+/// defaults keep a presence-only pose (`{}`) valid.
+#[derive(serde::Deserialize)]
+struct RealizedPoseIn {
+    #[serde(default)]
+    position: [f64; 3],
+    #[serde(default = "identity_orientation")]
+    orientation: [f64; 4],
+}
+
+fn identity_orientation() -> [f64; 4] {
+    [0.0, 0.0, 0.0, 1.0]
+}
+
+impl From<RealizedPoseIn> for RealizedPose {
+    fn from(p: RealizedPoseIn) -> Self {
+        RealizedPose {
+            position: p.position,
+            orientation: p.orientation,
+        }
+    }
+}
+
 #[derive(serde::Deserialize)]
 struct StatusIn {
     action_id: String,
@@ -118,7 +144,7 @@ struct StatusIn {
     #[serde(default)]
     fidelity_tier: Option<String>,
     #[serde(default)]
-    final_pose: Option<serde_json::Value>, // presence-only
+    final_pose: Option<RealizedPoseIn>,
     #[serde(default)]
     failure_class: Option<String>,
     #[serde(default)]
@@ -134,7 +160,7 @@ fn to_telemetry(t: TelemetryIn) -> Telemetry {
         message: "telemetry",
         action_id: t.action_id,
         t: t.t,
-        realized_pose: t.realized_pose.map(|_| RealizedPose::placeholder()),
+        realized_pose: t.realized_pose.map(Into::into),
         wrench: t.wrench.map(|w| Wrench {
             force: w.force,
             torque: w.torque,
@@ -171,7 +197,7 @@ fn to_status(s: StatusIn) -> Status {
             evidence: v.evidence,
         }),
         fidelity_tier: s.fidelity_tier,
-        final_pose: s.final_pose.map(|_| RealizedPose::placeholder()),
+        final_pose: s.final_pose.map(Into::into),
         failure_class: s.failure_class,
         failure_detail: s.failure_detail,
         stop_latency: s.stop_latency.map(Quantity),
@@ -303,6 +329,28 @@ mod tests {
         assert_eq!(
             mq.get("completion_torque"),
             Some(&Quantity("2.4 N*m".into()))
+        );
+    }
+
+    #[test]
+    fn carries_realized_pose_contents() {
+        // The pose position / orientation are reconstructed (not floored to a placeholder),
+        // so rfl measure can grade their deviation.
+        let jsonl = concat!(
+            r#"{"message":"telemetry","action_id":"a/b/0001-x","t":0.0,"realized_pose":{"position":[0.1,0.2,0.3],"orientation":[0.0,0.0,0.0,1.0]}}"#,
+            "\n",
+            r#"{"message":"status","action_id":"a/b/0001-x","outcome":"succeeded","final_pose":{"position":[0.4,0.5,0.6],"orientation":[0.0,0.0,0.0,1.0]}}"#,
+            "\n",
+        );
+        let replayed = replay_report(jsonl).expect("replay");
+        let report = replayed.get("a/b/0001-x").expect("action present");
+        assert_eq!(
+            report.telemetry[0].realized_pose.as_ref().unwrap().position,
+            [0.1, 0.2, 0.3]
+        );
+        assert_eq!(
+            report.status.final_pose.as_ref().unwrap().position,
+            [0.4, 0.5, 0.6]
         );
     }
 
