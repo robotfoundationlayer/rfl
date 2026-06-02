@@ -254,6 +254,20 @@ def main() -> int:
         check("C10 simulator declaration anchor present", bool(sim_decl.get("anchoring_embodiment")),
               "every declaration records its anchoring embodiment")
 
+    # C11 — the simulator's `variation_model` (the declared per-quantity noise that
+    # `rfl sim --seed` perturbs by, and `rfl measure` then grades) may only name
+    # quantities that exist in the ε-table. A key outside that set is a dead /
+    # mistyped entry: σ that no run will ever measure. Subset, not equality — a
+    # simulator need not model every quantity. Anchors the variation model to the
+    # ε-table the same way C9 anchors the table to the primitive set.
+    eps_quantities = {
+        q for prim in eps_table.get("epsilon_tolerances", {}).values() for q in prim
+    }
+    vm_keys = set(sim_decl.get("variation_model", {}))
+    vm_orphans = vm_keys - eps_quantities
+    check("C11 variation_model keys are epsilon-table quantities", not vm_orphans,
+          f"variation_model names not in the epsilon table: {sorted(vm_orphans)}")
+
     print()
     if failures:
         print(f"FAILED — {len(failures)} check(s):")

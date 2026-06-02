@@ -45,9 +45,11 @@ against `extension-registry.schema.json`, has an `identifier` consistent with
 its namespace/name/version, and a `name` colliding with no reserved core token;
 (C9) the ε-tolerance table's key set is exactly the contact-dynamics
 primitive set — every `force.*` plus `in_hand.pivot` — derived from `skill-isa`;
-and (C10) a simulator-conformance declaration claiming `conformant` is anchored
+(C10) a simulator-conformance declaration claiming `conformant` is anchored
 to physical ground truth — it records an anchoring embodiment, a non-empty
-reference-fixture set, and `epsilon_match` evidence (the no-self-bootstrap rule)).
+reference-fixture set, and `epsilon_match` evidence (the no-self-bootstrap rule);
+and (C11) the simulator declaration's `variation_model` only names ε-table
+quantities (a key outside the table is a dead / mistyped σ that no run measures)).
 It exits non-zero on any failure.
 
 ```bash
