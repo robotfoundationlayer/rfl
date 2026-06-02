@@ -25,12 +25,13 @@ section accumulates what that release will contain.
   `driver-interface`, `tactile-manifold/adapter`, `certificate`,
   `extension-registry`, `epsilon-tolerance`, `simulator-declaration`.
 - `schemas/validate.py` enforces well-formedness, reference-instance validation,
-  and the **ten** cross-schema anti-drift invariants C1–C10 — run in CI. C8
-  (extension-registry consistency), C9 (ε-table key completeness), and C10 (the
-  recursive-simulator no-self-bootstrap rule) were added this cycle.
+  and the **eleven** cross-schema anti-drift invariants C1–C11 — run in CI. C8
+  (extension-registry consistency), C9 (ε-table key completeness), C10 (the
+  recursive-simulator no-self-bootstrap rule), and C11 (the simulator's
+  `variation_model` names only ε-table quantities) were added this cycle.
 - The per-skill ε-tolerance table now has a **format** (`epsilon-tolerance`
-  schema + `epsilon-tolerances.yaml`); its values remain `null` pending
-  measurement data.
+  schema + `epsilon-tolerances.yaml`) and complete **ingestion tooling** (see
+  below); its values remain `null` pending hardware-anchored measurement.
 
 ### Reference implementation
 
@@ -44,12 +45,21 @@ section accumulates what that release will contain.
   `contact_geometry` telemetry field), audit (AUD1–3), reversibility (REV1–3),
   force-event, contact-band, capability-gate, abort-timing, and
   freed-part-disposition checks, each against adversarial drivers. New: the
-  ε **measurement harness** (`measure`), the conformance **badge** derivation,
-  and the canonical-message → **ROS 2** interface classification.
+  complete ε **measurement pipeline** — the `measure` aggregation (table-driven,
+  keyed by the committed ε-table; kinematic/wrench quantities from their wire
+  channels, domain scalars from the opt-in `measured_quantities` telemetry map),
+  the realized-pose contents now carried through replay so pose deviation grades,
+  and the **stochastic reference sim** (a declared `variation_model` perturbs the
+  nominal driver, so a seed sweep yields a provisional, sim-derived ε); the
+  conformance **badge** derivation; and the canonical-message → **ROS 2**
+  interface classification.
 - `rfl` CLI: `validate`, `retarget`, `certify` (replay or live `--driver`),
-  `verify`, `sign`, `keygen`, `badge`, `sim`, `spec-version` — see
+  `verify`, `sign`, `keygen`, `badge`, `sim`, `measure`, `spec-version` — see
   [docs/cli-reference.md](docs/cli-reference.md). `rfl sim` is the reference
-  simulator driver (regenerate mode and a live stdin `--driver` mode).
+  simulator driver (regenerate, a live stdin `--driver`, and a stochastic
+  `--seed --variation` mode); `rfl measure` builds a provisional ε table from N
+  driver-report traces (`scripts/provisional-epsilon-from-sim.sh` runs the
+  hardware-free sweep).
 - Third-party self-certification: deterministic, content-hashed, optionally
   ed25519-signed conformance certificates.
 

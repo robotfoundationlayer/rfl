@@ -3,7 +3,7 @@
 > A neutral, semantically-typed abstraction layer between Vision-Language-Action foundation models and robotic embodiments.
 
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
-[![Status: pre-release](https://img.shields.io/badge/Status-pre--release-orange)](#status-2026-06-01)
+[![Status: pre-release](https://img.shields.io/badge/Status-pre--release-orange)](#status-2026-06-02)
 [![Spec: v0.1 draft](https://img.shields.io/badge/Spec-v0.1_draft-green)](whitepaper/RFL_SPEC_v0.1_en.pdf)
 
 ## TL;DR
@@ -74,11 +74,13 @@ rfl/
 
 Legend: ✅ populated · 🚧 scaffold present, content pending · ⏳ planned, not yet created
 
-## Status (2026-06-01)
+## Status (2026-06-02)
 
 This repository is **pre-release**. Spec v0.1 has been published in publication-candidate state after four rounds of external review. Reference-implementation engineering is now well advanced: the `rfl-cli retarget` engine deterministically retargets all worked examples and their skill variants across three embodiment descriptors, and the Rust `rfl-conformance` suite implements all four normative envelope classes — plus the complete audit-and-transparency group (AUD1–3), the stability-class composition obligations (STB2/STB3), the reversibility (REV1–3), force-event, contact-band, conjunctive-capability-gate, abort-timing, and freed-part-disposition checks — and the **full grasp-continuity obligation group GC1–6** (base continuity, hold-test closure, make-before-break, controlled under-actuation, bounded exception, and two-party co-grasp), each verified against adversarial drivers (conformance test classes 1–3 green). The Translation Layer now lowers **all 50 Skill ISA primitives** across the seven categories — the complete grasp-mode vocabulary (force / form / support / extrinsic closure: pinch, power, lateral, precision_tripod, hook, platform, pin, envelope conform+cage, adjust), the full `in_hand`, `transport`, `place`, `reach`, `force`, and `sense` families — each with a worked example and per-embodiment retarget goldens. `rfl validate` enforces the class-1 composition rules before retargeting: DOF-admissibility (an in-hand move on a `form_held` / `rotation_constrained` grasp is rejected), the lifecycle `no_active_grasp` guard, the STB3 stability-class successor algebra, and GraspRef-supersession (a stale grasp handle after a regrasp / handoff). A minimal Python binding (`bindings/python`, `rfl.retarget`) is in place.
 
 The third-party self-certification tooling targeted for v1.0 now has a working v0 on `main`: `rfl certify` checks a vendor's driver report — replayed from a captured JSONL stream, or by spawning the driver live over stdio (`--driver`) — against the Class 3 driver-protocol obligations and emits a deterministic, content-hashed certificate that records each capability's achieved fidelity tier; `rfl verify` re-checks a certificate's integrity (and, when signed, its signer) in any language via a published canonicalization recipe; and `rfl sign` / `rfl keygen` attach an optional ed25519 signature. See the [Certifying a driver](docs/certifying-a-driver.md) guide.
+
+The ε-measurement pipeline for Class 2-loose conformance is also in place: `rfl measure` aggregates N driver-report traces into a *provisional* per-quantity ε table (kinematic and wrench quantities from their wire channels, the primitive-specific domain scalars — `seating_depth`, `completion_torque`, … — from the opt-in `measured_quantities` telemetry map), keyed against the committed table so the result is promotable. Without hardware, `rfl sim --seed --variation` generates the varied traces from a *declared* noise model in the pending simulator declaration; `scripts/provisional-epsilon-from-sim.sh` runs the whole hardware-free sweep. The committed ε table stays `null` — the sim's σ are declared, never measured — until real hardware traces exist.
 
 ### Stable architectural commitments
 
