@@ -38,7 +38,8 @@ Two real lines from the worked example
 
 - A **`telemetry`** line is a sample on the action's timebase. Only `message`, `action_id`, and `t`
   are mandatory; the rest are present as the primitive needs them (a pose, a `wrench`, a
-  `securing_force`, force `events`, a `fidelity_tier`, …).
+  `securing_force`, force `events`, a `fidelity_tier`, `contact_geometry` for a grasp's stability
+  polygon, `measured_quantities` for Class 2-loose ε domain scalars, …).
 - A **`status`** line is the action's terminal result: its `outcome`
   (`succeeded` / `failed` / `indeterminate`), the `verdict` with its evidence, and — when the
   action confirmed through a sensing path — the `fidelity_tier` it achieved.
@@ -233,12 +234,49 @@ governance question (the Tier-2 / Tier-3 regime in
 
 ----
 
+## Participating in Class 2-loose ε (optional)
+
+`rfl certify` covers the driver *protocol* (Class 3) on a nominal run. The per-skill
+*realized-execution* tolerance ε (Class 2-loose) is a separate, data-dependent measurement: how far
+your driver's realized execution of a contact-dynamics primitive (`force.*`, `in_hand.pivot`) may
+deviate run to run and still be conformant. You produce candidate ε values with `rfl measure`:
+
+1. **Report the quantities.** The kinematic / wrench quantities come from the fields you already
+   emit (`final_pose`, `wrench`, `securing_force`). The primitive-specific domain scalars
+   (`seating_depth`, `completion_torque`, `turns`, `actuation_force`, …) are not generic fields, so
+   you report them through the opt-in **`measured_quantities`** telemetry map, keyed by the
+   ε-table quantity name and valued in the committed unit:
+
+   ```jsonl
+   {"message":"telemetry","action_id":"…/0001-insert","t":2.0,"measured_quantities":{"seating_depth":"0.012 m"}}
+   ```
+
+   The quantity names and units are the committed table,
+   [schemas/epsilon-tolerances.yaml](../schemas/epsilon-tolerances.yaml). You are the authoritative
+   source: only your driver knows each primitive's semantic instant (the completion torque, the
+   seating depth, the actuation peak).
+
+2. **Capture multiple runs.** A single run has no run-to-run variation. Capture the report JSONL of
+   the same skill on the same embodiment across N (≥ 2) executions.
+
+3. **Measure.** `rfl measure --skill … --embodiment … --run run1.jsonl --run run2.jsonl …` emits a
+   **provisional** ε table (see [cli-reference.md](./cli-reference.md#rfl-measure)). It is never the
+   committed normative table: a quantity no run reports comes back `null` + `not_reported`, never a
+   fabricated value. Promoting a provisional value into the committed table is a deliberate,
+   out-of-band step.
+
+A deterministic simulator exhibits zero run-to-run variation (ε = 0), so meaningful ε needs real
+hardware traces or a declared-conformant stochastic simulator.
+
+----
+
 ## What a certificate does not claim
 
 A Class 3 certificate covers the driver protocol on a nominal run. It explicitly does **not** cover:
 
 - **Class 4** — physical or high-fidelity-simulator end-to-end execution.
-- **Class 2-loose ε** — the per-skill realized-execution tolerance (still data-dependent).
+- **Class 2-loose ε** — the per-skill realized-execution tolerance (still data-dependent); produce
+  candidate values separately with `rfl measure` (§ Participating in Class 2-loose ε above).
 - **ENV3 disturbance-rejection** — graceful degradation under injected disturbances needs an active
   bench, which a nominal replay cannot exercise.
 - **The physical *truth* of a fidelity-tier claim** — `audit_honesty` checks only that the reported
