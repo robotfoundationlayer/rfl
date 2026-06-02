@@ -14,7 +14,7 @@ for contribution and stewardship rules.
   adversarial drivers, certify/verify/badge/measure), `rfl-cli` (the `rfl`
   binary).
 - `schemas/` — eight JSON Schemas + `validate.py` (conformance test class 1,
-  anti-drift invariants C1–C10). The schema is the authoritative wire contract.
+  anti-drift invariants C1–C11). The schema is the authoritative wire contract.
 - `examples/` — worked examples (cable-insertion, surface-scan, screw-fasten)
   with per-embodiment retarget goldens.
 - `bindings/` — `c` (cbindgen), `ros2` (the `rfl_msgs` IDL), `python` (PyO3).
@@ -85,6 +85,10 @@ cargo-deny / MSRV — always `gh run watch` after pushing.**
 The per-skill ε-tolerance values and the contact-geometry thresholds are
 **data-dependent**: they must come from real measurement, not invented numbers.
 The committed `null`/deferred state is correct until real traces exist — do not
-fabricate conformance data. The measurement harness (`rfl-conformance::measure`)
-is ready to consume real multi-run traces; the live ROS 2 node awaits a ROS 2
-environment.
+fabricate conformance data. The measurement pipeline is complete: `rfl measure`
+ingests N driver-report traces into a *provisional* ε table, and `rfl sim --seed
+--variation` generates varied traces from a **declared** noise model (sim-derived,
+provisional, never promotable — for ε only σ matters, so the candidate is purely a
+function of the declared σ). Real hardware traces are still required to promote
+actual ε values into the committed table (which stays `null`); the live ROS 2
+node awaits a ROS 2 environment.
