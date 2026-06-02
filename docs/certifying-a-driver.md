@@ -266,7 +266,11 @@ deviate run to run and still be conformant. You produce candidate ε values with
    out-of-band step.
 
 A deterministic simulator exhibits zero run-to-run variation (ε = 0), so meaningful ε needs real
-hardware traces or a declared-conformant stochastic simulator.
+hardware traces or a declared-conformant stochastic simulator. Without hardware, the reference
+stochastic simulator (`rfl sim --seed --variation`, swept over seeds) produces a provisional
+sim-derived ε from the declared `variation_model` in `schemas/simulator-declaration.yaml` —
+`scripts/provisional-epsilon-from-sim.sh` runs the whole sweep. Those σ are declared, not
+physically measured, so the result is provisional, never promotable to the committed table.
 
 ----
 

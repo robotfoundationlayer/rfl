@@ -100,6 +100,14 @@ enum Command {
         /// Path to the embodiment descriptor YAML file (regenerate mode).
         #[arg(long)]
         embodiment: Option<std::path::PathBuf>,
+        /// Seed for stochastic mode: perturb the realized values per a variation model so a
+        /// sweep of seeds yields varied traces for `rfl measure`. Requires --variation.
+        #[arg(long)]
+        seed: Option<u64>,
+        /// Path to a simulator declaration carrying a `variation_model` (the declared per-quantity
+        /// noise). Requires --seed. Produces a PROVISIONAL (sim-derived) ε source, never normative.
+        #[arg(long)]
+        variation: Option<std::path::PathBuf>,
     },
     /// Measure a provisional epsilon-tolerance table from N captured driver-report traces
     /// for one skill+embodiment. Emits a clearly-marked provisional document; never the
@@ -383,10 +391,37 @@ fn main() -> Result<()> {
             }
             std::process::exit(0);
         }
-        Command::Sim { skill, embodiment } => {
+        Command::Sim {
+            skill,
+            embodiment,
+            seed,
+            variation,
+        } => {
             let reports = match (skill, embodiment) {
-                // Regenerate mode: retarget + execute with the nominal reference driver.
-                (Some(s), Some(e)) => rfl_conformance::run_reference_driver(&s, &e)?,
+                // Regenerate mode: retarget + execute with the reference driver. With
+                // --seed + --variation it perturbs the realized values (stochastic mode).
+                (Some(s), Some(e)) => match (seed, variation) {
+                    (Some(seed), Some(var)) => {
+                        let skill = rfl_core::skill_isa::Skill::parse_yaml(
+                            &std::fs::read_to_string(&s)
+                                .map_err(|err| anyhow::anyhow!("read skill {s:?}: {err}"))?,
+                        )?;
+                        let emb = rfl_core::embodiment::Embodiment::parse_yaml(
+                            &std::fs::read_to_string(&e)
+                                .map_err(|err| anyhow::anyhow!("read embodiment {e:?}: {err}"))?,
+                        )?;
+                        let model = rfl_conformance::stochastic::parse_variation_model(
+                            &std::fs::read_to_string(&var)
+                                .map_err(|err| anyhow::anyhow!("read variation {var:?}: {err}"))?,
+                        )?;
+                        rfl_conformance::stochastic::stochastic_run(&skill, &emb, &model, seed)?
+                    }
+                    (None, None) => rfl_conformance::run_reference_driver(&s, &e)?,
+                    _ => {
+                        eprintln!("sim: --seed and --variation must be given together");
+                        std::process::exit(2);
+                    }
+                },
                 // Stdin (live `--driver`) mode: parse the canonical execute goals from
                 // stdin and execute them — the driver-input side of the wire.
                 (None, None) => {

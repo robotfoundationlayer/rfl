@@ -221,11 +221,26 @@ so `rfl sim` is usable directly as the driver:
 rfl certify --skill … --embodiment … --driver "$(command -v rfl) sim"
 ```
 
+**Stochastic mode** (`--skill` + `--embodiment` + `--seed N` + `--variation`) —
+perturb each realized value by the declared `variation_model` noise in the given
+simulator declaration (seeded by `N`, so a seed is reproducible). A sweep of
+seeds gives the run-to-run variation `rfl measure` needs. The output is a
+**provisional**, sim-derived source — the σ are declared, never physically
+measured (the deterministic regenerate mode yields ε = 0):
+
+```bash
+for s in 0 1 2 3 4; do
+  rfl sim --skill S.yaml --embodiment E.yaml \
+    --variation schemas/simulator-declaration.yaml --seed "$s" > "run$s.jsonl"
+done
+rfl measure --skill S.yaml --embodiment E.yaml --run run0.jsonl … --run run4.jsonl
+```
+
 | Exit | Meaning |
 |---|---|
 | `0` | Report emitted to stdout. |
 | `1` | Unreadable file, a parse error (bad skill / goal), or a `capability_absent` retarget rejection. |
-| `2` | Exactly one of `--skill`/`--embodiment` given (pass both, or neither). |
+| `2` | Exactly one of `--skill`/`--embodiment` given, or `--seed` without `--variation`. |
 
 Both modes produce a byte-identical certificate for the same skill+embodiment —
 the parsed-goal path and the typed-action path agree. (For real third-party
