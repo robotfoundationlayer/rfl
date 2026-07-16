@@ -18,7 +18,7 @@ env:
 jobs:
   fmt:
     name: rustfmt
-    runs-on: ubuntu-latest
+    runs-on: blacksmith-2vcpu-ubuntu-2404
     steps:
       - uses: actions/checkout@v5
       - uses: dtolnay/rust-toolchain@stable
@@ -28,7 +28,7 @@ jobs:
 
   clippy:
     name: clippy
-    runs-on: ubuntu-latest
+    runs-on: blacksmith-2vcpu-ubuntu-2404
     steps:
       - uses: actions/checkout@v5
       - uses: dtolnay/rust-toolchain@stable
@@ -43,7 +43,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest]
+        os: [blacksmith-2vcpu-ubuntu-2404, macos-latest]
     steps:
       - uses: actions/checkout@v5
       - uses: dtolnay/rust-toolchain@stable
@@ -53,7 +53,7 @@ jobs:
 
   spec-lint:
     name: spec lint (markdown)
-    runs-on: ubuntu-latest
+    runs-on: blacksmith-2vcpu-ubuntu-2404
     steps:
       - uses: actions/checkout@v5
       - name: Check spec files exist
@@ -66,7 +66,7 @@ jobs:
 
   schema-validate:
     name: schema validate (conformance class 1)
-    runs-on: ubuntu-latest
+    runs-on: blacksmith-2vcpu-ubuntu-2404
     steps:
       - uses: actions/checkout@v5
       - uses: astral-sh/setup-uv@v8.1.0
@@ -75,14 +75,14 @@ jobs:
 
   cargo-deny:
     name: cargo-deny (licenses + advisories)
-    runs-on: ubuntu-latest
+    runs-on: blacksmith-2vcpu-ubuntu-2404
     steps:
       - uses: actions/checkout@v5
       - uses: EmbarkStudios/cargo-deny-action@v2.0.20
 
   msrv:
     name: MSRV (Rust 1.86)
-    runs-on: ubuntu-latest
+    runs-on: blacksmith-2vcpu-ubuntu-2404
     steps:
       - uses: actions/checkout@v5
       - uses: dtolnay/rust-toolchain@stable
